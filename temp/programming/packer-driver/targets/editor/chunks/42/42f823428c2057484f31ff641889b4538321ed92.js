@@ -1,0 +1,314 @@
+System.register(["__unresolved_0", "cc"], function (_export, _context) {
+  "use strict";
+
+  var _reporterNs, _cclegacy, _crd, BUILTIN_LEVELS;
+
+  function _reportPossibleCrUseOfLevelConfig(extras) {
+    _reporterNs.report("LevelConfig", "../core/GameTypes", _context.meta, extras);
+  }
+
+  return {
+    setters: [function (_unresolved_) {
+      _reporterNs = _unresolved_;
+    }, function (_cc) {
+      _cclegacy = _cc.cclegacy;
+    }],
+    execute: function () {
+      _crd = true;
+
+      _cclegacy._RF.push({}, "7aa71g7E5lKZqy/z6B3r940", "BuiltinLevels", undefined);
+
+      _export("BUILTIN_LEVELS", BUILTIN_LEVELS = [{
+        id: 1,
+        name: '第一次连通',
+        gridSize: [5, 5],
+        start: {
+          row: 2,
+          col: 0,
+          direction: 'right',
+          color: 'none',
+          speed: 1,
+          state: 'IDLE'
+        },
+        goals: [{
+          row: 2,
+          col: 2,
+          color: 'none'
+        }],
+        handSize: 1,
+        runnerStepSeconds: 0.25,
+        autoStart: false,
+        obstacles: [],
+        tilePool: ['straight'],
+        fixedHands: ['straight'],
+        recommendedMoves: 1,
+        tutorialTip: '把直线水晶拖到高亮格，接住这束光。'
+      }, {
+        id: 2,
+        name: '第一次转弯',
+        gridSize: [6, 6],
+        start: {
+          row: 1,
+          col: 0,
+          direction: 'right',
+          color: 'none',
+          speed: 1,
+          state: 'IDLE'
+        },
+        goals: [{
+          row: 3,
+          col: 2,
+          color: 'none'
+        }],
+        handSize: 2,
+        runnerStepSeconds: 0.25,
+        autoStart: false,
+        obstacles: [],
+        initialTiles: [{
+          row: 1,
+          col: 1,
+          tile: {
+            type: 'straight',
+            rotation: 0
+          }
+        }],
+        tilePool: ['curve', 'straight'],
+        fixedHands: ['curve', 'straight'],
+        recommendedMoves: 2,
+        tutorialTip: '点一下折角镜可以旋转，让光拐弯。'
+      }, {
+        id: 3,
+        name: '蓝线能通，红线会掉',
+        gridSize: [6, 6],
+        start: {
+          row: 2,
+          col: 0,
+          direction: 'right',
+          color: 'none',
+          speed: 1,
+          state: 'IDLE'
+        },
+        goals: [{
+          row: 4,
+          col: 3,
+          color: 'none'
+        }],
+        handSize: 3,
+        runnerStepSeconds: 0.22,
+        autoStart: false,
+        obstacles: [[2, 2]],
+        initialTiles: [{
+          row: 2,
+          col: 1,
+          tile: {
+            type: 'curve',
+            rotation: 0
+          }
+        }],
+        tilePool: ['straight', 'curve'],
+        fixedHands: ['straight', 'curve', 'straight'],
+        recommendedMoves: 3,
+        tutorialTip: '拖动时看预览线：蓝线能通，红线会掉。'
+      }, {
+        id: 4,
+        name: '更短更完美',
+        gridSize: [7, 7],
+        start: {
+          row: 1,
+          col: 0,
+          direction: 'right',
+          color: 'none',
+          speed: 1,
+          state: 'IDLE'
+        },
+        goals: [{
+          row: 4,
+          col: 4,
+          color: 'none'
+        }],
+        handSize: 3,
+        runnerStepSeconds: 0.22,
+        autoStart: false,
+        obstacles: [[2, 2], [3, 2]],
+        tilePool: ['straight', 'curve', 'cross'],
+        fixedHands: ['straight', 'curve', 'curve'],
+        recommendedMoves: 5,
+        tutorialTip: '少用水晶也能通关，就能拿到 Perfect。'
+      }, {
+        id: 5,
+        name: '第一次救场',
+        gridSize: [7, 7],
+        start: {
+          row: 2,
+          col: 0,
+          direction: 'right',
+          color: 'none',
+          speed: 1,
+          state: 'IDLE'
+        },
+        goals: [{
+          row: 2,
+          col: 5,
+          color: 'none'
+        }],
+        handSize: 3,
+        bulletTimeEnergy: 3,
+        runnerStepSeconds: 0.28,
+        autoStart: false,
+        obstacles: [],
+        initialTiles: [{
+          row: 2,
+          col: 1,
+          tile: {
+            type: 'straight',
+            rotation: 0
+          }
+        }],
+        tilePool: ['straight', 'curve', 'cross'],
+        fixedHands: ['straight', 'straight', 'curve'],
+        recommendedMoves: 4,
+        tutorialTip: '按住手牌拖动时，时间会稍微变慢。'
+      }, {
+        id: 6,
+        name: '绕开裂谷',
+        gridSize: [8, 8],
+        start: {
+          row: 2,
+          col: 0,
+          direction: 'right',
+          color: 'none',
+          speed: 1,
+          state: 'IDLE'
+        },
+        goals: [{
+          row: 5,
+          col: 6,
+          color: 'none'
+        }],
+        handSize: 3,
+        runnerStepSeconds: 0.26,
+        autoStart: false,
+        obstacles: [[2, 3], [3, 3], [4, 3]],
+        tilePool: ['straight', 'curve', 'cross'],
+        fixedHands: ['curve', 'straight', 'curve'],
+        recommendedMoves: 7
+      }, {
+        id: 7,
+        name: '会碎的路',
+        gridSize: [8, 8],
+        start: {
+          row: 1,
+          col: 0,
+          direction: 'right',
+          color: 'none',
+          speed: 1,
+          state: 'IDLE'
+        },
+        goals: [{
+          row: 4,
+          col: 6,
+          color: 'none'
+        }],
+        handSize: 3,
+        runnerStepSeconds: 0.26,
+        autoStart: false,
+        obstacles: [[2, 2], [3, 2]],
+        tilePool: ['straight', 'curve', 'collapse'],
+        fixedHands: ['straight', 'collapse', 'curve'],
+        recommendedMoves: 7
+      }, {
+        id: 8,
+        name: '加速流光',
+        gridSize: [8, 8],
+        start: {
+          row: 3,
+          col: 0,
+          direction: 'right',
+          color: 'none',
+          speed: 1,
+          state: 'IDLE'
+        },
+        goals: [{
+          row: 3,
+          col: 7,
+          color: 'none'
+        }],
+        handSize: 3,
+        runnerStepSeconds: 0.25,
+        autoStart: false,
+        obstacles: [[3, 3]],
+        tilePool: ['straight', 'curve', 'boost', 'cross'],
+        fixedHands: ['curve', 'boost', 'curve'],
+        recommendedMoves: 7
+      }, {
+        id: 9,
+        name: '红色能量门',
+        gridSize: [8, 8],
+        start: {
+          row: 2,
+          col: 0,
+          direction: 'right',
+          color: 'none',
+          speed: 1,
+          state: 'IDLE'
+        },
+        goals: [{
+          row: 2,
+          col: 7,
+          color: 'red'
+        }],
+        handSize: 3,
+        runnerStepSeconds: 0.25,
+        autoStart: false,
+        obstacles: [],
+        initialTiles: [{
+          row: 2,
+          col: 4,
+          tile: {
+            type: 'gate_red',
+            rotation: 0
+          }
+        }, {
+          row: 2,
+          col: 6,
+          tile: {
+            type: 'straight',
+            rotation: 0
+          }
+        }],
+        tilePool: ['straight', 'paint_red', 'curve'],
+        fixedHands: ['straight', 'paint_red', 'straight'],
+        recommendedMoves: 4
+      }, {
+        id: 10,
+        name: '综合小考',
+        gridSize: [9, 9],
+        start: {
+          row: 1,
+          col: 0,
+          direction: 'right',
+          color: 'none',
+          speed: 1,
+          state: 'IDLE'
+        },
+        goals: [{
+          row: 6,
+          col: 7,
+          color: 'none'
+        }],
+        handSize: 3,
+        runnerStepSeconds: 0.24,
+        autoStart: false,
+        obstacles: [[1, 3], [2, 3], [3, 3], [4, 5]],
+        tilePool: ['straight', 'curve', 'cross', 'collapse', 'boost'],
+        fixedHands: ['curve', 'straight', 'cross'],
+        recommendedMoves: 9
+      }]);
+
+      _cclegacy._RF.pop();
+
+      _crd = false;
+    }
+  };
+});
+//# sourceMappingURL=42f823428c2057484f31ff641889b4538321ed92.js.map

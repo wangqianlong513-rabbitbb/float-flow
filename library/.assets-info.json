@@ -1,0 +1,202 @@
+{
+  "version": "1.0.1",
+  "map": {
+    "resources": {
+      "time": 1783421434490.9827,
+      "uuid": "a6f9dc3f-78a7-48f6-9399-35279039dce3"
+    },
+    "scripts": {
+      "time": 1783348437230.667,
+      "uuid": "a060f08f-d100-4bb8-b4ee-2c1e9fda3208"
+    },
+    "resources/levels": {
+      "time": 1783348437230.8674,
+      "uuid": "7d5a9922-2a42-4d9e-ba84-d976d41427f0"
+    },
+    "scripts/components": {
+      "time": 1783434199561.5447,
+      "uuid": "701b8e27-cd37-44a8-a6b9-ccf71bd5f648"
+    },
+    "scripts/core": {
+      "time": 1783348437231.4937,
+      "uuid": "c0c03123-98e8-432c-b8cd-bfb8aacfa68f"
+    },
+    "scripts/level": {
+      "time": 1783348437231.5925,
+      "uuid": "a3206a3a-7f41-44da-89f4-509a5bcd47db"
+    },
+    "scripts/ui": {
+      "time": 1783346308582.6963,
+      "uuid": "93a0b1a1-12d0-4d14-a454-d439b64d5591"
+    },
+    "scripts/wx": {
+      "time": 1783348437231.8599,
+      "uuid": "31d9ba02-be5a-474f-90bb-3ce9bae05f39"
+    },
+    "resources/levels/level_001.json": {
+      "time": 1783346888769.2368,
+      "uuid": "d940a6e9-6b5d-44ea-ad5d-39c5a6207519"
+    },
+    "resources/levels/level_002.json": {
+      "time": 1783346888770.8733,
+      "uuid": "a02ce8f3-fc9b-4b60-a56d-3726d9ca1a24"
+    },
+    "scripts/components/GameRoot.ts": {
+      "time": 1783438373847.314,
+      "uuid": "dbb25e0f-4312-48bf-8121-8d80b860913d"
+    },
+    "scripts/core/CardSystem.ts": {
+      "time": 1783346486502.5242,
+      "uuid": "2acc2b7b-09f5-44c9-9ded-da9ed8fcf5fa"
+    },
+    "scripts/core/DirectionUtils.ts": {
+      "time": 1783346408731.6672,
+      "uuid": "60d23d0d-7e99-4dfb-a03a-cfc6db8a8df4"
+    },
+    "scripts/core/GameTypes.ts": {
+      "time": 1783346408729.7544,
+      "uuid": "d0fa46ed-fd07-48ad-bc7b-405b34dea969"
+    },
+    "scripts/core/GridManager.ts": {
+      "time": 1783346486498.6975,
+      "uuid": "cbc0856e-f05e-4396-8621-8b0dc7081694"
+    },
+    "scripts/core/RouteSimulator.ts": {
+      "time": 1783346486500.9304,
+      "uuid": "52a571c4-a1fb-4145-8777-ac0b48d18189"
+    },
+    "scripts/core/TileDefinitions.ts": {
+      "time": 1783347295741.7756,
+      "uuid": "95e253ec-2f96-4feb-bc6e-924ce2326151"
+    },
+    "scripts/level/BuiltinLevels.ts": {
+      "time": 1783427410669.5168,
+      "uuid": "7aa7183b-1399-4a66-acbf-cfa077afde34"
+    },
+    "scripts/wx/AdService.ts": {
+      "time": 1783346854563.2297,
+      "uuid": "4f49680d-19ba-4b04-a56b-56bf227a2ee0"
+    },
+    "scripts/wx/ShareService.ts": {
+      "time": 1783346854567.152,
+      "uuid": "dce0cae5-24d8-419f-840c-6ba781dd0067"
+    },
+    "scripts/wx/WeChatService.ts": {
+      "time": 1783346854568.88,
+      "uuid": "310ea853-a93b-450b-b98a-e4e54db65616"
+    },
+    "resources.meta": {
+      "time": 1783348437232.5322
+    },
+    "scripts.meta": {
+      "time": 1783348437232.6318
+    },
+    "resources/levels.meta": {
+      "time": 1783348437232.721
+    },
+    "scripts/components.meta": {
+      "time": 1783348437232.7944
+    },
+    "scripts/core.meta": {
+      "time": 1783348437232.8635
+    },
+    "scripts/level.meta": {
+      "time": 1783348437233.0742
+    },
+    "scripts/ui.meta": {
+      "time": 1783348437233.222
+    },
+    "scripts/wx.meta": {
+      "time": 1783348437233.3403
+    },
+    "scripts/components/GameRoot.ts.meta": {
+      "time": 1783348437237.5667
+    },
+    "scripts/core/CardSystem.ts.meta": {
+      "time": 1783348437237.7324
+    },
+    "scripts/core/DirectionUtils.ts.meta": {
+      "time": 1783348437237.8025
+    },
+    "resources/levels/level_001.json.meta": {
+      "time": 1783348437238.0479
+    },
+    "scripts/core/GameTypes.ts.meta": {
+      "time": 1783348437238.2485
+    },
+    "resources/levels/level_002.json.meta": {
+      "time": 1783348437238.3372
+    },
+    "scripts/core/GridManager.ts.meta": {
+      "time": 1783348437238.588
+    },
+    "scripts/core/RouteSimulator.ts.meta": {
+      "time": 1783348437238.771
+    },
+    "scripts/core/TileDefinitions.ts.meta": {
+      "time": 1783348437238.8503
+    },
+    "scripts/level/BuiltinLevels.ts.meta": {
+      "time": 1783348437239.3435
+    },
+    "scripts/wx/AdService.ts.meta": {
+      "time": 1783348437239.4094
+    },
+    "scripts/wx/ShareService.ts.meta": {
+      "time": 1783348437239.4763
+    },
+    "scripts/wx/WeChatService.ts.meta": {
+      "time": 1783348437239.5376
+    },
+    "scripts/components/SceneBootstrap.ts.meta": {
+      "time": 1783422048676.4597
+    },
+    "scripts/components/SceneBootstrap.ts": {
+      "time": 1783438203831.3167,
+      "uuid": "ada0902f-9555-4b24-921d-ad3576650fdf"
+    },
+    "scene.scene.meta": {
+      "time": 1783422306351.0303
+    },
+    "scene.scene": {
+      "time": 1783438425222.533,
+      "uuid": "aa97c3d5-63c3-4251-a3e2-a196ee4de21c"
+    },
+    "scripts/components/HomeRoot.ts.meta": {
+      "time": 1783432947410.0034
+    },
+    "scripts/components/HomeRoot.ts": {
+      "time": 1783438283838.4714,
+      "uuid": "ca09ceae-409f-48e0-be02-d16e72ba2a49"
+    },
+    "scripts/components/SettingsModal.ts.meta": {
+      "time": 1783433167495.0662
+    },
+    "scripts/components/SettingsModal.ts": {
+      "time": 1783438403349.3826,
+      "uuid": "e024f685-e57b-466f-b139-57392a733592"
+    },
+    "scripts/components/ReviveModal.ts.meta": {
+      "time": 1783433795732.8735
+    },
+    "scripts/components/ReviveModal.ts": {
+      "time": 1783433641750.3096,
+      "uuid": "fe2d7c60-21f3-4979-85d1-c41b0a2744f0"
+    },
+    "scripts/components/LevelSelect.ts.meta": {
+      "time": 1783433981341.1782
+    },
+    "scripts/components/LevelSelect.ts": {
+      "time": 1783438333155.058,
+      "uuid": "c2281ba0-5eb7-4c22-b80d-d142ff1e69d4"
+    },
+    "scripts/components/VictoryPoster.ts.meta": {
+      "time": 1783434199563.2593
+    },
+    "scripts/components/VictoryPoster.ts": {
+      "time": 1783434092681.9043,
+      "uuid": "8ff03510-7aec-42ca-ae42-d2c1813c3dc6"
+    }
+  },
+  "missing": {}
+}

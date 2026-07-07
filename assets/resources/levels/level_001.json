@@ -1,0 +1,15 @@
+{
+  "id": 1,
+  "name": "第一次连通",
+  "gridSize": [5, 5],
+  "start": { "row": 2, "col": 0, "direction": "right", "color": "none", "speed": 1, "state": "IDLE" },
+  "goals": [{ "row": 2, "col": 2, "color": "none" }],
+  "handSize": 1,
+  "runnerStepSeconds": 0.55,
+  "autoStart": false,
+  "obstacles": [],
+  "tilePool": ["straight"],
+  "fixedHands": ["straight"],
+  "recommendedMoves": 1,
+  "tutorialTip": "把直线水晶拖到高亮格，接住这束光。"
+}
