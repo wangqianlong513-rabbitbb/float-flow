@@ -71,13 +71,12 @@ export class HomeRoot extends Component {
     btn.zoomScale = 0.92;
     node.off(Button.EventType.CLICK);
     node.on(Button.EventType.CLICK, onClick, this);
-    node.off(Node.EventType.TOUCH_END);
-    node.on(Node.EventType.TOUCH_END, onClick, this);
   }
 
   private createTopBar(halfH: number): void {
-    const topBar = this.createNode('TopBar', new Vec3(0, halfH - 60, 0), this.node);
-    this.ensureTransform(topBar, 1280, 60);
+    // Moved safely down to halfH - 85 to stay completely clear of iOS notch and WeChat right-top capsule!
+    const topBar = this.createNode('TopBar', new Vec3(0, halfH - 85, 0), this.node);
+    this.ensureTransform(topBar, 1280, 64);
 
     const isRose = this.currentTheme === 1;
     const isGold = this.currentTheme === 2;
@@ -86,24 +85,24 @@ export class HomeRoot extends Component {
     const eBorder = isRose ? '#F472B6' : (isGold ? '#EA580C' : '#FDE047');
     const eBg = isRose ? '#581C87' : (isGold ? '#9A3412' : '#4C1D95');
 
-    // Diamond Resource Pill (💎 1260 +)
-    this.createResourcePill(topBar, 'DiamondPill', new Vec3(-100, 0, 0), '💎  1260  +', dBorder, dBg);
+    // Diamond Resource Pill (No Mojibake Emojis)
+    this.createResourcePill(topBar, 'DiamondPill', new Vec3(-110, 0, 0), '晶核  1260 +', dBorder, dBg);
 
-    // Energy Resource Pill (⚡ 8/10 +)
-    this.createResourcePill(topBar, 'EnergyPill', new Vec3(80, 0, 0), '⚡  8 / 10  +', eBorder, eBg);
+    // Energy Resource Pill
+    this.createResourcePill(topBar, 'EnergyPill', new Vec3(80, 0, 0), '能量  8 / 10 +', eBorder, eBg);
 
-    // Settings Gear Button (⚙️)
-    const settingsBtn = this.createNode('SettingsBtn', new Vec3(250, 0, 0), topBar);
-    this.ensureTransform(settingsBtn, 48, 48);
+    // Settings Gear Button moved safely to the LEFT (-280) to never intersect with WeChat top-right capsule button!
+    const settingsBtn = this.createNode('SettingsBtn', new Vec3(-280, 0, 0), topBar);
+    this.ensureTransform(settingsBtn, 110, 48);
     const sg = settingsBtn.addComponent(Graphics);
     sg.fillColor = this.hex(dBg);
-    ((sg.fillColor) as any).a = 220;
-    sg.circle(0, 0, 22);
+    ((sg.fillColor) as any).a = 230;
+    sg.roundRect(-55, -24, 110, 48, 24);
     sg.fill();
     sg.strokeColor = this.hex(dBorder);
-    sg.lineWidth = 2;
+    sg.lineWidth = 2.2;
     sg.stroke();
-    this.createLabel(settingsBtn, 'Icon', new Vec3(0, 2, 0), '⚙️', 22, '#FFFFFF', 44, 44);
+    this.createLabel(settingsBtn, 'Icon', new Vec3(0, 1, 0), '设 置', 18, '#FFFFFF', 100, 44);
 
     this.addClick(settingsBtn, () => {
       console.log('[HomeRoot] Click Settings');
@@ -113,16 +112,16 @@ export class HomeRoot extends Component {
 
   private createResourcePill(parent: Node, name: string, pos: Vec3, text: string, borderHex: string, bgHex: string): void {
     const pill = this.createNode(name, pos, parent);
-    this.ensureTransform(pill, 150, 42);
+    this.ensureTransform(pill, 170, 48);
     const g = pill.addComponent(Graphics);
     g.fillColor = this.hex(bgHex);
-    ((g.fillColor) as any).a = 210;
-    g.roundRect(-75, -21, 150, 42, 21);
+    ((g.fillColor) as any).a = 220;
+    g.roundRect(-85, -24, 170, 48, 24);
     g.fill();
     g.strokeColor = this.hex(borderHex);
-    g.lineWidth = 2;
+    g.lineWidth = 2.2;
     g.stroke();
-    this.createLabel(pill, 'Text', new Vec3(0, 1, 0), text, 16, '#FFFFFF', 140, 36);
+    this.createLabel(pill, 'Text', new Vec3(0, 1, 0), text, 17, '#FFFFFF', 160, 40);
   }
 
   private createTitleSection(halfH: number): void {
@@ -220,30 +219,30 @@ export class HomeRoot extends Component {
   }
 
   private createSidebarIcons(halfW: number, halfH: number): void {
-    const sidebar = this.createNode('Sidebar', new Vec3(-halfW + 48, halfH * 0.42, 0), this.node);
-    this.ensureTransform(sidebar, 70, 380);
+    const sidebar = this.createNode('Sidebar', new Vec3(-halfW + 56, halfH * 0.40, 0), this.node);
+    this.ensureTransform(sidebar, 90, 400);
 
-    const spacing = halfH * 0.19;
+    const spacing = halfH * 0.20;
     const items = [
-      { id: 'daily', name: '每日奖励', icon: '🎁', y: spacing, border: '#FDE047', color: '#FDE047' },
-      { id: 'rank', name: '排行榜', icon: '🏆', y: 0, border: '#60A5FA', color: '#60A5FA' },
-      { id: 'achieve', name: '成 就', icon: '⭐', y: -spacing, border: '#A855F7', color: '#C084FC' }
+      { id: 'daily', name: '每日奖励', tag: '奖 励', y: spacing, border: '#FDE047', color: '#FDE047' },
+      { id: 'rank', name: '排行榜', tag: '排 行', y: 0, border: '#60A5FA', color: '#60A5FA' },
+      { id: 'achieve', name: '成 就', tag: '成 就', y: -spacing, border: '#A855F7', color: '#C084FC' }
     ];
 
     items.forEach((item) => {
       const btn = this.createNode(`Btn_${item.id}`, new Vec3(0, item.y, 0), sidebar);
-      this.ensureTransform(btn, 64, 80);
+      this.ensureTransform(btn, 86, 76);
       const g = btn.addComponent(Graphics);
       g.fillColor = this.hex('#1E3A8A');
-      ((g.fillColor) as ((any)) as any).a = 210;
-      g.circle(0, 10, 28);
+      ((g.fillColor) as ((any)) as any).a = 230;
+      g.roundRect(-43, -38, 86, 76, 20);
       g.fill();
       g.strokeColor = this.hex(item.border);
-      g.lineWidth = 2;
+      g.lineWidth = 2.4;
       g.stroke();
 
-      this.createLabel(btn, 'Icon', new Vec3(0, 12, 0), item.icon, 26, '#FFFFFF', 50, 50);
-      this.createLabel(btn, 'Label', new Vec3(0, -26, 0), item.name, 13, item.color, 70, 20);
+      this.createLabel(btn, 'Icon', new Vec3(0, 13, 0), item.tag, 19, '#FFFFFF', 80, 36);
+      this.createLabel(btn, 'Label', new Vec3(0, -18, 0), item.name, 14, item.color, 80, 26);
 
       this.addClick(btn, () => {
         console.log(`[HomeRoot] Clicked sidebar item: ${item.name}`);
@@ -372,48 +371,48 @@ export class HomeRoot extends Component {
     const eBg = isRose ? '#581C87' : (isGold ? '#9A3412' : '#4C1D95');
     const eBorder = isRose ? '#C4B5FD' : (isGold ? '#FBBF24' : '#E879F9');
 
-    // WeChat Mini Game Mainstream Sleek Journey Card (500x108 at Y=60)
-    const journeyCard = this.createNode('JourneyCard', new Vec3(0, 60, 0), cardsRoot);
-    this.ensureTransform(journeyCard, 500, 108);
+    // WeChat Mini Game Mainstream Sleek Journey Card (520x112 at Y=65)
+    const journeyCard = this.createNode('JourneyCard', new Vec3(0, 65, 0), cardsRoot);
+    this.ensureTransform(journeyCard, 520, 112);
     const jg = journeyCard.addComponent(Graphics);
     jg.fillColor = this.hex(jBg);
-    ((jg.fillColor) as any).a = 240;
-    jg.roundRect(-250, -54, 500, 108, 28);
+    ((jg.fillColor) as any).a = 245;
+    jg.roundRect(-260, -56, 520, 112, 28);
     jg.fill();
     jg.strokeColor = this.hex(jBorder);
-    jg.lineWidth = 3.0;
+    jg.lineWidth = 3.2;
     jg.stroke();
     // Inner level badge pill
     jg.fillColor = this.hex('#080E24');
-    jg.roundRect(105, -18, 110, 36, 18);
+    jg.roundRect(110, -20, 120, 40, 20);
     jg.fill();
 
-    this.createLabel(journeyCard, 'Title', new Vec3(-70, 2, 0), '🏁   闯 关 旅 程', 28, '#FFFFFF', 320, 42);
-    this.createLabel(journeyCard, 'Sub', new Vec3(160, 2, 0), '关卡 56', 18, jBorder, 100, 32);
+    this.createLabel(journeyCard, 'Title', new Vec3(-70, 2, 0), '★   闯 关 旅 程', 28, '#FFFFFF', 320, 44);
+    this.createLabel(journeyCard, 'Sub', new Vec3(170, 2, 0), '关卡 56', 18, jBorder, 110, 34);
 
     this.addClick(journeyCard, () => {
       console.log('[HomeRoot] Clicked Journey Mode!');
       if (this.onStartJourneyCallback) this.onStartJourneyCallback();
     });
 
-    // WeChat Mini Game Mainstream Sleek Endless Card (500x92 at Y=-70)
-    const endlessCard = this.createNode('EndlessCard', new Vec3(0, -70, 0), cardsRoot);
-    this.ensureTransform(endlessCard, 500, 92);
+    // WeChat Mini Game Mainstream Sleek Endless Card (520x96 at Y=-68)
+    const endlessCard = this.createNode('EndlessCard', new Vec3(0, -68, 0), cardsRoot);
+    this.ensureTransform(endlessCard, 520, 96);
     const eg = endlessCard.addComponent(Graphics);
     eg.fillColor = this.hex(eBg);
-    ((eg.fillColor) as any).a = 240;
-    eg.roundRect(-250, -46, 500, 92, 24);
+    ((eg.fillColor) as any).a = 245;
+    eg.roundRect(-260, -48, 520, 96, 24);
     eg.fill();
     eg.strokeColor = this.hex(eBorder);
-    eg.lineWidth = 3.0;
+    eg.lineWidth = 3.2;
     eg.stroke();
     // Inner rank badge pill
     eg.fillColor = this.hex('#1E1B4B');
-    eg.roundRect(95, -17, 130, 34, 17);
+    eg.roundRect(100, -18, 140, 36, 18);
     eg.fill();
 
-    this.createLabel(endlessCard, 'Title', new Vec3(-70, 2, 0), '♾️   极 限 排 位', 26, '#FFFFFF', 320, 40);
-    this.createLabel(endlessCard, 'Sub', new Vec3(160, 2, 0), '最高 2840m', 17, eBorder, 120, 30);
+    this.createLabel(endlessCard, 'Title', new Vec3(-70, 2, 0), '极 限 排 位', 26, '#FFFFFF', 320, 42);
+    this.createLabel(endlessCard, 'Sub', new Vec3(170, 2, 0), '最高 2840m', 17, eBorder, 130, 32);
 
     this.addClick(endlessCard, () => {
       console.log('[HomeRoot] Clicked Endless Mode!');
@@ -422,30 +421,30 @@ export class HomeRoot extends Component {
   }
 
   private createBottomFeaturePills(halfH: number): void {
-    const pillsRoot = this.createNode('FeaturePillsRoot', new Vec3(0, -halfH + 185, 0), this.node);
-    this.ensureTransform(pillsRoot, 700, 240);
+    const pillsRoot = this.createNode('FeaturePillsRoot', new Vec3(0, -halfH + 175, 0), this.node);
+    this.ensureTransform(pillsRoot, 700, 250);
 
     const isRose = this.currentTheme === 1;
     const isGold = this.currentTheme === 2;
 
     const pills = [
-      { text: '🔯   强化手牌卡槽 · 广告永久 +1', y: 80, bg: isRose ? '#3B0764' : (isGold ? '#451A03' : '#312E81'), border: isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#A78BFA'), col: '#E9D5FF' },
-      { text: '⏱️   蓄能池状态 · 能量已满格 (10/10)', y: 0, bg: isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#004D61'), border: isRose ? '#C4B5FD' : (isGold ? '#FBBF24' : '#00F0FF'), col: '#A5F3FC' },
-      { text: '🎨   主题场景色彩 · 点击定制换色', y: -80, bg: isRose ? '#581C87' : (isGold ? '#9A3412' : '#701A75'), border: isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#F472B6'), col: '#FBCFE8' }
+      { text: '★   强化手牌卡槽 · 广告永久 +1', y: 84, bg: isRose ? '#3B0764' : (isGold ? '#451A03' : '#312E81'), border: isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#A78BFA'), col: '#E9D5FF' },
+      { text: '蓄能池状态 · 能量已满格 (10/10)', y: 0, bg: isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#004D61'), border: isRose ? '#C4B5FD' : (isGold ? '#FBBF24' : '#00F0FF'), col: '#A5F3FC' },
+      { text: '主题场景色彩 · 点击定制换色', y: -84, bg: isRose ? '#581C87' : (isGold ? '#9A3412' : '#701A75'), border: isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#F472B6'), col: '#FBCFE8' }
     ];
 
     pills.forEach((p, idx) => {
       const node = this.createNode(`Pill_${idx}`, new Vec3(0, p.y, 0), pillsRoot);
-      this.ensureTransform(node, 520, 46);
+      this.ensureTransform(node, 560, 52);
       const g = node.addComponent(Graphics);
       g.fillColor = this.hex(p.bg);
-      g.roundRect(-260, -23, 520, 46, 23);
+      g.roundRect(-280, -26, 560, 52, 26);
       g.fill();
       g.strokeColor = this.hex(p.border);
-      g.lineWidth = 2.0;
+      g.lineWidth = 2.4;
       g.stroke();
 
-      this.createLabel(node, 'Text', new Vec3(0, 1, 0), p.text, 17, p.col, 480, 32);
+      this.createLabel(node, 'Text', new Vec3(0, 1, 0), p.text, 18, p.col, 520, 36);
 
       this.addClick(node, () => {
         console.log(`[HomeRoot] Clicked feature pill: ${p.text}`);

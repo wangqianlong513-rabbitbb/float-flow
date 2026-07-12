@@ -63,14 +63,13 @@ export class LevelSelect extends Component {
     if (!btn) btn = node.addComponent(Button);
     btn.transition = Button.Transition.SCALE;
     btn.zoomScale = 0.92;
-    const wrappedClick = () => {
-      WeChatService.vibrateShort('light');
-      onClick();
-    };
     node.off(Button.EventType.CLICK);
-    node.on(Button.EventType.CLICK, wrappedClick, this);
-    node.off(Node.EventType.TOUCH_END);
-    node.on(Node.EventType.TOUCH_END, wrappedClick, this);
+    node.on(Button.EventType.CLICK, onClick, this);
+  }
+
+  public render(): void {
+    this.renderTabs();
+    this.renderGrid(this.currentChapter);
   }
 
   private renderTabs(): void {
@@ -78,9 +77,9 @@ export class LevelSelect extends Component {
     this.tabsRoot.destroyAllChildren();
 
     const tabs = [
-      { name: '❄️ 极光冰原 (1-10)', idx: 0, isEndless: false },
-      { name: '🌌 暮色时空 (11-20)', idx: 1, isEndless: false },
-      { name: '👑 流光无尽模式', idx: 2, isEndless: true }
+      { name: '极光冰原 (1-10)', idx: 0, isEndless: false },
+      { name: '暮色时空 (11-20)', idx: 1, isEndless: false },
+      { name: '★ 流光无尽模式', idx: 2, isEndless: true }
     ];
 
     const isRose = this.currentTheme === 1;
@@ -122,7 +121,7 @@ export class LevelSelect extends Component {
       }
 
       const textColor = isSelected ? '#FFFFFF' : (tab.isEndless ? (isGold ? '#FDE047' : '#F472B6') : '#94A3B8');
-      this.createLabel(tabNode, 'Text', new Vec3(0, 1, 0), tab.name, 16, textColor, 215, 30);
+      this.createLabel(tabNode, 'Text', new Vec3(0, 1, 0), tab.name, 17, textColor, 215, 30);
 
       this.addClick(tabNode, () => {
         if (tab.isEndless) {
@@ -147,18 +146,17 @@ export class LevelSelect extends Component {
     const activeBorder = isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#FDE047');
     const compBorder = isRose ? '#C4B5FD' : (isGold ? '#FBBF24' : '#00F0FF');
 
-    // 5 rows x 2 columns = 10 cards per chapter (Bold, Spacious Mobile Portrait Layout)
     const { halfH } = this.getBounds();
     const colXs = [-172, 172];
     const spacing = halfH * 0.25;
     const rowYs = [spacing * 2, spacing, 0, -spacing, -spacing * 2];
 
-    const startIdx = chapter * 10; // 0 or 10
+    const startIdx = chapter * 10;
 
     for (let r = 0; r < 5; r++) {
       for (let c = 0; c < 2; c++) {
-        const localIdx = r * 2 + c; // 0 to 9
-        const globalIdx = startIdx + localIdx; // 0 to 19 (Level 1 to 20)
+        const localIdx = r * 2 + c;
+        const globalIdx = startIdx + localIdx;
         const levelNum = globalIdx + 1;
 
         let status: 'COMPLETED' | 'ACTIVE' | 'LOCKED' = 'LOCKED';
@@ -202,8 +200,8 @@ export class LevelSelect extends Component {
         this.createLabel(card, 'Num', new Vec3(-125, 48, 0), numStr, 24, numColor, 56, 34);
 
         if (status === 'LOCKED') {
-          this.createLabel(card, 'LockIcon', new Vec3(0, 8, 0), '🔒', 36, '#64748B', 56, 56);
-          this.createLabel(card, 'StatusText', new Vec3(0, -52, 0), '未解锁', 16, '#475569', 130, 26);
+          this.createLabel(card, 'LockIcon', new Vec3(0, 12, 0), '• • •', 26, '#64748B', 80, 36);
+          this.createLabel(card, 'StatusText', new Vec3(0, -48, 0), '未解锁', 16, '#475569', 130, 26);
         } else {
           let topCol = status === 'ACTIVE' ? this.hex('#D97706') : (levelNum % 2 === 0 ? this.hex('#1E3A8A') : this.hex('#2563EB'));
           let leftCol = status === 'ACTIVE' ? this.hex('#92400E') : this.hex('#1E293B');
@@ -221,20 +219,19 @@ export class LevelSelect extends Component {
 
           this.drawIsometricBlock(g, topCol, leftCol, rightCol, this.hex(compBorder), 2.0, 14, 68, 38, 8, 0);
 
-          const crystalIcon = status === 'ACTIVE' ? '⚡' : '🔷';
-          this.createLabel(card, 'Crystal', new Vec3(0, 16, 0), crystalIcon, 24, compBorder, 44, 44);
+          const crystalIcon = status === 'ACTIVE' ? '★' : '◆';
+          this.createLabel(card, 'Crystal', new Vec3(0, 16, 0), crystalIcon, 22, compBorder, 44, 44);
 
           if (status === 'COMPLETED') {
-            const starStr = stars === 3 ? '⭐️⭐️⭐️' : (stars === 2 ? '⭐️⭐️☆' : '⭐️☆☆');
-            this.createLabel(card, 'Stars', new Vec3(0, -52, 0), starStr, 16, '#FDE047', 140, 26);
+            const starStr = stars === 3 ? '★ ★ ★' : (stars === 2 ? '★ ★ ☆' : '★ ☆ ☆');
+            this.createLabel(card, 'Stars', new Vec3(0, -48, 0), starStr, 17, '#FDE047', 150, 28);
           } else {
-            this.createLabel(card, 'ActiveText', new Vec3(0, -52, 0), '⚡ 进行中...', 16, activeBorder, 140, 26);
+            this.createLabel(card, 'ActiveText', new Vec3(0, -48, 0), '★ 进行中...', 16, activeBorder, 140, 26);
           }
         }
 
         this.addClick(card, () => {
           if (status === 'LOCKED') {
-            console.log(`[LevelSelect] Level ${levelNum} is locked.`);
             return;
           }
           console.log(`[LevelSelect] Selected Level ${levelNum} (Index: ${globalIdx})`);
@@ -248,8 +245,8 @@ export class LevelSelect extends Component {
   }
 
   private createTopNav(halfH: number): void {
-    const navRoot = this.createNode('TopNav', new Vec3(0, halfH - 60, 0), this.node);
-    this.ensureTransform(navRoot, 700, 78);
+    const navRoot = this.createNode('TopNav', new Vec3(0, halfH - 85, 0), this.node);
+    this.ensureTransform(navRoot, 700, 64);
     const g = navRoot.addComponent(Graphics);
 
     const isRose = this.currentTheme === 1;
@@ -257,46 +254,46 @@ export class LevelSelect extends Component {
     const borderCol = isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#3B82F6');
 
     g.fillColor = this.hex('#0D162C');
-    ((g.fillColor) as ((any)) as any).a = 220;
-    g.roundRect(-350, -39, 700, 78, 24);
+    ((g.fillColor) as ((any)) as any).a = 230;
+    g.roundRect(-350, -32, 700, 64, 24);
     g.fill();
     g.strokeColor = this.hex(borderCol);
     g.lineWidth = 2;
     g.stroke();
 
-    const backBtn = this.createNode('BackBtn', new Vec3(-250, 0, 0), navRoot);
-    this.ensureTransform(backBtn, 150, 46);
+    const backBtn = this.createNode('BackBtn', new Vec3(-240, 0, 0), navRoot);
+    this.ensureTransform(backBtn, 160, 48);
     const bg = backBtn.addComponent(Graphics);
     bg.fillColor = this.hex('#1E293B');
-    bg.roundRect(-75, -23, 150, 46, 14);
+    bg.roundRect(-80, -24, 160, 48, 16);
     bg.fill();
     bg.strokeColor = this.hex(borderCol);
-    bg.lineWidth = 1.8;
+    bg.lineWidth = 2.0;
     bg.stroke();
-    this.createLabel(backBtn, 'Text', new Vec3(0, 1, 0), '⬅️ 返回主页', 16, '#FFFFFF', 140, 32);
+    this.createLabel(backBtn, 'Text', new Vec3(0, 1, 0), '< 返回主页', 18, '#FFFFFF', 150, 36);
 
     this.addClick(backBtn, () => {
       console.log('[LevelSelect] Clicked Return Home');
       if (this.onReturnHomeCallback) this.onReturnHomeCallback();
     });
 
-    this.createLabel(navRoot, 'Title', new Vec3(0, 1, 0), '关卡选择 · 冰原章节', 22, '#FFFFFF', 320, 38);
+    this.createLabel(navRoot, 'Title', new Vec3(5, 1, 0), '关卡选择 · 冰原章节', 22, '#FFFFFF', 260, 38);
 
-    const starPill = this.createNode('StarPill', new Vec3(250, 0, 0), navRoot);
-    this.ensureTransform(starPill, 150, 46);
+    const starPill = this.createNode('StarPill', new Vec3(230, 0, 0), navRoot);
+    this.ensureTransform(starPill, 130, 46);
     const sg = starPill.addComponent(Graphics);
     sg.fillColor = this.hex('#1E1B4B');
-    sg.roundRect(-75, -23, 150, 46, 23);
+    sg.roundRect(-65, -23, 130, 46, 23);
     sg.fill();
     sg.strokeColor = this.hex('#FDE047');
     sg.lineWidth = 2.0;
     sg.stroke();
-    this.createLabel(starPill, 'Text', new Vec3(0, 1, 0), '⭐️ 22/30', 17, '#FDE047', 140, 32);
+    this.createLabel(starPill, 'Text', new Vec3(0, 1, 0), '★ 22/30', 17, '#FDE047', 120, 32);
   }
 
   private createFooter(halfH: number): void {
-    const footerRoot = this.createNode('Footer', new Vec3(0, -halfH + 80, 0), this.node);
-    this.ensureTransform(footerRoot, 700, 78);
+    const footerRoot = this.createNode('Footer', new Vec3(0, -halfH + 70, 0), this.node);
+    this.ensureTransform(footerRoot, 700, 82);
     const g = footerRoot.addComponent(Graphics);
 
     const isRose = this.currentTheme === 1;
@@ -307,24 +304,24 @@ export class LevelSelect extends Component {
 
     g.fillColor = this.hex('#0D162C');
     ((g.fillColor) as ((any)) as any).a = 230;
-    g.roundRect(-350, -39, 700, 78, 24);
+    g.roundRect(-350, -41, 700, 82, 24);
     g.fill();
     g.strokeColor = this.hex(borderCol);
     g.lineWidth = 2.2;
     g.stroke();
 
-    this.createLabel(footerRoot, 'ProgText', new Vec3(-125, 1, 0), '进度: 8/10 关卡  |  累积: 22/30 ⭐️', 15, borderCol, 410, 32);
+    this.createLabel(footerRoot, 'ProgText', new Vec3(-135, 1, 0), '进度: 8/10 关卡  |  累积: 22/30 ★', 16, borderCol, 410, 32);
 
-    const launchBtn = this.createNode('QuickLaunchBtn', new Vec3(220, 0, 0), footerRoot);
-    this.ensureTransform(launchBtn, 236, 54);
+    const launchBtn = this.createNode('QuickLaunchBtn', new Vec3(205, 0, 0), footerRoot);
+    this.ensureTransform(launchBtn, 250, 60);
     const lg = launchBtn.addComponent(Graphics);
     lg.fillColor = this.hex(launchBg);
-    lg.roundRect(-118, -27, 236, 54, 18);
+    lg.roundRect(-125, -30, 250, 60, 20);
     lg.fill();
     lg.strokeColor = this.hex(launchBorder);
-    lg.lineWidth = 2.5;
+    lg.lineWidth = 2.8;
     lg.stroke();
-    this.createLabel(launchBtn, 'Text', new Vec3(0, 1, 0), '🚀 继续旅途 (第9关)', 18, '#FFFFFF', 220, 34);
+    this.createLabel(launchBtn, 'Text', new Vec3(0, 1, 0), '★ 继续旅途 (第9关)', 19, '#FFFFFF', 235, 36);
 
     this.addClick(launchBtn, () => {
       console.log('[LevelSelect] Clicked Quick Launch -> Start Level 9 (index 8)');

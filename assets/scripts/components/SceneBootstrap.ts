@@ -234,8 +234,8 @@ export class SceneBootstrap extends Component {
     const cardRoot = this.createRoot('CardRoot', new Vec3(0, -240, 0), gamePage);
     const uiRoot = this.createRoot('UI', new Vec3(0, 0, 0), gamePage);
 
-    // 1. Top Navigation Bar with embedded Level Label (never overlaps!)
-    const levelLabel = this.createTopNav(uiRoot, new Vec3(0, halfH - 52, 0));
+    // 1. Top Navigation Bar with embedded Level Label (never overlaps iOS notch or WeChat top capsule!)
+    const levelLabel = this.createTopNav(uiRoot, new Vec3(0, halfH - 85, 0));
 
     // 2. Bottom Card Deck Background tightly matching CardRoot at Y = -240 (spans -328 to -152)
     this.createBottomDeck(uiRoot, new Vec3(0, -240, 0));
@@ -271,10 +271,10 @@ export class SceneBootstrap extends Component {
     game.bulletTimeValueLabel = btMeter.valueLabel;
     this.createSideActionButtons(uiRoot, game, new Vec3(halfW - 45, 215, 0));
 
-    // 5. Control Buttons moved DOWN BELOW (-425 and -535) the crystal selection tray (-328 bottom)! ZERO OVERLAP!
-    this.createSecondaryButton(uiRoot, 'RestartButton', new Vec3(-180, -535, 0), '🔄 重新尝试', () => game.restartLevel());
-    this.createHeroButton(uiRoot, 'StartButton', new Vec3(0, -425, 0), '⚡  启动流光  [ 释放光速波 ]', () => game.startRunner());
-    this.createSecondaryButton(uiRoot, 'NextButton', new Vec3(180, -535, 0), '⏭️ 下一关卡', () => game.loadNextLevel());
+    // 5. Control Buttons moved DOWN NEAR THE BOTTOM (-445 and -565) far below card deck (-328) without emoji mojibake!
+    this.createSecondaryButton(uiRoot, 'RestartButton', new Vec3(-180, -565, 0), '[ 重新尝试 ]', () => game.restartLevel(true));
+    this.createHeroButton(uiRoot, 'StartButton', new Vec3(0, -445, 0), '★  启动流光  [ 释放光速波 ]', () => game.startRunner());
+    this.createSecondaryButton(uiRoot, 'NextButton', new Vec3(180, -565, 0), '[ 下一关卡 ]', () => game.loadNextLevel());
 
     // 3. Settings Modal Root (Hidden by default!)
     const settingsModalRoot = this.createRoot('SettingsModalRoot', new Vec3(0, 0, 0));
@@ -491,8 +491,17 @@ export class SceneBootstrap extends Component {
     const homeReturnBtn = new Node('HomeReturnBtn');
     homeReturnBtn.layer = Layers.Enum.UI_2D;
     homeReturnBtn.setParent(node);
-    homeReturnBtn.setPosition(new Vec3(-313, 0, 0));
-    this.ensureTransform(homeReturnBtn, 50, 50);
+    homeReturnBtn.setPosition(new Vec3(-290, 0, 0));
+    this.ensureTransform(homeReturnBtn, 76, 48);
+    const hBg = homeReturnBtn.addComponent(Graphics);
+    hBg.fillColor = this.hex('#1E293B');
+    hBg.roundRect(-38, -24, 76, 48, 14);
+    hBg.fill();
+    hBg.strokeColor = this.hex('#60A5FA');
+    hBg.lineWidth = 1.8;
+    hBg.stroke();
+    this.createLabel(homeReturnBtn, 'Text', new Vec3(0, 1, 0), '|| 主页', 17, '#FFFFFF', 70, 34);
+
     this.addClick(homeReturnBtn, () => {
       console.log('[SceneBootstrap] Clicked Home/Pause -> Return to LevelSelect or HomePage!');
       this.closeAllModals();
@@ -506,20 +515,20 @@ export class SceneBootstrap extends Component {
       }
     });
 
-    // Clickable Share / Ask for Help button right inside TopNav!
+    // Clickable Share / Ask for Help button right inside TopNav (safely left of WeChat right capsule!)
     const shareBtn = new Node('ShareHelpBtn');
     shareBtn.layer = Layers.Enum.UI_2D;
     shareBtn.setParent(node);
-    shareBtn.setPosition(new Vec3(190, 0, 0));
-    this.ensureTransform(shareBtn, 84, 38);
+    shareBtn.setPosition(new Vec3(140, 0, 0));
+    this.ensureTransform(shareBtn, 96, 44);
     const sg = shareBtn.addComponent(Graphics);
     sg.fillColor = this.hex('#1D4ED8');
-    sg.roundRect(-42, -19, 84, 38, 14);
+    sg.roundRect(-48, -22, 96, 44, 16);
     sg.fill();
     sg.strokeColor = this.hex('#60A5FA');
-    sg.lineWidth = 1.8;
+    sg.lineWidth = 2.0;
     sg.stroke();
-    this.createLabel(shareBtn, 'ShareText', new Vec3(0, 1, 0), '⤴️ 求助', 14, '#FFFFFF', 80, 34);
+    this.createLabel(shareBtn, 'ShareText', new Vec3(0, 1, 0), '★ 求助', 17, '#FFFFFF', 88, 36);
     this.addClick(shareBtn, () => {
       console.log('[SceneBootstrap] Clicked Share/Help button!');
       if (this.gamePageRoot && this.gamePageRoot.active) {
@@ -539,19 +548,17 @@ export class SceneBootstrap extends Component {
     this.ensureTransform(node, 692, 176);
     const graphics = node.addComponent(Graphics);
 
-    // Luminous Sapphire Glassmorphic Tray (透亮深蓝宝石毛玻璃底台，紧凑包容4卡槽无遮挡无溢出)
+    // Luminous Sapphire Glassmorphic Tray
     graphics.fillColor = this.hex('#1E3A8A');
     ((graphics.fillColor) as any).a = 155;
     graphics.roundRect(-346, -88, 692, 176, 28);
     graphics.fill();
-    // Inner violet energy glow
     graphics.fillColor = this.hex('#4C1D95');
     ((graphics.fillColor) as any).a = 110;
     graphics.roundRect(-338, -80, 676, 160, 22);
     graphics.fill();
-    // Bright sky blue glowing border
     graphics.strokeColor = this.hex('#60A5FA');
-    graphics.lineWidth = 2.5;
+    graphics.lineWidth = 2.8;
     graphics.stroke();
   }
 
@@ -560,14 +567,17 @@ export class SceneBootstrap extends Component {
     node.layer = Layers.Enum.UI_2D;
     node.setParent(parent);
     node.setPosition(position);
-    this.ensureTransform(node, 60, 150);
-    const g = node.addComponent(Graphics);
+    this.ensureTransform(node, 70, 180);
 
-    // Track
-    g.fillColor = this.hex('#0B132B');
-    g.roundRect(-4, -40, 8, 80, 4);
+    const g = node.addComponent(Graphics);
+    g.fillColor = this.hex('#0D162C');
+    ((g.fillColor) as any).a = 210;
+    g.roundRect(-22, -80, 44, 160, 22);
     g.fill();
-    // Active Fill (70%)
+    g.strokeColor = this.hex('#3B82F6');
+    g.lineWidth = 2;
+    g.stroke();
+
     g.fillColor = this.hex('#00F0FF');
     g.roundRect(-4, -40, 8, 56, 4);
     g.fill();
@@ -582,37 +592,43 @@ export class SceneBootstrap extends Component {
     root.layer = Layers.Enum.UI_2D;
     root.setParent(parent);
     root.setPosition(position);
-    this.ensureTransform(root, 70, 270);
+    this.ensureTransform(root, 90, 300);
 
-    // 1. Preview Button [ 🔄 ] 预览
-    this.createCircularButton(root, 'PreviewBtn', new Vec3(0, 88, 0), '🔄', '预 览', () => {
+    // 1. Preview Button [ ◎ ] 预测光轨
+    this.createSideActionButton(root, 'PreviewBtn', new Vec3(0, 96, 0), '◎', '预 览', '#0D162C', '#00F0FF', '#60A5FA', () => {
       game.showRoutePreview();
     });
 
-    // 2. Undo Button [ ↩️ ] 撤回
-    this.createCircularButton(root, 'UndoBtn', new Vec3(0, 0, 0), '↩️', '撤 回', () => {
+    // 2. Undo Button [ < ] 撤回上步
+    this.createSideActionButton(root, 'UndoBtn', new Vec3(0, 0, 0), '<', '撤 回', '#0D162C', '#38BDF8', '#38BDF8', () => {
       game.undoLastMove();
     });
 
-    // 3. Erase Button [ 🗑️ ] 擦除
-    const eraseBtn = new Node('EraseBtn');
-    eraseBtn.layer = Layers.Enum.UI_2D;
-    eraseBtn.setParent(root);
-    eraseBtn.setPosition(new Vec3(0, -88, 0));
-    this.ensureTransform(eraseBtn, 64, 80);
-    const eg = eraseBtn.addComponent(Graphics);
-    eg.fillColor = this.hex('#1E3A8A');
-    ((eg.fillColor) as ((any)) as any).a = 220;
-    eg.circle(0, 10, 28);
-    eg.fill();
-    eg.strokeColor = this.hex('#FF4B3E');
-    eg.lineWidth = 2;
-    eg.stroke();
-    this.createLabel(eraseBtn, 'Icon', new Vec3(0, 12, 0), '🗑️', 22, '#FFFFFF', 50, 50);
-    this.createLabel(eraseBtn, 'Text', new Vec3(0, -26, 0), '擦 除', 13, '#FF4B3E', 60, 20);
-    this.addClick(eraseBtn, () => {
+    // 3. Erase Button [ × ] 擦除棋盘
+    this.createSideActionButton(root, 'EraseBtn', new Vec3(0, -96, 0), '×', '清 盘', '#1E3A8A', '#FF4B3E', '#FF4B3E', () => {
       game.clearPlacedTiles();
     });
+  }
+
+  private createSideActionButton(parent: Node, name: string, pos: Vec3, iconStr: string, labelStr: string, bgHex: string, borderHex: string, textHex: string, onClick: () => void): void {
+    const node = new Node(name);
+    node.layer = Layers.Enum.UI_2D;
+    node.setParent(parent);
+    node.setPosition(pos);
+    this.ensureTransform(node, 86, 78);
+
+    const g = node.addComponent(Graphics);
+    g.fillColor = this.hex(bgHex);
+    ((g.fillColor) as any).a = 230;
+    g.roundRect(-43, -39, 86, 78, 20);
+    g.fill();
+    g.strokeColor = this.hex(borderHex);
+    g.lineWidth = 2.5;
+    g.stroke();
+
+    this.createLabel(node, 'Icon', new Vec3(0, 14, 0), iconStr, 24, '#FFFFFF', 70, 38);
+    this.createLabel(node, 'Text', new Vec3(0, -18, 0), labelStr, 15, textHex, 76, 26);
+    this.addClick(node, onClick);
   }
 
   private addClick(node: Node, onClick: () => void): void {
@@ -622,8 +638,6 @@ export class SceneBootstrap extends Component {
     btn.zoomScale = 0.92;
     node.off(Button.EventType.CLICK);
     node.on(Button.EventType.CLICK, onClick, this);
-    node.off(Node.EventType.TOUCH_END);
-    node.on(Node.EventType.TOUCH_END, onClick, this);
   }
 
   private createCircularButton(parent: Node, name: string, position: Vec3, icon: string, labelText: string, onClick: () => void): void {
@@ -631,19 +645,19 @@ export class SceneBootstrap extends Component {
     node.layer = Layers.Enum.UI_2D;
     node.setParent(parent);
     node.setPosition(position);
-    this.ensureTransform(node, 64, 80);
+    this.ensureTransform(node, 86, 78);
 
     const graphics = node.addComponent(Graphics);
     graphics.fillColor = this.hex('#0D162C');
-    ((graphics.fillColor) as ((any)) as any).a = 230;
-    graphics.circle(0, 10, 30);
+    ((graphics.fillColor) as any).a = 230;
+    graphics.roundRect(-43, -39, 86, 78, 20);
     graphics.fill();
     graphics.strokeColor = this.hex('#00F0FF');
-    graphics.lineWidth = 2;
+    graphics.lineWidth = 2.5;
     graphics.stroke();
 
-    const iconLabel = this.createLabel(node, 'Icon', new Vec3(0, 10, 1), icon, 24, '#FFFFFF', 50, 50);
-    const textLabel = this.createLabel(node, 'Text', new Vec3(0, -28, 1), labelText, 14, '#60A5FA', 64, 24);
+    this.createLabel(node, 'Icon', new Vec3(0, 14, 1), icon, 24, '#FFFFFF', 70, 38);
+    this.createLabel(node, 'Text', new Vec3(0, -18, 1), labelText, 15, '#60A5FA', 76, 26);
 
     this.addClick(node, onClick);
   }
@@ -653,14 +667,14 @@ export class SceneBootstrap extends Component {
     node.layer = Layers.Enum.UI_2D;
     node.setParent(parent);
     node.setPosition(position);
-    const width = 460;
-    const height = 76;
+    const width = 480;
+    const height = 78;
     this.ensureTransform(node, width, height);
 
     const graphics = node.addComponent(Graphics);
     // Vibrant Neon Cyan/Blue Hero Button
     graphics.fillColor = this.hex('#00E5FF');
-    graphics.roundRect(-width / 2, -height / 2, width, height, 38);
+    graphics.roundRect(-width / 2, -height / 2, width, height, 39);
     graphics.fill();
     graphics.strokeColor = this.hex('#FFFFFF');
     graphics.lineWidth = 3.8;
@@ -673,7 +687,7 @@ export class SceneBootstrap extends Component {
     this.ensureTransform(labelNode, width, height - 8);
     const label = labelNode.addComponent(Label);
     label.string = text;
-    label.fontSize = 26;
+    label.fontSize = 27;
     label.color = this.hex('#080E24');
 
     this.addClick(node, onClick);
@@ -684,17 +698,17 @@ export class SceneBootstrap extends Component {
     node.layer = Layers.Enum.UI_2D;
     node.setParent(parent);
     node.setPosition(position);
-    const width = 240;
-    const height = 60;
+    const width = 270;
+    const height = 68;
     this.ensureTransform(node, width, height);
 
     const graphics = node.addComponent(Graphics);
     // Sleek Cyber Violet Secondary Button
     graphics.fillColor = this.hex('#1E1B4B');
-    graphics.roundRect(-width / 2, -height / 2, width, height, 22);
+    graphics.roundRect(-width / 2, -height / 2, width, height, 24);
     graphics.fill();
     graphics.strokeColor = this.hex('#A78BFA');
-    graphics.lineWidth = 2.2;
+    graphics.lineWidth = 2.5;
     graphics.stroke();
 
     const labelNode = new Node('Label');
@@ -704,7 +718,7 @@ export class SceneBootstrap extends Component {
     this.ensureTransform(labelNode, width, height - 8);
     const label = labelNode.addComponent(Label);
     label.string = text;
-    label.fontSize = 21;
+    label.fontSize = 23;
     label.color = this.hex('#FFFFFF');
 
     this.addClick(node, onClick);

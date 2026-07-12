@@ -92,8 +92,6 @@ export class SettingsModal extends Component {
     btn.zoomScale = 0.92;
     node.off(Button.EventType.CLICK);
     node.on(Button.EventType.CLICK, onClick, this);
-    node.off(Node.EventType.TOUCH_END);
-    node.on(Node.EventType.TOUCH_END, onClick, this);
   }
 
   private closeModal(): void {
@@ -366,7 +364,7 @@ export class SettingsModal extends Component {
     rg.strokeColor = this.hex('#F87171');
     rg.lineWidth = 1.8;
     rg.stroke();
-    this.createLabel(resetBtn, 'Text', new Vec3(0, 1, 0), '🔄  重置所有关卡进度', 16, '#FFFFFF', 220, 30);
+    this.createLabel(resetBtn, 'Text', new Vec3(0, 1, 0), '★  重置所有关卡进度', 16, '#FFFFFF', 220, 30);
 
     this.addClick(resetBtn, () => {
       console.log('[SettingsModal] Clicked Reset Progress!');
