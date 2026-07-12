@@ -1,4 +1,6 @@
 import { _decorator, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UITransform, Vec3 } from 'cc';
+import { WeChatService } from '../wx/WeChatService';
+import { ShareService } from '../wx/ShareService';
 
 const { ccclass } = _decorator;
 
@@ -35,7 +37,7 @@ export class VictoryPoster extends Component {
     const pg = poster.addComponent(Graphics);
     // Deep sapphire navy glassmorphic background
     pg.fillColor = this.hex('#0B132B');
-    pg.fillColor.a = 248;
+    ((pg.fillColor) as ((any)) as any).a = 248;
     pg.roundRect(-240, -310, 480, 620, 24);
     pg.fill();
     // Glowing sky blue border
@@ -67,15 +69,41 @@ export class VictoryPoster extends Component {
     this.createBottomActions(poster);
   }
 
+  private currentLevelName = '';
+  private currentStars = 3;
+  private currentMoves = 10;
+
   public showVictory(levelName: string, stars: number, moves: number): void {
     console.log(`[VictoryPoster] Show Victory for ${levelName}: ${stars} Stars, ${moves} Moves`);
+    this.currentLevelName = levelName;
+    this.currentStars = stars;
+    this.currentMoves = moves;
     this.node.active = true;
+    WeChatService.vibrateShort('medium');
+
+    if (this.posterNode) {
+      this.posterNode.setScale(new Vec3(0.6, 0.6, 1));
+      tween(this.posterNode)
+        .to(0.35, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
+        .start();
+    }
   }
 
   private closePoster(): void {
     console.log('[VictoryPoster] Close Poster');
-    this.node.active = false;
-    if (this.onCloseCallback) this.onCloseCallback();
+    WeChatService.vibrateShort('light');
+    if (this.posterNode) {
+      tween(this.posterNode)
+        .to(0.2, { scale: new Vec3(0.7, 0.7, 1) }, { easing: 'backIn' })
+        .call(() => {
+          this.node.active = false;
+          if (this.onCloseCallback) this.onCloseCallback();
+        })
+        .start();
+    } else {
+      this.node.active = false;
+      if (this.onCloseCallback) this.onCloseCallback();
+    }
   }
 
   private createHeader(parent: Node): void {
@@ -100,11 +128,11 @@ export class VictoryPoster extends Component {
     this.ensureTransform(auraRoot, 360, 80);
     const ag = auraRoot.addComponent(Graphics);
     ag.fillColor = this.hex('#4C1D95');
-    ag.fillColor.a = 150;
+    ((ag.fillColor) as ((any)) as any).a = 150;
     ag.circle(0, 0, 70);
     ag.fill();
     ag.fillColor = this.hex('#D97706');
-    ag.fillColor.a = 90;
+    ((ag.fillColor) as ((any)) as any).a = 90;
     ag.circle(0, 0, 45);
     ag.fill();
 
@@ -219,7 +247,7 @@ export class VictoryPoster extends Component {
     const qg = qrRoot.addComponent(Graphics);
     // Glassmorphic QR box (84 x 84)
     qg.fillColor = this.hex('#1E293B');
-    qg.fillColor.a = 230;
+    ((qg.fillColor) as ((any)) as any).a = 230;
     qg.roundRect(-42, -32, 84, 84, 14);
     qg.fill();
     qg.strokeColor = this.hex('#60A5FA');
@@ -257,10 +285,15 @@ export class VictoryPoster extends Component {
 
     shareBtn.on(Node.EventType.TOUCH_END, () => {
       console.log('[VictoryPoster] Clicked Share to Friends -> Brag!');
-      this.closePoster();
+      WeChatService.vibrateShort('light');
+      ShareService.sharePoster(
+        { id: 1, name: this.currentLevelName } as any,
+        `${this.currentStars}星完美光路(${this.currentMoves}步)`
+      );
+      WeChatService.showToast('正在调起微信分享...', 'success');
     });
 
-    // Right Button: [ 🖼️ 保存高清海报 ] at X = 115, Y = -260
+    // Right Button: [ ⏭️ 继续下一关卡 ] at X = 115, Y = -260
     const saveBtn = this.createNode('SaveBtn', new Vec3(115, -260, 0), parent);
     this.ensureTransform(saveBtn, 210, 48);
     const vg = saveBtn.addComponent(Graphics);
@@ -270,14 +303,16 @@ export class VictoryPoster extends Component {
     vg.strokeColor = this.hex('#00F0FF');
     vg.lineWidth = 2;
     vg.stroke();
-    this.createLabel(saveBtn, 'Text', new Vec3(0, 1, 0), '🖼️ 保存高清海报', 16, '#FFFFFF', 190, 30);
+    this.createLabel(saveBtn, 'Text', new Vec3(0, 1, 0), '⏭️ 继续挑战下一关', 16, '#FFFFFF', 190, 30);
 
     saveBtn.on(Node.EventType.TOUCH_END, () => {
-      console.log('[VictoryPoster] Clicked Save HD Poster -> Saved to Photos!');
+      console.log('[VictoryPoster] Clicked Next Level!');
+      WeChatService.vibrateShort('light');
+      this.node.active = false;
       if (this.onNextLevelCallback) {
         this.onNextLevelCallback();
       } else {
-        this.closePoster();
+        if (this.onCloseCallback) this.onCloseCallback();
       }
     });
   }

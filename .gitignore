@@ -1,0 +1,8 @@
+# Cocos Creator
+build/
+temp/
+library/
+local/
+profiles/v2/packages/*.json
+*.log
+.DS_Store

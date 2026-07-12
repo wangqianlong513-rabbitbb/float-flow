@@ -37,6 +37,18 @@ export class CardSystem {
     return this.getHand();
   }
 
+  returnTileToHand(index: number, tileType: TileType): TileType[] {
+    if (this.cursor > 0 && this.cursor <= this.fixedHands.length) {
+      this.cursor--;
+    }
+    if (index >= 0 && index < this.hand.length) {
+      this.hand[index] = tileType;
+    } else {
+      this.hand.push(tileType);
+    }
+    return this.getHand();
+  }
+
   private drawOne(): TileType {
     if (this.cursor < this.fixedHands.length) {
       return this.fixedHands[this.cursor++];

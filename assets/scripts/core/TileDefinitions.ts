@@ -14,7 +14,7 @@ const BASE_TILE_CONFIGS: Record<TileType, TileConfig> = {
     type: 'curve',
     displayName: '折角镜',
     rotatable: true,
-    routing: { right: 'up', down: 'left' },
+    routing: { right: 'down', up: 'left' },
   },
   cross: {
     id: 'cross',

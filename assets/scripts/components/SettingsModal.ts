@@ -77,7 +77,7 @@ export class SettingsModal extends Component {
     const borderCol = isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#3B82F6');
 
     dg.fillColor = this.hex('#0B132B');
-    dg.fillColor.a = 245;
+    ((dg.fillColor) as ((any)) as any).a = 245;
     dg.roundRect(-340, -270, 680, 540, 24);
     dg.fill();
     dg.strokeColor = this.hex(borderCol);
@@ -150,7 +150,7 @@ export class SettingsModal extends Component {
         g.stroke();
       } else {
         g.fillColor = this.hex('#1E293B');
-        g.fillColor.a = 180;
+        ((g.fillColor) as ((any)) as any).a = 180;
         g.roundRect(-85, -22, 170, 44, 14);
         g.fill();
         g.strokeColor = this.hex('#334155');
@@ -201,7 +201,7 @@ export class SettingsModal extends Component {
 
       const g = card.addComponent(Graphics);
       g.fillColor = this.hex('#1E293B');
-      g.fillColor.a = 230;
+      ((g.fillColor) as ((any)) as any).a = 230;
       g.roundRect(-85, -70, 170, 140, 16);
       g.fill();
       g.strokeColor = isSelected ? this.hex(th.border) : this.hex('#334155');
@@ -243,7 +243,7 @@ export class SettingsModal extends Component {
     this.ensureTransform(btRow, 580, 50);
     const btG = btRow.addComponent(Graphics);
     btG.fillColor = this.hex('#1E293B');
-    btG.fillColor.a = 150;
+    ((btG.fillColor) as ((any)) as any).a = 150;
     btG.roundRect(-290, -25, 580, 50, 14);
     btG.fill();
     btG.strokeColor = this.hex('#334155');
@@ -276,7 +276,7 @@ export class SettingsModal extends Component {
     this.ensureTransform(qRow, 580, 50);
     const qG = qRow.addComponent(Graphics);
     qG.fillColor = this.hex('#1E293B');
-    qG.fillColor.a = 150;
+    ((qG.fillColor) as ((any)) as any).a = 150;
     qG.roundRect(-290, -25, 580, 50, 14);
     qG.fill();
     qG.strokeColor = this.hex('#334155');
@@ -309,7 +309,7 @@ export class SettingsModal extends Component {
     this.ensureTransform(rulesBox, 600, 320);
     const g = rulesBox.addComponent(Graphics);
     g.fillColor = this.hex('#1E293B');
-    g.fillColor.a = 180;
+    ((g.fillColor) as ((any)) as any).a = 180;
     g.roundRect(-300, -160, 600, 320, 18);
     g.fill();
     g.strokeColor = this.hex('#3B82F6');
@@ -331,7 +331,7 @@ export class SettingsModal extends Component {
       this.ensureTransform(rNode, 550, 48);
       const rg = rNode.addComponent(Graphics);
       rg.fillColor = this.hex('#0F172A');
-      rg.fillColor.a = 200;
+      ((rg.fillColor) as ((any)) as any).a = 200;
       rg.roundRect(-270, -22, 540, 44, 12);
       rg.fill();
       this.createLabel(rNode, 'Text', new Vec3(-10, 0, 0), r, 14, '#E2E8F0', 520, 40);
@@ -343,7 +343,7 @@ export class SettingsModal extends Component {
     this.ensureTransform(aboutBox, 580, 240);
     const g = aboutBox.addComponent(Graphics);
     g.fillColor = this.hex('#1E293B');
-    g.fillColor.a = 200;
+    ((g.fillColor) as ((any)) as any).a = 200;
     g.roundRect(-290, -120, 580, 240, 18);
     g.fill();
     g.strokeColor = this.hex('#60A5FA');

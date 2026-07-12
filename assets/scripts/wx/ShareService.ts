@@ -25,12 +25,12 @@ export class ShareService {
 
   static shareResidual(level: LevelConfig, payload: ResidualSharePayload): void {
     const query = `residual=${this.encodeResidual(payload)}`;
-    const title = `我在《浮岛浮光》第 ${level.id} 关只差一步，帮我接上这束光！`;
+    const title = `我在《浮岛流光》第 ${level.id} 关只差一步，帮我接上这束光！`;
     this.share(title, query);
   }
 
   static sharePoster(level: LevelConfig, scoreText: string): void {
-    const title = `我在《浮岛浮光》第 ${level.id} 关打出了 ${scoreText}，来挑战我的光轨！`;
+    const title = `我在《浮岛流光》第 ${level.id} 关打出了 ${scoreText}，来挑战我的光轨！`;
     this.share(title, `level=${level.id}`);
   }
 

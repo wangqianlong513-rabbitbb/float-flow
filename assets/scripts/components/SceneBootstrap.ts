@@ -1,10 +1,11 @@
-import { _decorator, Button, Color, Component, Graphics, Label, Layers, Node, UITransform, Vec3 } from 'cc';
+import { _decorator, Button, Color, Component, Graphics, Label, Layers, Node, ResolutionPolicy, UITransform, Vec3, view } from 'cc';
 import { GameRoot } from './GameRoot';
 import { HomeRoot } from './HomeRoot';
 import { LevelSelect } from './LevelSelect';
 import { ReviveModal } from './ReviveModal';
 import { SettingsModal } from './SettingsModal';
 import { VictoryPoster } from './VictoryPoster';
+import { WeChatService } from '../wx/WeChatService';
 
 const { ccclass } = _decorator;
 
@@ -38,15 +39,15 @@ export class SceneBootstrap extends Component {
       g.rect(-1280, -1280, 2560, 2560);
       g.fill();
       g.fillColor = this.hex('#4C1D95');
-      g.fillColor.a = 55;
+      ((g.fillColor) as ((any)) as any).a = 55;
       g.circle(0, 320, 500);
       g.fill();
       g.fillColor = this.hex('#6B21A8');
-      g.fillColor.a = 45;
+      ((g.fillColor) as ((any)) as any).a = 45;
       g.circle(450, 180, 480);
       g.fill();
       g.fillColor = this.hex('#831843');
-      g.fillColor.a = 35;
+      ((g.fillColor) as ((any)) as any).a = 35;
       g.circle(-350, -150, 420);
       g.fill();
     } else if (themeIdx === 2) {
@@ -55,15 +56,15 @@ export class SceneBootstrap extends Component {
       g.rect(-1280, -1280, 2560, 2560);
       g.fill();
       g.fillColor = this.hex('#7C2D12');
-      g.fillColor.a = 55;
+      ((g.fillColor) as ((any)) as any).a = 55;
       g.circle(0, 320, 500);
       g.fill();
       g.fillColor = this.hex('#9A3412');
-      g.fillColor.a = 45;
+      ((g.fillColor) as ((any)) as any).a = 45;
       g.circle(450, 180, 480);
       g.fill();
       g.fillColor = this.hex('#B45309');
-      g.fillColor.a = 35;
+      ((g.fillColor) as ((any)) as any).a = 35;
       g.circle(-350, -150, 420);
       g.fill();
     } else {
@@ -72,15 +73,15 @@ export class SceneBootstrap extends Component {
       g.rect(-1280, -1280, 2560, 2560);
       g.fill();
       g.fillColor = this.hex('#0083B0');
-      g.fillColor.a = 140;
+      ((g.fillColor) as ((any)) as any).a = 140;
       g.circle(0, 320, 500);
       g.fill();
       g.fillColor = this.hex('#6B21A8');
-      g.fillColor.a = 130;
+      ((g.fillColor) as ((any)) as any).a = 130;
       g.circle(450, 180, 480);
       g.fill();
       g.fillColor = this.hex('#00F0FF');
-      g.fillColor.a = 70;
+      ((g.fillColor) as ((any)) as any).a = 70;
       g.circle(-350, -150, 420);
       g.fill();
     }
@@ -108,7 +109,7 @@ export class SceneBootstrap extends Component {
   private drawBackgroundDecorations(graphics: Graphics, themeIdx: number): void {
     // 5. Center Nebula Aura
     graphics.fillColor = themeIdx === 1 ? this.hex('#3B0764') : (themeIdx === 2 ? this.hex('#451A03') : this.hex('#312E81'));
-    graphics.fillColor.a = 80;
+    ((graphics.fillColor) as ((any)) as any).a = 80;
     graphics.circle(0, 0, 450);
     graphics.fill();
 
@@ -139,7 +140,7 @@ export class SceneBootstrap extends Component {
       } else if (themeIdx === 2) {
         topCol = this.hex('#C2410C'); leftCol = this.hex('#9A3412'); rightCol = this.hex('#7C2D12');
       }
-      topCol.a = s.a; leftCol.a = s.a; rightCol.a = s.a;
+      ((topCol) as ((any)) as any).a = s.a; ((leftCol) as ((any)) as any).a = s.a; ((rightCol) as ((any)) as any).a = s.a;
 
       graphics.fillColor = topCol;
       graphics.moveTo(s.x, s.y + halfH);
@@ -166,7 +167,7 @@ export class SceneBootstrap extends Component {
       graphics.fill();
 
       graphics.strokeColor = this.hex('#FFFFFF');
-      graphics.strokeColor.a = s.a + 50;
+      ((graphics.strokeColor) as ((any)) as any).a = s.a + 50;
       graphics.lineWidth = 1.5;
       graphics.moveTo(s.x, s.y + halfH);
       graphics.lineTo(s.x + halfW, s.y);
@@ -182,7 +183,7 @@ export class SceneBootstrap extends Component {
       const y = Math.cos(i * 631) * 360;
       const radius = 1.2 + (i % 3) * 0.8;
       graphics.fillColor = themeIdx === 1 ? (i % 2 === 0 ? this.hex('#E879F9') : this.hex('#FFFFFF')) : (themeIdx === 2 ? (i % 2 === 0 ? this.hex('#FDE047') : this.hex('#FFFFFF')) : (i % 4 === 0 ? this.hex('#00F0FF') : (i % 3 === 0 ? this.hex('#F472B6') : this.hex('#FFFFFF'))));
-      graphics.fillColor.a = 160 + (i % 5) * 18;
+      ((graphics.fillColor) as ((any)) as any).a = 160 + (i % 5) * 18;
       graphics.circle(x, y, radius);
       graphics.fill();
 
@@ -200,11 +201,14 @@ export class SceneBootstrap extends Component {
 
   protected onLoad(): void {
     console.log('[FloatFlow] SceneBootstrap onLoad');
+    WeChatService.initShareMenu();
+    view.setDesignResolutionSize(720, 1558, ResolutionPolicy.FIXED_WIDTH);
+    const visibleSize = view.getVisibleSize();
     const root = this.node;
     root.name = root.name || 'Root';
     root.layer = Layers.Enum.UI_2D;
     root.setPosition(new Vec3(0, 0, 0));
-    this.ensureTransform(root, 1280, 720);
+    this.ensureTransform(root, visibleSize.width, visibleSize.height);
     root.destroyAllChildren();
 
     // 0. Shared Cosmic Sapphire Background
@@ -221,35 +225,35 @@ export class SceneBootstrap extends Component {
     this.gamePageRoot = gamePage;
     gamePage.active = false;
 
-    const boardRoot = this.createRoot('BoardRoot', new Vec3(0, -75, 0), gamePage);
-    const previewRoot = this.createRoot('PreviewRoot', new Vec3(0, -75, 0), gamePage);
-    const runnerRoot = this.createRoot('RunnerRoot', new Vec3(0, -75, 0), gamePage);
-    const cardRoot = this.createRoot('CardRoot', new Vec3(0, -215, 0), gamePage);
+    const halfW = visibleSize.width / 2;
+    const halfH = visibleSize.height / 2;
+
+    const boardRoot = this.createRoot('BoardRoot', new Vec3(0, 215, 0), gamePage);
+    const previewRoot = this.createRoot('PreviewRoot', new Vec3(0, 215, 0), gamePage);
+    const runnerRoot = this.createRoot('RunnerRoot', new Vec3(0, 215, 0), gamePage);
+    const cardRoot = this.createRoot('CardRoot', new Vec3(0, -240, 0), gamePage);
     const uiRoot = this.createRoot('UI', new Vec3(0, 0, 0), gamePage);
 
-    // 1. Top Navigation Bar (matching Concept Art: Pause ||, Level Title, Progress Dots, Energy Pill)
-    this.createTopNav(uiRoot, new Vec3(0, 315, 0));
+    // 1. Top Navigation Bar with embedded Level Label (never overlaps!)
+    const levelLabel = this.createTopNav(uiRoot, new Vec3(0, halfH - 52, 0));
 
-    // 2. Bottom Card Deck Background (compacted and raised to fit 720p widescreen!)
-    this.createBottomDeck(uiRoot, new Vec3(0, -215, 0));
+    // 2. Bottom Card Deck Background tightly matching CardRoot at Y = -240 (spans -328 to -152)
+    this.createBottomDeck(uiRoot, new Vec3(0, -240, 0));
 
-    // 3. Typography & Prompts matching Concept Art
-    const levelLabel = this.createLabel(uiRoot, 'LevelLabel', new Vec3(-50, 316, 0), '旅途模式 · 5-12', 24, '#FFFFFF', 300, 50);
-
-    // Tip Pill with glassmorphic background
-    const tipPill = this.createRoot('TipPill', new Vec3(0, -120, 0), uiRoot);
-    this.ensureTransform(tipPill, 340, 32);
+    // 3. Tip Pill & Status Label safely between Board (-15) and CardRoot (-152)
+    const tipPill = this.createRoot('TipPill', new Vec3(0, -50, 0), uiRoot);
+    this.ensureTransform(tipPill, 420, 42);
     const tg = tipPill.addComponent(Graphics);
     tg.fillColor = this.hex('#080E24');
-    tg.fillColor.a = 210;
-    tg.roundRect(-170, -16, 340, 32, 16);
+    ((tg.fillColor) as any).a = 210;
+    tg.roundRect(-210, -21, 420, 42, 21);
     tg.fill();
     tg.strokeColor = this.hex('#3B82F6');
-    tg.lineWidth = 1.5;
+    tg.lineWidth = 2.0;
     tg.stroke();
-    const tipLabel = this.createLabel(tipPill, 'TipLabel', new Vec3(0, 1, 0), '长按任意手牌：时空减速 ❓', 15, '#00F0FF', 320, 30);
+    const tipLabel = this.createLabel(tipPill, 'TipLabel', new Vec3(0, 1, 0), '长按任意手牌：时空减速 ❓', 17, '#00F0FF', 380, 32);
 
-    const statusLabel = this.createLabel(uiRoot, 'StatusLabel', new Vec3(0, -152, 0), '拖动手牌到地图放置', 17, '#60A5FA', 680, 30);
+    const statusLabel = this.createLabel(uiRoot, 'StatusLabel', new Vec3(0, -100, 0), '拖动手牌到地图放置', 22, '#60A5FA', 680, 36);
 
     const game = gamePage.getComponent(GameRoot) ?? gamePage.addComponent(GameRoot);
     game.boardRoot = boardRoot;
@@ -260,14 +264,17 @@ export class SceneBootstrap extends Component {
     game.tipLabel = tipLabel;
     game.statusLabel = statusLabel;
 
-    // 5. Left Bullet Time Meter & Right Action Buttons
-    this.createBulletTimeMeter(uiRoot, new Vec3(-310, 110, 0));
-    this.createSideActionButtons(uiRoot, game);
+    // 4. Left Bullet Time Meter & Right Action Buttons aligned with Board center (+215)
+    const btMeter = this.createBulletTimeMeter(uiRoot, new Vec3(-halfW + 45, 215, 0));
+    game.bulletTimeNode = btMeter.node;
+    game.bulletTimeGraphics = btMeter.graphics;
+    game.bulletTimeValueLabel = btMeter.valueLabel;
+    this.createSideActionButtons(uiRoot, game, new Vec3(halfW - 45, 215, 0));
 
-    // 4. Main Control Deck Buttons at Y = -320 (perfectly visible inside 720p preview!)
-    this.createSecondaryButton(uiRoot, 'RestartButton', new Vec3(-230, -320, 0), '🔄 重开', () => game.restartLevel());
-    this.createHeroButton(uiRoot, 'StartButton', new Vec3(0, -320, 0), '⚡  启动流光', () => game.startRunner());
-    this.createSecondaryButton(uiRoot, 'NextButton', new Vec3(230, -320, 0), '⏭️ 下一关', () => game.loadNextLevel());
+    // 5. Control Buttons moved DOWN BELOW (-425 and -535) the crystal selection tray (-328 bottom)! ZERO OVERLAP!
+    this.createSecondaryButton(uiRoot, 'RestartButton', new Vec3(-180, -535, 0), '🔄 重新尝试', () => game.restartLevel());
+    this.createHeroButton(uiRoot, 'StartButton', new Vec3(0, -425, 0), '⚡  启动流光  [ 释放光速波 ]', () => game.startRunner());
+    this.createSecondaryButton(uiRoot, 'NextButton', new Vec3(180, -535, 0), '⏭️ 下一关卡', () => game.loadNextLevel());
 
     // 3. Settings Modal Root (Hidden by default!)
     const settingsModalRoot = this.createRoot('SettingsModalRoot', new Vec3(0, 0, 0));
@@ -293,7 +300,7 @@ export class SceneBootstrap extends Component {
     };
     game.onShowReviveModalCallback = () => {
       console.log('[SceneBootstrap] Show Revive Modal!');
-      reviveModalRoot.active = true;
+      reviveModal.show();
     };
 
     // 7. Level Select Root (Hidden by default!)
@@ -362,6 +369,28 @@ export class SceneBootstrap extends Component {
       gamePage.active = true;
       game.restartLevel();
     };
+
+    WeChatService.checkLaunchQuery(
+      (levelId: number) => {
+        console.log(`[SceneBootstrap] Launch from share with levelId=${levelId}`);
+        const idx = game.findIndexByLevelId(levelId);
+        if (idx >= 0) {
+          this.closeAllModals();
+          if (this.homePageRoot) this.homePageRoot.active = false;
+          if (this.levelSelectRootNode) this.levelSelectRootNode.active = false;
+          gamePage.active = true;
+          game.loadLevel(idx);
+        }
+      },
+      (residualStr: string) => {
+        console.log('[SceneBootstrap] Launch from share with residualStr');
+        this.closeAllModals();
+        if (this.homePageRoot) this.homePageRoot.active = false;
+        if (this.levelSelectRootNode) this.levelSelectRootNode.active = false;
+        gamePage.active = true;
+        game.loadResidualFromShare(residualStr);
+      }
+    );
   }
 
   private createRoot(name: string, position: Vec3, parent?: Node): Node {
@@ -384,21 +413,21 @@ export class SceneBootstrap extends Component {
     this.applyTheme(0);
   }
 
-  private createTopNav(parent: Node, position: Vec3): void {
+  private createTopNav(parent: Node, position: Vec3): Label {
     const node = new Node('TopNav');
     node.layer = Layers.Enum.UI_2D;
     node.setParent(parent);
     node.setPosition(position);
-    this.ensureTransform(node, 710, 76);
+    this.ensureTransform(node, 700, 80);
     const graphics = node.addComponent(Graphics);
 
     // Glassmorphic top navigation panel
     graphics.fillColor = this.hex('#0D162C');
-    graphics.fillColor.a = 220;
-    graphics.roundRect(-355, -38, 710, 76, 24);
+    ((graphics.fillColor) as ((any)) as any).a = 220;
+    graphics.roundRect(-350, -40, 700, 80, 26);
     graphics.fill();
     graphics.strokeColor = this.hex('#00F0FF');
-    graphics.lineWidth = 1.8;
+    graphics.lineWidth = 2.0;
     graphics.stroke();
 
     // Left Pause Icon Button [ || ]
@@ -422,38 +451,41 @@ export class SceneBootstrap extends Component {
     graphics.stroke();
     this.createLabel(node, 'EnergyText', new Vec3(300, 0, 0), '⚡ 3/3 +', 15, '#FDE047', 75, 30);
 
+    // Level Title Label inside TopNav
+    const levelLabel = this.createLabel(node, 'LevelLabel', new Vec3(-40, 15, 0), '旅途模式 · 5-12', 24, '#FFFFFF', 360, 40);
+
     // Level Progress Dots Line (O——●——O——O  到达终点)
     graphics.strokeColor = this.hex('#00F0FF');
     graphics.lineWidth = 2;
-    graphics.moveTo(-90, -22);
-    graphics.lineTo(90, -22);
+    graphics.moveTo(-90, -18);
+    graphics.lineTo(90, -18);
     graphics.stroke();
 
     const dotXs = [-90, -30, 30, 90];
     dotXs.forEach((dx, idx) => {
       if (idx === 0) {
         graphics.fillColor = this.hex('#00F0FF');
-        graphics.circle(dx, -22, 6);
+        graphics.circle(dx, -18, 5);
         graphics.fill();
       } else if (idx === 1) {
         graphics.fillColor = this.hex('#FFFFFF');
-        graphics.circle(dx, -22, 7);
+        graphics.circle(dx, -18, 6);
         graphics.fill();
         graphics.strokeColor = this.hex('#00F0FF');
         graphics.lineWidth = 2.5;
-        graphics.circle(dx, -22, 7);
+        graphics.circle(dx, -18, 7);
         graphics.stroke();
       } else {
         graphics.fillColor = this.hex('#1E3A8A');
-        graphics.circle(dx, -22, 6);
+        graphics.circle(dx, -18, 6);
         graphics.fill();
         graphics.strokeColor = this.hex('#60A5FA');
         graphics.lineWidth = 1.5;
-        graphics.circle(dx, -22, 6);
+        graphics.circle(dx, -18, 6);
         graphics.stroke();
       }
     });
-    this.createLabel(node, 'ProgressSub', new Vec3(0, -40, 0), '到 达 终 点', 13, '#93C5FD', 100, 20);
+    this.createLabel(node, 'ProgressSub', new Vec3(0, -32, 0), '到 达 终 点', 12, '#93C5FD', 100, 18);
 
     // Clickable Pause / Return to Home button!
     const homeReturnBtn = new Node('HomeReturnBtn');
@@ -473,6 +505,30 @@ export class SceneBootstrap extends Component {
         this.homePageRoot.active = true;
       }
     });
+
+    // Clickable Share / Ask for Help button right inside TopNav!
+    const shareBtn = new Node('ShareHelpBtn');
+    shareBtn.layer = Layers.Enum.UI_2D;
+    shareBtn.setParent(node);
+    shareBtn.setPosition(new Vec3(190, 0, 0));
+    this.ensureTransform(shareBtn, 84, 38);
+    const sg = shareBtn.addComponent(Graphics);
+    sg.fillColor = this.hex('#1D4ED8');
+    sg.roundRect(-42, -19, 84, 38, 14);
+    sg.fill();
+    sg.strokeColor = this.hex('#60A5FA');
+    sg.lineWidth = 1.8;
+    sg.stroke();
+    this.createLabel(shareBtn, 'ShareText', new Vec3(0, 1, 0), '⤴️ 求助', 14, '#FFFFFF', 80, 34);
+    this.addClick(shareBtn, () => {
+      console.log('[SceneBootstrap] Clicked Share/Help button!');
+      if (this.gamePageRoot && this.gamePageRoot.active) {
+        const game = this.gamePageRoot.getComponent(GameRoot);
+        if (game) game.shareCurrentResidual();
+      }
+    });
+
+    return levelLabel;
   }
 
   private createBottomDeck(parent: Node, position: Vec3): void {
@@ -480,18 +536,18 @@ export class SceneBootstrap extends Component {
     node.layer = Layers.Enum.UI_2D;
     node.setParent(parent);
     node.setPosition(position);
-    this.ensureTransform(node, 700, 160);
+    this.ensureTransform(node, 692, 176);
     const graphics = node.addComponent(Graphics);
 
-    // Luminous Sapphire Glassmorphic Tray (透亮深蓝宝石毛玻璃底台，告别灰色长方形！)
+    // Luminous Sapphire Glassmorphic Tray (透亮深蓝宝石毛玻璃底台，紧凑包容4卡槽无遮挡无溢出)
     graphics.fillColor = this.hex('#1E3A8A');
-    graphics.fillColor.a = 150;
-    graphics.roundRect(-350, -80, 700, 160, 28);
+    ((graphics.fillColor) as any).a = 155;
+    graphics.roundRect(-346, -88, 692, 176, 28);
     graphics.fill();
     // Inner violet energy glow
     graphics.fillColor = this.hex('#4C1D95');
-    graphics.fillColor.a = 100;
-    graphics.roundRect(-340, -70, 680, 140, 22);
+    ((graphics.fillColor) as any).a = 110;
+    graphics.roundRect(-338, -80, 676, 160, 22);
     graphics.fill();
     // Bright sky blue glowing border
     graphics.strokeColor = this.hex('#60A5FA');
@@ -499,7 +555,7 @@ export class SceneBootstrap extends Component {
     graphics.stroke();
   }
 
-  private createBulletTimeMeter(parent: Node, position: Vec3): void {
+  private createBulletTimeMeter(parent: Node, position: Vec3): { node: Node; graphics: Graphics; valueLabel: Label } {
     const node = new Node('BulletTimeMeter');
     node.layer = Layers.Enum.UI_2D;
     node.setParent(parent);
@@ -517,30 +573,36 @@ export class SceneBootstrap extends Component {
     g.fill();
 
     this.createLabel(node, 'Title', new Vec3(0, 55, 0), '子弹时间', 13, '#93C5FD', 60, 20);
-    this.createLabel(node, 'Value', new Vec3(0, 36, 0), '1.8s', 17, '#00F0FF', 60, 22);
+    const valueLabel = this.createLabel(node, 'Value', new Vec3(0, 36, 0), '1.8s', 17, '#00F0FF', 60, 22);
+    return { node, graphics: g, valueLabel };
   }
 
-  private createSideActionButtons(parent: Node, game: GameRoot): void {
+  private createSideActionButtons(parent: Node, game: GameRoot, position: Vec3): void {
     const root = new Node('SideActions');
     root.layer = Layers.Enum.UI_2D;
     root.setParent(parent);
-    root.setPosition(new Vec3(310, -50, 0));
-    this.ensureTransform(root, 70, 180);
+    root.setPosition(position);
+    this.ensureTransform(root, 70, 270);
 
     // 1. Preview Button [ 🔄 ] 预览
-    this.createCircularButton(root, 'PreviewBtn', new Vec3(0, 40, 0), '🔄', '预 览', () => {
+    this.createCircularButton(root, 'PreviewBtn', new Vec3(0, 88, 0), '🔄', '预 览', () => {
       game.showRoutePreview();
     });
 
-    // 2. Erase Button [ 🗑️ ] 擦除
+    // 2. Undo Button [ ↩️ ] 撤回
+    this.createCircularButton(root, 'UndoBtn', new Vec3(0, 0, 0), '↩️', '撤 回', () => {
+      game.undoLastMove();
+    });
+
+    // 3. Erase Button [ 🗑️ ] 擦除
     const eraseBtn = new Node('EraseBtn');
     eraseBtn.layer = Layers.Enum.UI_2D;
     eraseBtn.setParent(root);
-    eraseBtn.setPosition(new Vec3(0, -40, 0));
+    eraseBtn.setPosition(new Vec3(0, -88, 0));
     this.ensureTransform(eraseBtn, 64, 80);
     const eg = eraseBtn.addComponent(Graphics);
     eg.fillColor = this.hex('#1E3A8A');
-    eg.fillColor.a = 220;
+    ((eg.fillColor) as ((any)) as any).a = 220;
     eg.circle(0, 10, 28);
     eg.fill();
     eg.strokeColor = this.hex('#FF4B3E');
@@ -573,7 +635,7 @@ export class SceneBootstrap extends Component {
 
     const graphics = node.addComponent(Graphics);
     graphics.fillColor = this.hex('#0D162C');
-    graphics.fillColor.a = 230;
+    ((graphics.fillColor) as ((any)) as any).a = 230;
     graphics.circle(0, 10, 30);
     graphics.fill();
     graphics.strokeColor = this.hex('#00F0FF');
@@ -591,17 +653,17 @@ export class SceneBootstrap extends Component {
     node.layer = Layers.Enum.UI_2D;
     node.setParent(parent);
     node.setPosition(position);
-    const width = 240;
-    const height = 66;
+    const width = 460;
+    const height = 76;
     this.ensureTransform(node, width, height);
 
     const graphics = node.addComponent(Graphics);
     // Vibrant Neon Cyan/Blue Hero Button
     graphics.fillColor = this.hex('#00E5FF');
-    graphics.roundRect(-width / 2, -height / 2, width, height, 33);
+    graphics.roundRect(-width / 2, -height / 2, width, height, 38);
     graphics.fill();
     graphics.strokeColor = this.hex('#FFFFFF');
-    graphics.lineWidth = 3.5;
+    graphics.lineWidth = 3.8;
     graphics.stroke();
 
     const labelNode = new Node('Label');
@@ -611,7 +673,7 @@ export class SceneBootstrap extends Component {
     this.ensureTransform(labelNode, width, height - 8);
     const label = labelNode.addComponent(Label);
     label.string = text;
-    label.fontSize = 24;
+    label.fontSize = 26;
     label.color = this.hex('#080E24');
 
     this.addClick(node, onClick);
@@ -622,17 +684,17 @@ export class SceneBootstrap extends Component {
     node.layer = Layers.Enum.UI_2D;
     node.setParent(parent);
     node.setPosition(position);
-    const width = 145;
-    const height = 54;
+    const width = 240;
+    const height = 60;
     this.ensureTransform(node, width, height);
 
     const graphics = node.addComponent(Graphics);
     // Sleek Cyber Violet Secondary Button
     graphics.fillColor = this.hex('#1E1B4B');
-    graphics.roundRect(-width / 2, -height / 2, width, height, 18);
+    graphics.roundRect(-width / 2, -height / 2, width, height, 22);
     graphics.fill();
     graphics.strokeColor = this.hex('#A78BFA');
-    graphics.lineWidth = 2;
+    graphics.lineWidth = 2.2;
     graphics.stroke();
 
     const labelNode = new Node('Label');
@@ -642,7 +704,7 @@ export class SceneBootstrap extends Component {
     this.ensureTransform(labelNode, width, height - 8);
     const label = labelNode.addComponent(Label);
     label.string = text;
-    label.fontSize = 19;
+    label.fontSize = 21;
     label.color = this.hex('#FFFFFF');
 
     this.addClick(node, onClick);

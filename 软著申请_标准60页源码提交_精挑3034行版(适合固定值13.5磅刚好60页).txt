@@ -1,0 +1,3021 @@
+/* ====================================================================================
+《浮岛流光休闲益智小游戏 V1.0.0》计算机软件著作权源程序清单（精简 3034 行提抄版）
+====================================================================================
+【排版精算须知】
+如果您的 Word 设置为【固定值 13.5 磅】或【上下边距 2.54 厘米】，每页容纳约 50.5 行。
+本文件包含前 1505 行 + 后 1505 行 = 共计 3034 行全干货无空行源码。3034 ÷ 50.5 = 刚好 60 页！
+==================================================================================== */
+
+// ====================================================================================
+// [源码模块 1/17] assets/scripts/components/GameRoot.ts
+// ====================================================================================
+import {
+  _decorator,
+  Color,
+  Component,
+  EventTouch,
+  Graphics,
+  Label,
+  Layers,
+  Node,
+  UITransform,
+  Vec3,
+  director,
+  tween,
+} from 'cc';
+import { CardSystem } from '../core/CardSystem';
+import { GridManager } from '../core/GridManager';
+import { move } from '../core/DirectionUtils';
+import { GoalConfig, GridPos, LevelConfig, RunnerColor, RunnerState, TileInstance, TileType } from '../core/GameTypes';
+import { RouteSimulator } from '../core/RouteSimulator';
+import { createTile, getTileDisplayName, resolveTileConfig, rotateTile } from '../core/TileDefinitions';
+import { BUILTIN_LEVELS } from '../level/BuiltinLevels';
+const { ccclass, property } = _decorator;
+@ccclass('GameRoot')
+export class GameRoot extends Component {
+  @property(Node)
+  boardRoot: Node | null = null;
+  @property(Node)
+  previewRoot: Node | null = null;
+  @property(Node)
+  runnerRoot: Node | null = null;
+  @property(Node)
+  cardRoot: Node | null = null;
+  @property(Label)
+  levelLabel: Label | null = null;
+  @property(Label)
+  tipLabel: Label | null = null;
+  @property(Label)
+  statusLabel: Label | null = null;
+  @property(Node)
+  bulletTimeNode: Node | null = null;
+  @property(Graphics)
+  bulletTimeGraphics: Graphics | null = null;
+  @property(Label)
+  bulletTimeValueLabel: Label | null = null;
+  public onShowReviveModalCallback?: () => void;
+  public onShowVictoryPosterCallback?: (levelName: string, stars: number, moves: number) => void;
+  @property
+  tileWidth = 112;
+  @property
+  tileHeight = 112;
+  @property
+  tileGap = 10;
+  @property
+  cardWidth = 196;
+  @property
+  cardHeight = 160;
+  private levels: LevelConfig[] = BUILTIN_LEVELS;
+  private levelIndex = 0;
+  private level: LevelConfig | null = null;
+  private grid: GridManager | null = null;
+  private runner: RunnerState | null = null;
+  private cardSystem: CardSystem | null = null;
+  private hand: TileType[] = [];
+  private tileNodes = new Map<string, Node>();
+  private cardNodes: Node[] = [];
+  private runnerNode: Node | null = null;
+  private dragTile: TileInstance | null = null;
+  private dragCardIndex = -1;
+  private dragNode: Node | null = null;
+  private hoverCell: GridPos | null = null;
+  private usedMoves = 0;
+  private flowEnergy = 0;
+  private runnerTimer = 0;
+  private maxBulletTime = 3.0;
+  private currentBulletTime = 3.0;
+  private isResolving = false;
+  private currentTheme = 0; // 0: Icefield, 1: Violet Dusk, 2: Sunset Glow
+  public applyTheme(themeIdx: number): void {
+    console.log(`[GameRoot] Apply Theme Index ${themeIdx}`);
+    this.currentTheme = themeIdx;
+    if (this.level) {
+   this.renderBoard();
+   this.renderAllTiles();
+   this.renderCards();
+    }
+  }
+  protected start(): void {
+    // If this log does not appear in Preview console, the component is not mounted.
+    console.log('[FloatFlow] GameRoot started');
+    this.ensureRoots();
+    this.loadLevel(0);
+  }
+  protected update(deltaTime: number): void {
+    if (!this.level || !this.grid || !this.runner || this.isResolving) {
+   return;
+    }
+    // 1. Bullet Time Mechanics: triggers during card dragging (any time) OR during runner movement when nearing an obstacle/unconnected path
+    const isDragging = this.dragTile !== null;
+    const isRunning = this.runner.state === 'RUNNING';
+    const isBulletTimeActive = isDragging || (isRunning && this.currentBulletTime > 0 && !this.isPathCompleted());
+    if (isBulletTimeActive && this.currentBulletTime > 0) {
+   this.currentBulletTime = Math.max(0, this.currentBulletTime - deltaTime);
+   if (this.currentBulletTime === 0 && isRunning) {
+    this.setStatus('⚠️ 子弹时间已耗尽！极速穿梭中...');
+   }
+   this.redrawBulletTimeMeter();
+    } else if (!isBulletTimeActive && !isRunning && this.currentBulletTime < this.maxBulletTime) {
+   // Recharges slowly while resting/planning in IDLE
+   this.currentBulletTime = Math.min(this.maxBulletTime, this.currentBulletTime + deltaTime * 0.4);
+   this.redrawBulletTimeMeter();
+    }
+    if (!isRunning) {
+   return;
+    }
+    const slowFactor = (isDragging || (this.currentBulletTime > 0 && isRunning)) ? 0.35 : 1.0;
+    this.runnerTimer += deltaTime * slowFactor;
+    if (this.runnerTimer >= this.level.runnerStepSeconds / Math.max(0.1, this.runner.speed)) {
+   this.runnerTimer = 0;
+   this.advanceRunnerOneStep();
+    }
+  }
+  public loadNextLevel(): void {
+    const next = (this.levelIndex + 1) % this.levels.length;
+    this.loadLevel(next);
+  }
+  public restartLevel(): void {
+    this.loadLevel(this.levelIndex);
+  }
+  public startRunner(): void {
+    if (this.runner && this.runner.state === 'IDLE') {
+   this.runner.state = 'RUNNING';
+   this.setStatus('流光已启动！观察光路与救场触发。');
+    }
+  }
+  public redrawCardsByAdStub(): void {
+    // This button hook is useful before the real WeChat rewarded video service is wired.
+    if (!this.cardSystem) {
+   return;
+    }
+    this.hand = this.cardSystem.redrawAll();
+    this.renderCards();
+    this.setStatus('手牌已刷新');
+  }
+  public clearPlacedTiles(): void {
+    console.log('[FloatFlow] Clear Placed Tiles');
+    this.restartLevel();
+    this.setStatus('已擦除放置地砖，手牌已重置');
+  }
+  public showRoutePreview(): void {
+    console.log('[FloatFlow] Show Route Preview');
+    if (this.previewRoot) {
+   this.previewRoot.active = !this.previewRoot.active;
+   this.setStatus(this.previewRoot.active ? '光轨预测已开启' : '光轨预测已隐藏');
+    }
+  }
+  public reviveRunner(): void {
+    console.log('[FloatFlow] Revive Runner!');
+    if (this.runner && (this.runner.state === 'DEAD' || this.runner.state === 'IDLE')) {
+   this.runner.state = 'IDLE';
+   if (this.cardSystem) {
+    this.hand = this.cardSystem.drawInitial();
+    this.renderCards();
+   }
+   this.setStatus('时空导师已降临！救场成功，获得3秒无敌光环，请继续放置手牌！');
+    }
+  }
+  private ensureRoots(): void {
+    this.node.layer = Layers.Enum.UI_2D;
+    this.boardRoot = this.boardRoot ?? this.createRoot('BoardRoot', new Vec3(0, 160, 0));
+    this.previewRoot = this.previewRoot ?? this.createRoot('PreviewRoot', new Vec3(0, 160, 0));
+    this.runnerRoot = this.runnerRoot ?? this.createRoot('RunnerRoot', new Vec3(0, 160, 0));
+    this.cardRoot = this.cardRoot ?? this.createRoot('CardRoot', new Vec3(0, -340, 0));
+  }
+  private createRoot(name: string, pos: Vec3): Node {
+    const root = new Node(name);
+    root.layer = Layers.Enum.UI_2D;
+    root.setParent(this.node);
+    root.setPosition(pos);
+    root.addComponent(UITransform).setContentSize(1, 1);
+    return root;
+  }
+  public loadLevel(index: number): void {
+    this.levelIndex = index;
+    this.level = this.levels[index];
+    this.grid = GridManager.fromLevel(this.level);
+    this.runner = { ...this.level.start, state: this.level.autoStart ? 'RUNNING' : 'IDLE' };
+    this.cardSystem = new CardSystem(this.level.tilePool, this.level.handSize, this.level.fixedHands ?? []);
+    this.hand = this.cardSystem.drawInitial();
+    this.usedMoves = 0;
+    this.flowEnergy = this.level.bulletTimeEnergy ?? 3;
+    this.runnerTimer = 0;
+    this.isResolving = false;
+    this.clearNode(this.boardRoot);
+    this.clearNode(this.previewRoot);
+    this.clearNode(this.runnerRoot);
+    this.clearNode(this.cardRoot);
+    if (this.dragNode) {
+   this.dragNode.destroy();
+   this.dragNode = null;
+    }
+    this.tileNodes.clear();
+    this.cardNodes = [];
+    const maxDim = Math.max(this.grid.rows, this.grid.cols);
+    let scale = 1.95;
+    let offsetY = 320;
+    if (maxDim <= 4) {
+   scale = 1.95;
+   offsetY = 320;
+    } else if (maxDim <= 6) {
+   scale = 1.70;
+   offsetY = 320;
+    } else if (maxDim <= 7) {
+   scale = 1.45;
+   offsetY = 320;
+    } else {
+   // 8x8 or 9x9 or larger grids
+   scale = 1.25;
+   offsetY = 320;
+    }
+    const scale3f = new Vec3(scale, scale, 1);
+    const pos3f = new Vec3(0, offsetY, 0);
+    if (this.boardRoot) {
+   this.boardRoot.setScale(scale3f);
+   this.boardRoot.setPosition(pos3f);
+    }
+    if (this.previewRoot) {
+   this.previewRoot.setScale(scale3f);
+   this.previewRoot.setPosition(pos3f);
+    }
+    if (this.runnerRoot) {
+   this.runnerRoot.setScale(scale3f);
+   this.runnerRoot.setPosition(pos3f);
+    }
+    this.renderBoard();
+    this.renderAllTiles();
+    this.renderRunner();
+    this.renderCards();
+    this.updateLabels();
+    this.maxBulletTime = this.level.bulletTimeSeconds ?? 3.0;
+    this.currentBulletTime = this.maxBulletTime;
+    this.redrawBulletTimeMeter();
+    this.setStatus(this.level.tutorialTip ?? '拖拽水晶，接住这束光。');
+  }
+  private renderBoard(): void {
+    if (!this.level || !this.grid || !this.boardRoot) {
+   return;
+    }
+    const step = this.tileWidth + (this.tileGap || 10);
+    const rawWidth = this.grid.cols * step;
+    const rawHeight = this.grid.rows * step;
+    let sW = 530 / rawWidth;
+    let sH = 610 / rawHeight;
+    let s = Math.min(sW, sH);
+    if (s > 1.18) s = 1.18;
+    if (this.boardRoot) this.boardRoot.setScale(new Vec3(s, s, 1));
+    if (this.previewRoot) this.previewRoot.setScale(new Vec3(s, s, 1));
+    if (this.runnerRoot) this.runnerRoot.setScale(new Vec3(s, s, 1));
+    // 0. Floating Island Under-Glow & Shadow Aura (浮岛底座悬空极光云与深邃投影)
+    const shadowNode = new Node('IslandShadow');
+    shadowNode.layer = Layers.Enum.UI_2D;
+    shadowNode.setParent(this.boardRoot!);
+    shadowNode.setPosition(new Vec3(0, -25, -5));
+    const shadowG = shadowNode.addComponent(Graphics);
+    const isRose = this.currentTheme === 1;
+    const isGold = this.currentTheme === 2;
+    // Aurora field under the island
+    shadowG.fillColor = this.hex(isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#4C1D95'));
+    ((shadowG.fillColor) as ((any)) as any).a = 75;
+    shadowG.ellipse(0, 0, 240, 110);
+    shadowG.fill();
+    // Core glow
+    shadowG.fillColor = this.hex(isRose ? '#831843' : (isGold ? '#B45309' : '#0083B0'));
+    ((shadowG.fillColor) as ((any)) as any).a = 90;
+    shadowG.ellipse(0, 0, 160, 70);
+    shadowG.fill();
+    this.grid.forEachCell((pos, _tile, obstacle) => {
+   const node = new Node(`Cell_${pos.row}_${pos.col}`);
+   node.layer = Layers.Enum.UI_2D;
+   node.setParent(this.boardRoot!);
+   node.setPosition(this.gridToLocal(pos));
+   node.addComponent(UITransform).setContentSize(this.tileWidth, this.tileHeight);
+   const graphics = node.addComponent(Graphics);
+   if (obstacle) {
+    this.drawTopDownTile(graphics, this.hex('#3B1428'), this.hex('#FF3B30'), 2.5, this.tileWidth, this.tileHeight, 0, 0, 6);
+   } else {
+    const isEven = (pos.row + pos.col) % 2 === 0;
+    let topCol = isEven ? this.hex('#1E3A8A') : this.hex('#2563EB');
+    let strokeCol = isEven ? this.hex('#3B82F6') : this.hex('#60A5FA');
+    if (isRose) {
+    topCol = isEven ? this.hex('#4C1D95') : this.hex('#6D28D9');
+    strokeCol = isEven ? this.hex('#7C3AED') : this.hex('#A78BFA');
+    } else if (isGold) {
+    topCol = isEven ? this.hex('#7C2D12') : this.hex('#B45309');
+    strokeCol = isEven ? this.hex('#C2410C') : this.hex('#FBBF24');
+    }
+    this.drawTopDownTile(graphics, topCol, strokeCol, 2, this.tileWidth, this.tileHeight, 0, 0, 6);
+   }
+    });
+    // 3. Start Point Sleek Cyber Emblem (起点平铺极简金青魔法印章，告别杂乱叠块！)
+    if (this.level.start) {
+   const startNode = new Node('StartAura');
+   startNode.layer = Layers.Enum.UI_2D;
+   startNode.setParent(this.boardRoot!);
+   startNode.setPosition(this.gridToLocal(this.level.start).add3f(0, 0, 1));
+   const sg = startNode.addComponent(Graphics);
+   // Sleek flat floor ring
+   sg.strokeColor = this.hex('#FDE047');
+   sg.lineWidth = 2;
+   sg.circle(0, 0, 26);
+   sg.stroke();
+   sg.fillColor = new Color(253, 224, 71, 35);
+   sg.circle(0, 0, 26);
+   sg.fill();
+   // Inner cyan energy ring
+   sg.strokeColor = this.hex('#00F0FF');
+   sg.lineWidth = 1.5;
+   sg.circle(0, 0, 16);
+   sg.stroke();
+    }
+    for (const goal of this.level.goals) {
+   this.drawGoal(goal);
+    }
+  }
+  private renderAllTiles(): void {
+    if (!this.grid) {
+   return;
+    }
+    this.grid.forEachCell((pos, tile) => {
+   if (tile) {
+    this.renderTile(pos, tile);
+   }
+    });
+  }
+  private renderTile(pos: GridPos, tile: TileInstance): void {
+    if (!this.boardRoot) {
+   return;
+    }
+    const key = this.key(pos);
+    this.tileNodes.get(key)?.destroy();
+    const node = new Node(`Tile_${pos.row}_${pos.col}_${tile.type}`);
+    node.layer = Layers.Enum.UI_2D;
+    node.setParent(this.boardRoot);
+    node.setPosition(this.gridToLocal(pos).add3f(0, 0, 1));
+    node.addComponent(UITransform).setContentSize(this.tileWidth, this.tileHeight);
+    const graphics = node.addComponent(Graphics);
+    const topCol = this.tileColor(tile.type);
+    this.drawDiamond(graphics, topCol, this.hex('#FFFFFF'), 2.2);
+    this.drawTileArrow(graphics, tile, 0, 0.86, 0, 44);
+    node.on(Node.EventType.TOUCH_END, () => this.onPlacedTileTouch(pos), this);
+    this.tileNodes.set(key, node);
+  }
+  private drawGoal(goal: GoalConfig): void {
+    if (!this.boardRoot) {
+   return;
+    }
+    const node = new Node(`Goal_${goal.row}_${goal.col}`);
+    node.layer = Layers.Enum.UI_2D;
+    node.setParent(this.boardRoot);
+    node.setPosition(this.gridToLocal(goal).add3f(0, 0, 2));
+    node.addComponent(UITransform).setContentSize(this.tileWidth * 0.9, this.tileHeight * 0.9);
+    const graphics = node.addComponent(Graphics);
+    const goalCol = this.colorForRunner(goal.color ?? 'none');
+    // 1. Goal Pad Rounded Base
+    this.drawTopDownTile(graphics, goalCol, this.hex('#FFFFFF'), 3, this.tileWidth * 0.9, this.tileHeight * 0.9, 0, 0, 6);
+    // 2. Glowing Portal Ring
+    const portalCol = goal.color === 'red' ? this.hex('#FF2E93') : (goal.color === 'blue' ? this.hex('#00F0FF') : this.hex('#E066FF'));
+    graphics.fillColor = new Color(portalCol.r, portalCol.g, portalCol.b, 65);
+    graphics.circle(0, 0, 36);
+    graphics.fill();
+    graphics.strokeColor = portalCol;
+    graphics.lineWidth = 4;
+    graphics.circle(0, 0, 36);
+    graphics.stroke();
+    // Center portal vortex star
+    graphics.fillColor = this.hex('#FFFFFF');
+    graphics.circle(0, 0, 10);
+    graphics.fill();
+  }
+  private renderRunner(): void {
+    if (!this.runner || !this.runnerRoot) {
+   return;
+    }
+    const node = new Node('Runner');
+    node.layer = Layers.Enum.UI_2D;
+    node.setParent(this.runnerRoot);
+    node.setPosition(this.gridToLocal(this.runner).add3f(0, 0, 10));
+    node.addComponent(UITransform).setContentSize(52, 52);
+    const graphics = node.addComponent(Graphics);
+    this.runnerNode = node;
+    this.redrawRunnerColor();
+  }
+  private renderCards(): void {
+    if (!this.cardRoot) {
+   return;
+    }
+    this.clearNode(this.cardRoot);
+    this.cardNodes = [];
+    const totalSlots = Math.max(1, this.hand.length + 1); // Include + button slot
+    // Responsive compact sizing guaranteeing 100% fits inside sapphire glass tray (-346 to +346) with 0 overflow!
+    if (totalSlots <= 3) {
+   this.cardWidth = 164;
+   this.cardHeight = 148;
+    } else if (totalSlots === 4) {
+   // 3 hand cards + 1 plus slot -> width 144px each, spacing 158px -> total span from -309 to +309!
+   this.cardWidth = 144;
+   this.cardHeight = 144;
+    } else {
+   // 4 or more hand cards + 1 plus slot
+   this.cardWidth = 120;
+   this.cardHeight = 136;
+    }
+    const spacing = this.cardWidth + 14;
+    const startX = -((totalSlots - 1) * spacing) / 2;
+    this.hand.forEach((type, index) => {
+   const card = new Node(`Card_${index}_${type}`);
+   card.layer = Layers.Enum.UI_2D;
+   card.setParent(this.cardRoot!);
+   card.setPosition(new Vec3(startX + index * spacing, 0, 0));
+   card.addComponent(UITransform).setContentSize(this.cardWidth, this.cardHeight);
+   const graphics = card.addComponent(Graphics);
+   this.drawCard(graphics, type);
+   const arrowScale = (this.cardWidth / 196) * 0.9;
+   this.drawTileArrow(graphics, { type, rotation: 0 }, 14 * (this.cardHeight / 160), arrowScale, 0, 24);
+   const labelNode = new Node('Name');
+   labelNode.layer = Layers.Enum.UI_2D;
+   labelNode.setParent(card);
+   labelNode.setPosition(new Vec3(0, -this.cardHeight / 2 + 18, 1));
+   labelNode.addComponent(UITransform).setContentSize(this.cardWidth - 8, 28);
+   const label = labelNode.addComponent(Label);
+   label.string = getTileDisplayName(type);
+   label.fontSize = Math.max(15, Math.floor((this.cardWidth / 196) * 20));
+   label.color = this.hex('#FFFFFF');
+   card.on(Node.EventType.TOUCH_START, (event: EventTouch) => this.onCardTouchStart(event, index), this);
+   card.on(Node.EventType.TOUCH_MOVE, (event: EventTouch) => this.onCardTouchMove(event), this);
+   card.on(Node.EventType.TOUCH_END, (event: EventTouch) => this.onCardTouchEnd(event), this);
+   card.on(Node.EventType.TOUCH_CANCEL, (event: EventTouch) => this.onCardTouchCancel(event), this);
+   this.cardNodes.push(card);
+    });
+    // Plus expansion slot at far right
+    const plusSlot = new Node('PlusSlot');
+    plusSlot.layer = Layers.Enum.UI_2D;
+    plusSlot.setParent(this.cardRoot!);
+    plusSlot.setPosition(new Vec3(startX + this.hand.length * spacing, 0, 0));
+    plusSlot.addComponent(UITransform).setContentSize(this.cardWidth, this.cardHeight);
+    const pg = plusSlot.addComponent(Graphics);
+    pg.fillColor = new Color(30, 58, 138, 200);
+    pg.roundRect(-this.cardWidth / 2, -this.cardHeight / 2, this.cardWidth, this.cardHeight, 18);
+    pg.fill();
+    pg.strokeColor = new Color(96, 165, 250, 230);
+    pg.lineWidth = 2.5;
+    pg.stroke();
+    pg.strokeColor = this.hex('#FFFFFF');
+    pg.lineWidth = 4.0;
+    const plusArm = Math.min(20, Math.floor(this.cardWidth * 0.15));
+    pg.moveTo(-plusArm, 0);
+    pg.lineTo(plusArm, 0);
+    pg.moveTo(0, -plusArm);
+    pg.lineTo(0, plusArm);
+    pg.stroke();
+  }
+  private onCardTouchStart(event: EventTouch, index: number): void {
+    const type = this.hand[index];
+    this.dragCardIndex = index;
+    this.dragTile = createTile(type);
+    this.hoverCell = null;
+    director.getScheduler().setTimeScale(0.45);
+    this.setStatus('拖到地图上，蓝线能通，红线会掉。');
+    this.dragNode?.destroy();
+    const dragNode = new Node('DragGhost');
+    dragNode.layer = Layers.Enum.UI_2D;
+    dragNode.setParent(this.node);
+    const pos = event.getUILocation();
+    dragNode.setWorldPosition(new Vec3(pos.x, pos.y, 100));
+    dragNode.setScale(new Vec3(1.15, 1.15, 1));
+    dragNode.addComponent(UITransform).setContentSize(this.tileWidth, this.tileHeight);
+    const graphics = dragNode.addComponent(Graphics);
+    this.drawDiamond(graphics, this.tileColor(this.dragTile.type), this.hex('#FFFFFF'), 3);
+    this.drawTileArrow(graphics, this.dragTile, 0, 0.86, 0, 44);
+    this.dragNode = dragNode;
+    if (this.cardNodes[index]) {
+   this.cardNodes[index].setScale(new Vec3(0.9, 0.9, 1));
+    }
+  }
+  private onCardTouchMove(event: EventTouch): void {
+    if (!this.dragTile) {
+   return;
+    }
+    const pos = event.getUILocation();
+    if (this.dragNode) {
+   this.dragNode.setWorldPosition(new Vec3(pos.x, pos.y, 100));
+    }
+    const cell = this.uiToGrid(pos.x, pos.y);
+    this.hoverCell = cell;
+    this.renderPreview(cell, this.dragTile);
+  }
+  private onCardTouchEnd(event: EventTouch): void {
+    this.handleCardDrop(event);
+  }
+  private onCardTouchCancel(event: EventTouch): void {
+    this.handleCardDrop(event);
+  }
+  private handleCardDrop(event: EventTouch): void {
+    if (!this.dragTile || !this.grid || !this.level || !this.cardSystem) {
+   this.endDrag();
+   return;
+    }
+    const pos = event.getUILocation();
+    const cell = this.uiToGrid(pos.x, pos.y);
+    if (cell && this.canPlace(cell)) {
+   this.grid.setTile(cell, this.dragTile);
+   this.renderTile(cell, this.dragTile);
+   this.usedMoves++;
+   this.hand = this.cardSystem.consume(this.dragCardIndex);
+   this.renderCards();
+   this.currentBulletTime = Math.min(this.maxBulletTime, this.currentBulletTime + 1.2);
+   this.redrawBulletTimeMeter();
+   this.setStatus('放置成功！已补充 1.2s 子弹时间。可继续铺路或启动流光。');
+    } else {
+   this.setStatus('这里不能放置');
+    }
+    this.endDrag();
+    this.updateLabels();
+  }
+  private onPlacedTileTouch(pos: GridPos): void {
+    if (!this.grid || !this.runner) {
+   return;
+    }
+    if (pos.row === this.runner.row && pos.col === this.runner.col) {
+   this.setStatus('Runner 正在这里，不能旋转这块水晶。');
+   return;
+    }
+    const tile = this.grid.getTile(pos);
+    if (!tile) {
+   return;
+    }
+    const rotated = rotateTile(tile);
+    if (rotated.rotation === tile.rotation) {
+   this.setStatus(`${getTileDisplayName(tile.type)}不能旋转。`);
+   return;
+    }
+    this.grid.setTile(pos, rotated);
+    this.renderTile(pos, rotated);
+    this.currentBulletTime = Math.min(this.maxBulletTime, this.currentBulletTime + 0.6);
+    this.redrawBulletTimeMeter();
+    this.setStatus('水晶已旋转，补充 0.6s 子弹时间，继续观察光路。');
+  }
+  private endDrag(): void {
+    director.getScheduler().setTimeScale(1);
+    this.dragTile = null;
+    this.dragCardIndex = -1;
+    this.hoverCell = null;
+    this.clearNode(this.previewRoot);
+    if (this.dragNode) {
+   this.dragNode.destroy();
+   this.dragNode = null;
+    }
+    this.cardNodes.forEach((card) => card.setScale(new Vec3(1, 1, 1)));
+    this.redrawBulletTimeMeter();
+  }
+  private renderPreview(cell: GridPos | null, tile: TileInstance): void {
+    this.clearNode(this.previewRoot);
+    if (!cell || !this.grid || !this.runner || !this.level || !this.previewRoot || !this.canPlace(cell)) {
+   return;
+    }
+    const preview = RouteSimulator.simulate(this.grid, this.runner, this.level.goals, { ...cell, tile });
+    const node = new Node('PreviewLine');
+    node.layer = Layers.Enum.UI_2D;
+    node.setParent(this.previewRoot);
+    const graphics = node.addComponent(Graphics);
+    graphics.lineWidth = 6;
+    graphics.strokeColor = preview.success ? this.hex('#00F0FF') : this.hex('#FF4B3E');
+    const start = this.gridToLocal(this.runner).add3f(0, 10, 0);
+    const outerCol = preview.success ? this.hex('#00F0FF') : this.hex('#FF3B30');
+    ((outerCol) as ((any)) as any).a = 140;
+    graphics.strokeColor = outerCol;
+    graphics.lineWidth = 12;
+    graphics.moveTo(start.x, start.y);
+    for (const pathNode of preview.path) {
+   const point = this.gridToLocal(pathNode).add3f(0, 10, 0);
+   graphics.lineTo(point.x, point.y);
+    }
+    graphics.stroke();
+    graphics.strokeColor = preview.success ? this.hex('#E0FFFF') : this.hex('#FFD1D1');
+    graphics.lineWidth = 4;
+    graphics.moveTo(start.x, start.y);
+    for (const pathNode of preview.path) {
+   const point = this.gridToLocal(pathNode).add3f(0, 0, 0);
+   graphics.lineTo(point.x, point.y);
+    }
+    graphics.stroke();
+    // Draw cell highlight and snapped tile ghost
+    const cellPos = this.gridToLocal(cell).add3f(0, 0, 5);
+    const topCol = this.tileColor(tile.type);
+    const ghostTop = new Color(topCol.r, topCol.g, topCol.b, 160);
+    this.drawTopDownTile(graphics, ghostTop, this.hex('#FFFFFF'), 2.5, this.tileWidth * 0.94, this.tileHeight * 0.94, cellPos.y, cellPos.x, 5);
+    this.drawTileArrow(graphics, tile, cellPos.y, 0.86, cellPos.x, 44);
+  }
+  private advanceRunnerOneStep(): void {
+    if (!this.grid || !this.runner || !this.level || !this.runnerNode) {
+   return;
+    }
+    const next = move(this.runner, this.runner.direction);
+    const preview = RouteSimulator.simulate(this.grid, this.runner, this.level.goals);
+    if (preview.path.length > 0 && preview.path[0].result === 'goal') {
+   this.moveRunnerVisual(next, () => this.handleSuccess());
+   return;
+    }
+    if (!this.grid.isValid(next) || this.grid.isObstacle(next)) {
+   this.handleDead('前方无法通行');
+   return;
+    }
+    const tile = this.grid.getTile(next);
+    if (!tile) {
+   this.handleNearMissOrDead('前方没有水晶路');
+   return;
+    }
+    const config = resolveTileConfig(tile);
+    if (config.colorFilter && config.colorFilter !== 'none' && config.colorFilter !== this.runner.color) {
+   this.handleDead('颜色不匹配');
+   return;
+    }
+    const out = config.routing[this.runner.direction];
+    if (!out || out === 'dead') {
+   this.handleDead('水晶方向不连通');
+   return;
+    }
+    this.runner.row = next.row;
+    this.runner.col = next.col;
+    this.runner.direction = out;
+    if (config.colorPaint && config.colorPaint !== 'none') {
+   this.runner.color = config.colorPaint;
+   this.redrawRunnerColor();
+    }
+    if (config.speedModifier) {
+   this.runner.speed *= config.speedModifier;
+    }
+    if (config.oneTime) {
+   this.grid.setTile(next, null);
+   this.tileNodes.get(this.key(next))?.destroy();
+   this.tileNodes.delete(this.key(next));
+    }
+    this.moveRunnerVisual(this.runner, () => {
+   const goal = this.findGoal(this.runner!, this.level!.goals);
+   if (goal && (!goal.color || goal.color === 'none' || goal.color === this.runner!.color)) {
+    this.handleSuccess();
+   }
+    });
+  }
+  private moveRunnerVisual(pos: GridPos, onDone: () => void): void {
+    if (!this.runnerNode || !this.runnerRoot) {
+   onDone();
+   return;
+    }
+    this.isResolving = true;
+    const startPos = this.runnerNode.position.clone();
+    const endPos = this.gridToLocal(pos).add3f(0, 0, 10);
+    const baseCol = this.colorForRunner(this.runner?.color ?? 'none');
+    // Spawn 3 high-speed laser afterimage / trail ghosts along the movement path
+    for (let i = 1; i <= 3; i++) {
+   const ghostPos = startPos.clone().lerp(endPos, i * 0.25);
+   this.spawnTrailGhost(ghostPos, baseCol, 0.04 * i);
+    }
+    tween(this.runnerNode)
+   .to(0.14, { position: endPos })
+   .call(() => {
+    this.spawnLandingRipple(endPos, baseCol);
+    this.isResolving = false;
+    onDone();
+   })
+   .start();
+  }
+  private spawnTrailGhost(pos: Vec3, color: Color, delay: number): void {
+    if (!this.runnerRoot) return;
+    const ghost = new Node('TrailGhost');
+    ghost.layer = Layers.Enum.UI_2D;
+    ghost.setParent(this.runnerRoot);
+    ghost.setPosition(pos);
+    ghost.addComponent(UITransform).setContentSize(40, 40);
+    const graphics = ghost.addComponent(Graphics);
+    graphics.fillColor = new Color(color.r, color.g, color.b, 140);
+    graphics.circle(0, 0, 16);
+    graphics.fill();
+    graphics.fillColor = new Color(255, 255, 255, 180);
+    graphics.circle(0, 0, 8);
+    graphics.fill();
+    tween(ghost)
+   .delay(delay)
+   .to(0.18, { scale: new Vec3(0.2, 0.2, 1) })
+   .call(() => ghost.destroy())
+   .start();
+  }
+  private spawnLandingRipple(pos: Vec3, color: Color): void {
+    if (!this.runnerRoot) return;
+    const ripple = new Node('LandingRipple');
+    ripple.layer = Layers.Enum.UI_2D;
+    ripple.setParent(this.runnerRoot);
+    ripple.setPosition(pos);
+    ripple.addComponent(UITransform).setContentSize(60, 60);
+    const graphics = ripple.addComponent(Graphics);
+    graphics.strokeColor = new Color(0, 240, 255, 220);
+    graphics.lineWidth = 3.5;
+    graphics.circle(0, 0, 14);
+    graphics.stroke();
+    tween(ripple)
+   .to(0.25, { scale: new Vec3(2.2, 2.2, 1) })
+   .call(() => ripple.destroy())
+   .start();
+  }
+  private handleSuccess(): void {
+    if (!this.runner || !this.level) {
+   return;
+    }
+    this.runner.state = 'SUCCESS';
+    const stars = this.calculateStars();
+    this.setStatus(`通关！${stars} 星，光能 +${stars * 20}`);
+    this.updateLabels();
+    if (this.onShowVictoryPosterCallback) {
+   this.onShowVictoryPosterCallback(this.level.name, stars, this.usedMoves);
+    }
+  }
+  private handleNearMissOrDead(reason: string): void {
+    if (!this.level || !this.runner || !this.grid) {
+   return;
+    }
+    const preview = RouteSimulator.simulate(this.grid, this.runner, this.level.goals);
+    const last = preview.path[preview.path.length - 1];
+    const near = last ? this.distanceToNearestGoal(last, this.level.goals) <= 2 : false;
+    if (near && this.flowEnergy > 0) {
+   this.flowEnergy--;
+   this.setStatus(`Near Miss：${reason}。已消耗 1 点救场能量，可继续补路。`);
+   this.updateLabels();
+   return;
+    }
+    this.handleDead(reason);
+  }
+  private handleDead(reason: string): void {
+    if (!this.runner) {
+   return;
+    }
+    this.runner.state = 'DEAD';
+    this.setStatus(`失败：${reason}。呼叫时空导师救我一命！`);
+    this.updateLabels();
+    if (this.onShowReviveModalCallback) {
+   this.onShowReviveModalCallback();
+    }
+  }
+  private calculateStars(): number {
+    if (!this.level) {
+   return 1;
+    }
+    let stars = 1;
+    if (this.usedMoves <= this.level.recommendedMoves) {
+   stars++;
+    }
+    if (this.usedMoves <= Math.max(1, this.level.recommendedMoves - 1)) {
+   stars++;
+    }
+    return Math.min(3, stars);
+  }
+  private canPlace(pos: GridPos): boolean {
+    if (!this.grid || !this.runner) {
+   return false;
+    }
+    if (!this.grid.isValid(pos) || this.grid.isObstacle(pos)) {
+   return false;
+    }
+    if (pos.row === this.runner.row && pos.col === this.runner.col) {
+   return false;
+    }
+    return !this.findGoal(pos, this.level?.goals ?? []);
+  }
+  private uiToGrid(uiX: number, uiY: number): GridPos | null {
+    if (!this.boardRoot || !this.grid) {
+   return null;
+    }
+    const transform = this.boardRoot.getComponent(UITransform);
+    if (!transform) {
+   return null;
+    }
+    const local = transform.convertToNodeSpaceAR(new Vec3(uiX, uiY, 0));
+    const step = this.tileWidth + (this.tileGap || 10);
+    const centerCol = (this.grid.cols - 1) / 2;
+    const centerRow = (this.grid.rows - 1) / 2;
+    const col = Math.round(local.x / step + centerCol);
+    const row = Math.round(centerRow - local.y / step);
+    const pos = { row, col };
+    return this.grid.isValid(pos) ? pos : null;
+  }
+  private gridToLocal(pos: GridPos): Vec3 {
+    if (!this.grid) {
+   return new Vec3(0, 0, 0);
+    }
+    const step = this.tileWidth + (this.tileGap || 10);
+    const centerCol = (this.grid.cols - 1) / 2;
+    const centerRow = (this.grid.rows - 1) / 2;
+    const x = (pos.col - centerCol) * step;
+    const y = (centerRow - pos.row) * step;
+    return new Vec3(x, y, 0);
+  }
+  private key(pos: GridPos): string {
+    return `${pos.row}:${pos.col}`;
+  }
+  private findGoal(pos: GridPos, goals: GoalConfig[]): GoalConfig | null {
+    return goals.find((goal) => goal.row === pos.row && goal.col === pos.col) ?? null;
+  }
+  private distanceToNearestGoal(pos: GridPos, goals: GoalConfig[]): number {
+    return Math.min(...goals.map((goal) => Math.abs(goal.row - pos.row) + Math.abs(goal.col - pos.col)));
+  }
+  private redrawRunnerColor(): void {
+    if (!this.runnerNode || !this.runner) {
+   return;
+    }
+    const graphics = this.runnerNode.getComponent(Graphics);
+    if (!graphics) {
+   return;
+    }
+    graphics.clear();
+    const baseCol = this.colorForRunner(this.runner.color);
+    // 1. Soft cyber halo
+    graphics.fillColor = new Color(baseCol.r, baseCol.g, baseCol.b, 65);
+    graphics.circle(0, 0, 24);
+    graphics.fill();
+    // 2. Vibrant crystalline sphere body
+    graphics.fillColor = new Color(baseCol.r, baseCol.g, baseCol.b, 210);
+    graphics.circle(0, 0, 16);
+    graphics.fill();
+    graphics.strokeColor = this.hex('#FFFFFF');
+    graphics.lineWidth = 1.8;
+    graphics.stroke();
+    // 3. Bright white photon core
+    graphics.fillColor = this.hex('#FFFFFF');
+    graphics.circle(0, 0, 8);
+    graphics.fill();
+    // 4. Crystalline specular reflection highlight
+    graphics.fillColor = new Color(255, 255, 255, 220);
+    graphics.circle(-4, 4, 3);
+    graphics.fill();
+  }
+  private drawTopDownTile(
+    g: Graphics,
+    bgCol: Color,
+    borderCol: Color,
+    borderWidth: number,
+    w: number,
+    h: number,
+    offsetY = 0,
+    offsetX = 0,
+    shadowDepth = 6
+  ): void {
+    const halfW = w / 2;
+    const halfH = h / 2;
+    const radius = 22;
+    // 1. Draw bottom shadow/depth for 2.5D floating Neumorphic look
+    if (shadowDepth > 0) {
+   g.fillColor = this.darken(bgCol, 0.55);
+   g.roundRect(offsetX - halfW, offsetY - halfH - shadowDepth, w, h, radius);
+   g.fill();
+    }
+    // 2. Draw main square tile body
+    g.fillColor = bgCol;
+    g.roundRect(offsetX - halfW, offsetY - halfH, w, h, radius);
+    g.fill();
+    // 3. Draw border glow
+    if (borderWidth > 0) {
+   g.strokeColor = borderCol;
+   g.lineWidth = borderWidth;
+   g.stroke();
+    }
+    // 4. Draw subtle inner glassmorphic highlight on top rim
+    if (shadowDepth > 0) {
+   g.fillColor = new Color(255, 255, 255, 35);
+   g.roundRect(offsetX - halfW + 4, offsetY + halfH - 12, w - 8, 8, 4);
+   g.fill();
+    }
+  }
+  private drawDiamond(graphics: Graphics, fill: Color, stroke: Color, lineWidth: number): void {
+    // 1. Dark cyber socket base plate
+    const socketCol = new Color(16, 26, 52, 255);
+    this.drawTopDownTile(graphics, socketCol, stroke, 1.5, this.tileWidth * 0.96, this.tileHeight * 0.96, 0, 0, 4);
+    // 2. Elevated floating crystal module with breathing room
+    this.drawTopDownTile(graphics, fill, stroke, lineWidth, this.tileWidth * 0.86, this.tileHeight * 0.86, 0, 0, 6);
+  }
+  private drawIsometricPlatform(
+    graphics: Graphics,
+    topFill: Color,
+    sideDark: Color,
+    sideLight: Color,
+    stroke: Color,
+    lineWidth: number,
+    depth = 16,
+    customW = this.tileWidth,
+    customH = this.tileHeight,
+    offsetY = 0,
+    offsetX = 0
+  ): void {
+    const halfW = customW / 2;
+    const halfH = customH / 2;
+    // Left side vertical wall
+    graphics.fillColor = sideDark;
+    graphics.moveTo(offsetX - halfW, offsetY);
+    graphics.lineTo(offsetX - halfW, offsetY - depth);
+    graphics.lineTo(offsetX, offsetY - halfH - depth);
+    graphics.lineTo(offsetX, offsetY - halfH);
+    graphics.close();
+    graphics.fill();
+    // Right side vertical wall
+    graphics.fillColor = sideLight;
+    graphics.moveTo(offsetX, offsetY - halfH);
+    graphics.lineTo(offsetX, offsetY - halfH - depth);
+    graphics.lineTo(offsetX + halfW, offsetY - depth);
+    graphics.lineTo(offsetX + halfW, offsetY);
+    graphics.close();
+    graphics.fill();
+    // Bottom edge highlight / structure line
+    graphics.strokeColor = stroke;
+    graphics.lineWidth = 1.5;
+    graphics.moveTo(offsetX - halfW, offsetY - depth);
+    graphics.lineTo(offsetX, offsetY - halfH - depth);
+    graphics.lineTo(offsetX + halfW, offsetY - depth);
+    graphics.stroke();
+    graphics.moveTo(offsetX, offsetY - halfH);
+    graphics.lineTo(offsetX, offsetY - halfH - depth);
+    graphics.stroke();
+    // Top diamond surface
+    graphics.fillColor = topFill;
+    graphics.strokeColor = stroke;
+    graphics.lineWidth = lineWidth;
+    graphics.moveTo(offsetX, offsetY + halfH);
+    graphics.lineTo(offsetX + halfW, offsetY);
+    graphics.lineTo(offsetX, offsetY - halfH);
+    graphics.lineTo(offsetX - halfW, offsetY);
+    graphics.close();
+    graphics.fill();
+    graphics.stroke();
+  }
+  private drawTileArrow(graphics: Graphics, tile: TileInstance, offsetY = 0, scale = 1, offsetX = 0, lineBaseLength = 44): void {
+    const config = resolveTileConfig(tile);
+    for (const [input, output] of Object.entries(config.routing)) {
+   if (!output || output === 'dead') {
+    continue;
+   }
+   const start = this.directionPoint(input, -lineBaseLength * scale).add3f(offsetX, offsetY, 0);
+   const end = this.directionPoint(output, lineBaseLength * scale).add3f(offsetX, offsetY, 0);
+   // Outer cyan neon glow (route through center point!)
+   graphics.strokeColor = this.hex('#00F0FF');
+   graphics.lineWidth = 8 * scale;
+   graphics.moveTo(start.x, start.y);
+   graphics.lineTo(offsetX, offsetY);
+   graphics.lineTo(end.x, end.y);
+   graphics.stroke();
+   // Inner white core (route through center point!)
+   graphics.strokeColor = this.hex('#FFFFFF');
+   graphics.lineWidth = 3.8 * scale;
+   graphics.moveTo(start.x, start.y);
+   graphics.lineTo(offsetX, offsetY);
+   graphics.lineTo(end.x, end.y);
+   graphics.stroke();
+    }
+    // Center glowing crystal gem
+    graphics.fillColor = this.hex('#FFFFFF');
+    graphics.circle(offsetX, offsetY, 6 * scale);
+    graphics.fill();
+  }
+  private directionPoint(direction: string, length: number): Vec3 {
+    switch (direction) {
+   case 'up':
+    return new Vec3(0, length, 0);
+   case 'right':
+    return new Vec3(length, 0, 0);
+   case 'down':
+    return new Vec3(0, -length, 0);
+   case 'left':
+    return new Vec3(-length, 0, 0);
+   default:
+    return new Vec3(0, 0, 0);
+    }
+  }
+  private drawCard(graphics: Graphics, type: TileType): void {
+    graphics.clear();
+    // Glassmorphic card base plate (vibrant royal blue / sapphire plate, NO GREY!)
+    graphics.fillColor = new Color(37, 99, 235, 235);
+    graphics.roundRect(-this.cardWidth / 2, -this.cardHeight / 2, this.cardWidth, this.cardHeight, 18);
+    graphics.fill();
+    graphics.strokeColor = this.hex('#00F0FF');
+    graphics.lineWidth = 2.5;
+    graphics.stroke();
+    // Royal indigo label pill strip at bottom (NO GREY!)
+    graphics.fillColor = this.hex('#1E3A8A');
+    graphics.roundRect(-this.cardWidth / 2 + 6, -this.cardHeight / 2 + 6, this.cardWidth - 12, 26, 8);
+    graphics.fill();
+    // Bottom right count badge pill (vibrant violet)
+    graphics.fillColor = this.hex('#4C1D95');
+    graphics.roundRect(this.cardWidth / 2 - 36, -this.cardHeight / 2 + 36, 30, 20, 10);
+    graphics.fill();
+    graphics.strokeColor = this.hex('#A78BFA');
+    graphics.lineWidth = 1.5;
+    graphics.stroke();
+    // Top cyber accent line
+    graphics.strokeColor = this.hex('#00E5FF');
+    graphics.lineWidth = 3;
+    graphics.moveTo(-this.cardWidth / 2 + 15, this.cardHeight / 2 - 2);
+    graphics.lineTo(this.cardWidth / 2 - 15, this.cardHeight / 2 - 2);
+    graphics.stroke();
+    // Glowing backdrop aura behind the crystal inside the card
+    const topCol = this.tileColor(type);
+    graphics.fillColor = new Color(topCol.r, topCol.g, topCol.b, 110);
+    graphics.circle(0, 14, 34);
+    graphics.fill();
+    graphics.fillColor = new Color(255, 255, 255, 75);
+    graphics.circle(0, 14, 20);
+    graphics.fill();
+    // Big bright 3D isometric crystal in upper area (offsetY = 14, brighter side walls)
+    this.drawIsometricPlatform(graphics, topCol, this.darken(topCol, 0.75), this.darken(topCol, 0.9), this.hex('#FFFFFF'), 3, 14, 76, 44, 14);
+  }
+  private darken(color: Color, factor: number): Color {
+    return new Color(
+   Math.round(color.r * factor),
+   Math.round(color.g * factor),
+   Math.round(color.b * factor),
+   color.a
+    );
+  }
+  private tileColor(type: TileType): Color {
+    switch (type) {
+   case 'curve':
+    return this.hex('#10B981');
+   case 'cross':
+    return this.hex('#60A5FA');
+   case 'collapse':
+    return this.hex('#F59E0B');
+   case 'boost':
+    return this.hex('#F472B6');
+   case 'paint_red':
+   case 'gate_red':
+    return this.hex('#EF4444');
+   case 'paint_blue':
+   case 'gate_blue':
+    return this.hex('#3B82F6');
+   case 'universal':
+    return this.hex('#FDE68A');
+   case 'straight':
+   default:
+    return this.hex('#06B6D4');
+    }
+  }
+  private colorForRunner(color: RunnerColor): Color {
+    switch (color) {
+   case 'red':
+    return this.hex('#FF5A6A');
+   case 'blue':
+    return this.hex('#4AA3FF');
+   case 'yellow':
+    return this.hex('#FDE047');
+   case 'none':
+   default:
+    return this.hex('#F8FEFF');
+    }
+  }
+  private hex(value: string): Color {
+    const color = new Color();
+    Color.fromHEX(color, value);
+    return color;
+  }
+  private isPathCompleted(): boolean {
+    if (!this.grid || !this.runner || !this.level) {
+   return false;
+    }
+    const preview = RouteSimulator.simulate(this.grid, this.runner, this.level.goals);
+    return preview.path.length > 0 && preview.path[0].result === 'goal';
+  }
+  public redrawBulletTimeMeter(): void {
+    if (!this.bulletTimeGraphics || !this.bulletTimeValueLabel) {
+   return;
+    }
+    const g = this.bulletTimeGraphics;
+    g.clear();
+    // Track
+    g.fillColor = this.hex('#0B132B');
+    g.roundRect(-4, -40, 8, 80, 4);
+    g.fill();
+    // Active Liquid Fill
+    const ratio = Math.max(0, Math.min(1, this.currentBulletTime / this.maxBulletTime));
+    const barH = 80 * ratio;
+    if (barH > 1) {
+   if (ratio > 0.5) {
+    g.fillColor = this.hex('#00F0FF');
+   } else if (ratio > 0.25) {
+    g.fillColor = this.hex('#FBBF24');
+   } else {
+    g.fillColor = this.hex('#FF3B30');
+   }
+   g.roundRect(-4, -40, 8, barH, 4);
+   g.fill();
+    }
+    this.bulletTimeValueLabel.string = `${this.currentBulletTime.toFixed(1)}s`;
+    if (ratio <= 0.25) {
+   this.bulletTimeValueLabel.color = this.hex('#FF3B30');
+    } else {
+   this.bulletTimeValueLabel.color = this.hex('#00F0FF');
+    }
+  }
+  private updateLabels(): void {
+    if (this.levelLabel && this.level) {
+   this.levelLabel.string = `第 ${this.level.id} 关  ${this.level.name}`;
+    }
+    if (this.tipLabel && this.level) {
+   this.tipLabel.string = `手数 ${this.usedMoves}/${this.level.recommendedMoves}   救场能量 ${this.flowEnergy}`;
+    }
+  }
+  private setStatus(text: string): void {
+    if (this.statusLabel) {
+   this.statusLabel.string = text;
+    }
+  }
+  private clearNode(node: Node | null): void {
+    if (!node) {
+   return;
+    }
+    node.destroyAllChildren();
+  }
+}
+// ====================================================================================
+// [源码模块 2/17] assets/scripts/components/SceneBootstrap.ts
+// ====================================================================================
+import { _decorator, Button, Color, Component, Graphics, Label, Layers, Node, ResolutionPolicy, UITransform, Vec3, view } from 'cc';
+import { GameRoot } from './GameRoot';
+import { HomeRoot } from './HomeRoot';
+import { LevelSelect } from './LevelSelect';
+import { ReviveModal } from './ReviveModal';
+import { SettingsModal } from './SettingsModal';
+import { VictoryPoster } from './VictoryPoster';
+const { ccclass } = _decorator;
+@ccclass('SceneBootstrap')
+export class SceneBootstrap extends Component {
+  private homePageRoot: Node | null = null;
+  private gamePageRoot: Node | null = null;
+  private levelSelectRootNode: Node | null = null;
+  private settingsModalRootNode: Node | null = null;
+  private reviveModalRootNode: Node | null = null;
+  private victoryPosterRootNode: Node | null = null;
+  private bgGraphicsNode: Graphics | null = null;
+  private currentTheme = 0; // 0: Icefield, 1: Violet Dusk, 2: Sunset Glow
+  private closeAllModals(): void {
+    if (this.settingsModalRootNode) this.settingsModalRootNode.active = false;
+    if (this.reviveModalRootNode) this.reviveModalRootNode.active = false;
+    if (this.victoryPosterRootNode) this.victoryPosterRootNode.active = false;
+  }
+  private applyTheme(themeIdx: number): void {
+    console.log(`[SceneBootstrap] Apply Theme Index ${themeIdx}`);
+    this.currentTheme = themeIdx;
+    if (!this.bgGraphicsNode) return;
+    const g = this.bgGraphicsNode;
+    g.clear();
+    if (themeIdx === 1) {
+   // Theme 1: Violet Dusk (暮色罗兰 - Deep Amethyst Twilight)
+   g.fillColor = this.hex('#0E0818');
+   g.rect(-1280, -1280, 2560, 2560);
+   g.fill();
+   g.fillColor = this.hex('#4C1D95');
+   ((g.fillColor) as ((any)) as any).a = 55;
+   g.circle(0, 320, 500);
+   g.fill();
+   g.fillColor = this.hex('#6B21A8');
+   ((g.fillColor) as ((any)) as any).a = 45;
+   g.circle(450, 180, 480);
+   g.fill();
+   g.fillColor = this.hex('#831843');
+   ((g.fillColor) as ((any)) as any).a = 35;
+   g.circle(-350, -150, 420);
+   g.fill();
+    } else if (themeIdx === 2) {
+   // Theme 2: Sunset Glow (落日余晖 - Deep Terracotta Dusk)
+   g.fillColor = this.hex('#120808');
+   g.rect(-1280, -1280, 2560, 2560);
+   g.fill();
+   g.fillColor = this.hex('#7C2D12');
+   ((g.fillColor) as ((any)) as any).a = 55;
+   g.circle(0, 320, 500);
+   g.fill();
+   g.fillColor = this.hex('#9A3412');
+   ((g.fillColor) as ((any)) as any).a = 45;
+   g.circle(450, 180, 480);
+   g.fill();
+   g.fillColor = this.hex('#B45309');
+   ((g.fillColor) as ((any)) as any).a = 35;
+   g.circle(-350, -150, 420);
+   g.fill();
+    } else {
+   // Theme 0: Icefield (极光冰原 - Sapphire/Cyan)
+   g.fillColor = this.hex('#101E4A');
+   g.rect(-1280, -1280, 2560, 2560);
+   g.fill();
+   g.fillColor = this.hex('#0083B0');
+   ((g.fillColor) as ((any)) as any).a = 140;
+   g.circle(0, 320, 500);
+   g.fill();
+   g.fillColor = this.hex('#6B21A8');
+   ((g.fillColor) as ((any)) as any).a = 130;
+   g.circle(450, 180, 480);
+   g.fill();
+   g.fillColor = this.hex('#00F0FF');
+   ((g.fillColor) as ((any)) as any).a = 70;
+   g.circle(-350, -150, 420);
+   g.fill();
+    }
+    this.drawBackgroundDecorations(g, themeIdx);
+    if (this.homePageRoot) {
+   const home = this.homePageRoot.getComponent(HomeRoot);
+   if (home) home.applyTheme(themeIdx);
+    }
+    if (this.levelSelectRootNode) {
+   const levelSelect = this.levelSelectRootNode.getComponent(LevelSelect);
+   if (levelSelect) levelSelect.applyTheme(themeIdx);
+    }
+    if (this.gamePageRoot) {
+   const game = this.gamePageRoot.getComponent(GameRoot);
+   if (game) game.applyTheme(themeIdx);
+    }
+    if (this.settingsModalRootNode) {
+   const settings = this.settingsModalRootNode.getComponent(SettingsModal);
+   if (settings) settings.applyTheme(themeIdx);
+    }
+  }
+  private drawBackgroundDecorations(graphics: Graphics, themeIdx: number): void {
+    // 5. Center Nebula Aura
+    graphics.fillColor = themeIdx === 1 ? this.hex('#3B0764') : (themeIdx === 2 ? this.hex('#451A03') : this.hex('#312E81'));
+    ((graphics.fillColor) as ((any)) as any).a = 80;
+    graphics.circle(0, 0, 450);
+    graphics.fill();
+    // 6. Distant Floating Isometric Shards
+    const shards = [
+   { x: -500, y: 240, size: 55, colTop: '#3B82F6', colLeft: '#1D4ED8', colRight: '#1E3A8A', a: 130, h: 26 },
+   { x: 540, y: 200, size: 45, colTop: '#A855F7', colLeft: '#6B21A8', colRight: '#4C1D95', a: 120, h: 22 },
+   { x: -540, y: -40, size: 42, colTop: '#00F0FF', colLeft: '#0083B0', colRight: '#004D61', a: 140, h: 20 },
+   { x: 560, y: -60, size: 60, colTop: '#EC4899', colLeft: '#BE185D', colRight: '#831843', a: 110, h: 28 },
+   { x: -440, y: -250, size: 50, colTop: '#60A5FA', colLeft: '#2563EB', colRight: '#1D4ED8', a: 125, h: 24 },
+   { x: 490, y: -230, size: 52, colTop: '#C084FC', colLeft: '#7E22CE', colRight: '#581C87', a: 130, h: 26 },
+   { x: -290, y: 290, size: 36, colTop: '#F472B6', colLeft: '#DB2777', colRight: '#9D174D', a: 105, h: 16 },
+   { x: 330, y: 270, size: 38, colTop: '#38BDF8', colLeft: '#0284C7', colRight: '#0369A1', a: 115, h: 18 },
+   { x: -590, y: 100, size: 32, colTop: '#818CF8', colLeft: '#4F46E5', colRight: '#3730A3', a: 100, h: 15 },
+   { x: 590, y: 80, size: 34, colTop: '#34D399', colLeft: '#059669', colRight: '#047857', a: 110, h: 16 },
+   { x: -220, y: -280, size: 44, colTop: '#E879F9', colLeft: '#A21CAF', colRight: '#701A75', a: 120, h: 20 },
+   { x: 240, y: -270, size: 46, colTop: '#60A5FA', colLeft: '#3B82F6', colRight: '#1D4ED8', a: 125, h: 22 },
+    ];
+    for (const s of shards) {
+   const halfW = s.size;
+   const halfH = s.size * 0.5;
+   let topCol = this.hex(s.colTop);
+   let leftCol = this.hex(s.colLeft);
+   let rightCol = this.hex(s.colRight);
+   if (themeIdx === 1) {
+    topCol = this.hex('#7C3AED'); leftCol = this.hex('#581C87'); rightCol = this.hex('#3B0764');
+   } else if (themeIdx === 2) {
+    topCol = this.hex('#C2410C'); leftCol = this.hex('#9A3412'); rightCol = this.hex('#7C2D12');
+   }
+   ((topCol) as ((any)) as any).a = s.a; ((leftCol) as ((any)) as any).a = s.a; ((rightCol) as ((any)) as any).a = s.a;
+   graphics.fillColor = topCol;
+   graphics.moveTo(s.x, s.y + halfH);
+   graphics.lineTo(s.x + halfW, s.y);
+   graphics.lineTo(s.x, s.y - halfH);
+   graphics.lineTo(s.x - halfW, s.y);
+   graphics.close();
+   graphics.fill();
+   graphics.fillColor = leftCol;
+   graphics.moveTo(s.x - halfW, s.y);
+   graphics.lineTo(s.x, s.y - halfH);
+   graphics.lineTo(s.x, s.y - halfH - s.h);
+   graphics.lineTo(s.x - halfW, s.y - s.h);
+   graphics.close();
+   graphics.fill();
+   graphics.fillColor = rightCol;
+   graphics.moveTo(s.x, s.y - halfH);
+   graphics.lineTo(s.x + halfW, s.y);
+   graphics.lineTo(s.x + halfW, s.y - s.h);
+   graphics.lineTo(s.x, s.y - halfH - s.h);
+   graphics.close();
+   graphics.fill();
+   graphics.strokeColor = this.hex('#FFFFFF');
+   ((graphics.strokeColor) as ((any)) as any).a = s.a + 50;
+   graphics.lineWidth = 1.5;
+   graphics.moveTo(s.x, s.y + halfH);
+   graphics.lineTo(s.x + halfW, s.y);
+   graphics.lineTo(s.x, s.y - halfH);
+   graphics.lineTo(s.x - halfW, s.y);
+   graphics.close();
+   graphics.stroke();
+    }
+    // 7. Starfield particles & cyber sparkles
+    for (let i = 0; i < 45; i++) {
+   const x = Math.sin(i * 997) * 620;
+   const y = Math.cos(i * 631) * 360;
+   const radius = 1.2 + (i % 3) * 0.8;
+   graphics.fillColor = themeIdx === 1 ? (i % 2 === 0 ? this.hex('#E879F9') : this.hex('#FFFFFF')) : (themeIdx === 2 ? (i % 2 === 0 ? this.hex('#FDE047') : this.hex('#FFFFFF')) : (i % 4 === 0 ? this.hex('#00F0FF') : (i % 3 === 0 ? this.hex('#F472B6') : this.hex('#FFFFFF'))));
+   ((graphics.fillColor) as ((any)) as any).a = 160 + (i % 5) * 18;
+   graphics.circle(x, y, radius);
+   graphics.fill();
+   if (radius > 2) {
+    graphics.strokeColor = graphics.fillColor;
+    graphics.lineWidth = 1;
+    graphics.moveTo(x - radius * 2.5, y);
+    graphics.lineTo(x + radius * 2.5, y);
+    graphics.moveTo(x, y - radius * 2.5);
+    graphics.lineTo(x, y + radius * 2.5);
+    graphics.stroke();
+   }
+    }
+  }
+  protected onLoad(): void {
+    console.log('[FloatFlow] SceneBootstrap onLoad');
+    view.setDesignResolutionSize(720, 1558, ResolutionPolicy.FIXED_WIDTH);
+    const visibleSize = view.getVisibleSize();
+    const root = this.node;
+    root.name = root.name || 'Root';
+    root.layer = Layers.Enum.UI_2D;
+    root.setPosition(new Vec3(0, 0, 0));
+    this.ensureTransform(root, visibleSize.width, visibleSize.height);
+    root.destroyAllChildren();
+    // 0. Shared Cosmic Sapphire Background
+    const bgRoot = this.createRoot('BgRoot', new Vec3(0, 0, 0));
+    this.createBackground(bgRoot);
+    // 1. Home Page Root (Default Active!)
+    const homePage = this.createRoot('HomePage', new Vec3(0, 0, 0));
+    this.homePageRoot = homePage;
+    const home = homePage.addComponent(HomeRoot);
+    // 2. Game Page Root (Hidden by default until player starts a game!)
+    const gamePage = this.createRoot('GamePage', new Vec3(0, 0, 0));
+    this.gamePageRoot = gamePage;
+    gamePage.active = false;
+    const halfW = visibleSize.width / 2;
+    const halfH = visibleSize.height / 2;
+    const boardRoot = this.createRoot('BoardRoot', new Vec3(0, 215, 0), gamePage);
+    const previewRoot = this.createRoot('PreviewRoot', new Vec3(0, 215, 0), gamePage);
+    const runnerRoot = this.createRoot('RunnerRoot', new Vec3(0, 215, 0), gamePage);
+    const cardRoot = this.createRoot('CardRoot', new Vec3(0, -240, 0), gamePage);
+    const uiRoot = this.createRoot('UI', new Vec3(0, 0, 0), gamePage);
+    // 1. Top Navigation Bar with embedded Level Label (never overlaps!)
+    const levelLabel = this.createTopNav(uiRoot, new Vec3(0, halfH - 52, 0));
+    // 2. Bottom Card Deck Background tightly matching CardRoot at Y = -240 (spans -328 to -152)
+    this.createBottomDeck(uiRoot, new Vec3(0, -240, 0));
+    // 3. Tip Pill & Status Label safely between Board (-15) and CardRoot (-152)
+    const tipPill = this.createRoot('TipPill', new Vec3(0, -50, 0), uiRoot);
+    this.ensureTransform(tipPill, 420, 42);
+    const tg = tipPill.addComponent(Graphics);
+    tg.fillColor = this.hex('#080E24');
+    ((tg.fillColor) as any).a = 210;
+    tg.roundRect(-210, -21, 420, 42, 21);
+    tg.fill();
+    tg.strokeColor = this.hex('#3B82F6');
+    tg.lineWidth = 2.0;
+    tg.stroke();
+    const tipLabel = this.createLabel(tipPill, 'TipLabel', new Vec3(0, 1, 0), '长按任意手牌：时空减速 ❓', 17, '#00F0FF', 380, 32);
+    const statusLabel = this.createLabel(uiRoot, 'StatusLabel', new Vec3(0, -100, 0), '拖动手牌到地图放置', 22, '#60A5FA', 680, 36);
+    const game = gamePage.getComponent(GameRoot) ?? gamePage.addComponent(GameRoot);
+    game.boardRoot = boardRoot;
+    game.previewRoot = previewRoot;
+    game.runnerRoot = runnerRoot;
+    game.cardRoot = cardRoot;
+    game.levelLabel = levelLabel;
+    game.tipLabel = tipLabel;
+    game.statusLabel = statusLabel;
+    // 4. Left Bullet Time Meter & Right Action Buttons aligned with Board center (+215)
+    const btMeter = this.createBulletTimeMeter(uiRoot, new Vec3(-halfW + 45, 215, 0));
+    game.bulletTimeNode = btMeter.node;
+    game.bulletTimeGraphics = btMeter.graphics;
+    game.bulletTimeValueLabel = btMeter.valueLabel;
+    this.createSideActionButtons(uiRoot, game, new Vec3(halfW - 45, 215, 0));
+    // 5. Control Buttons moved DOWN BELOW (-425 and -535) the crystal selection tray (-328 bottom)! ZERO OVERLAP!
+    this.createSecondaryButton(uiRoot, 'RestartButton', new Vec3(-180, -535, 0), '🔄 重新尝试', () => game.restartLevel());
+    this.createHeroButton(uiRoot, 'StartButton', new Vec3(0, -425, 0), '⚡  启动流光  [ 释放光速波 ]', () => game.startRunner());
+    this.createSecondaryButton(uiRoot, 'NextButton', new Vec3(180, -535, 0), '⏭️ 下一关卡', () => game.loadNextLevel());
+    // 3. Settings Modal Root (Hidden by default!)
+    const settingsModalRoot = this.createRoot('SettingsModalRoot', new Vec3(0, 0, 0));
+    settingsModalRoot.active = false;
+    this.settingsModalRootNode = settingsModalRoot;
+    const settingsModal = settingsModalRoot.addComponent(SettingsModal);
+    settingsModal.onThemeChangedCallback = (idx: number) => {
+   this.applyTheme(idx);
+    };
+    // 6. Revive Modal Root (Hidden by default!)
+    const reviveModalRoot = this.createRoot('ReviveModalRoot', new Vec3(0, 0, 0));
+    reviveModalRoot.active = false;
+    this.reviveModalRootNode = reviveModalRoot;
+    const reviveModal = reviveModalRoot.addComponent(ReviveModal);
+    reviveModal.onReviveCallback = () => {
+   console.log('[SceneBootstrap] Revive -> Continue runner!');
+   game.reviveRunner();
+    };
+    reviveModal.onGiveUpCallback = () => {
+   console.log('[SceneBootstrap] Give up -> Restart level!');
+   game.restartLevel();
+    };
+    game.onShowReviveModalCallback = () => {
+   console.log('[SceneBootstrap] Show Revive Modal!');
+   reviveModalRoot.active = true;
+    };
+    // 7. Level Select Root (Hidden by default!)
+    const levelSelectRoot = this.createRoot('LevelSelectRoot', new Vec3(0, 0, 0));
+    levelSelectRoot.active = false;
+    this.levelSelectRootNode = levelSelectRoot;
+    const levelSelect = levelSelectRoot.addComponent(LevelSelect);
+    levelSelect.onSelectLevelCallback = (idx: number) => {
+   console.log(`[SceneBootstrap] LevelSelect -> Start Level Index ${idx}!`);
+   this.closeAllModals();
+   levelSelectRoot.active = false;
+   gamePage.active = true;
+   game.loadLevel(idx);
+    };
+    levelSelect.onReturnHomeCallback = () => {
+   console.log('[SceneBootstrap] LevelSelect -> Return to HomePage!');
+   this.closeAllModals();
+   levelSelectRoot.active = false;
+   homePage.active = true;
+    };
+    levelSelect.onStartEndlessCallback = () => {
+   console.log('[SceneBootstrap] LevelSelect -> Start Endless Mode!');
+   this.closeAllModals();
+   levelSelectRoot.active = false;
+   gamePage.active = true;
+   game.restartLevel();
+    };
+    // 8. Victory Poster Root (Hidden by default!)
+    const victoryPosterRoot = this.createRoot('VictoryPosterRoot', new Vec3(0, 0, 0));
+    victoryPosterRoot.active = false;
+    this.victoryPosterRootNode = victoryPosterRoot;
+    const victoryPoster = victoryPosterRoot.addComponent(VictoryPoster);
+    victoryPoster.onCloseCallback = () => {
+   console.log('[SceneBootstrap] VictoryPoster closed -> Return to LevelSelect!');
+   this.closeAllModals();
+   gamePage.active = false;
+   levelSelectRoot.active = true;
+    };
+    victoryPoster.onNextLevelCallback = () => {
+   console.log('[SceneBootstrap] VictoryPoster Next Level -> Load Next!');
+   this.closeAllModals();
+   game.loadNextLevel();
+    };
+    game.onShowVictoryPosterCallback = (levelName: string, stars: number, moves: number) => {
+   console.log(`[SceneBootstrap] Show Victory Poster for ${levelName}!`);
+   victoryPosterRoot.active = true;
+   victoryPoster.showVictory(levelName, stars, moves);
+    };
+    // Connect Home Page to Game Page, Level Select & Settings!
+    home.onOpenSettingsCallback = () => {
+   console.log('[SceneBootstrap] Open Settings Modal!');
+   settingsModalRoot.active = true;
+    };
+    home.onStartJourneyCallback = () => {
+   console.log('[SceneBootstrap] Start Journey Mode -> Open LevelSelect!');
+   this.closeAllModals();
+   homePage.active = false;
+   levelSelectRoot.active = true;
+    };
+    home.onStartEndlessCallback = () => {
+   console.log('[SceneBootstrap] Start Endless Mode -> Switch to GamePage!');
+   this.closeAllModals();
+   homePage.active = false;
+   gamePage.active = true;
+   game.restartLevel();
+    };
+  }
+  private createRoot(name: string, position: Vec3, parent?: Node): Node {
+    const node = new Node(name);
+    node.layer = Layers.Enum.UI_2D;
+    node.setParent(parent || this.node);
+    node.setPosition(position);
+    this.ensureTransform(node, 1, 1);
+    return node;
+  }
+  private createBackground(parent: Node): void {
+    const node = new Node('Background');
+    node.layer = Layers.Enum.UI_2D;
+    node.setParent(parent);
+    node.setPosition(new Vec3(0, 0, -10));
+    this.ensureTransform(node, 2560, 2560);
+    const graphics = node.addComponent(Graphics);
+    this.bgGraphicsNode = graphics;
+    this.applyTheme(0);
+  }
+  private createTopNav(parent: Node, position: Vec3): Label {
+    const node = new Node('TopNav');
+    node.layer = Layers.Enum.UI_2D;
+    node.setParent(parent);
+    node.setPosition(position);
+    this.ensureTransform(node, 700, 80);
+    const graphics = node.addComponent(Graphics);
+    // Glassmorphic top navigation panel
+    graphics.fillColor = this.hex('#0D162C');
+    ((graphics.fillColor) as ((any)) as any).a = 220;
+    graphics.roundRect(-350, -40, 700, 80, 26);
+    graphics.fill();
+    graphics.strokeColor = this.hex('#00F0FF');
+    graphics.lineWidth = 2.0;
+    graphics.stroke();
+    // Left Pause Icon Button [ || ]
+    graphics.fillColor = this.hex('#1E293B');
+    graphics.roundRect(-335, -22, 44, 44, 12);
+    graphics.fill();
+    graphics.strokeColor = this.hex('#00F0FF');
+    graphics.lineWidth = 2.5;
+    graphics.moveTo(-317, -10);
+    graphics.lineTo(-317, 10);
+    graphics.moveTo(-309, -10);
+
+/* === 中间省略，以下为后半部分 === */
+
+   ((g.fillColor) as ((any)) as any).a = 230;
+   g.roundRect(-85, -70, 170, 140, 16);
+   g.fill();
+   g.strokeColor = isSelected ? this.hex(th.border) : this.hex('#334155');
+   g.lineWidth = isSelected ? 3 : 1.5;
+   g.stroke();
+   // Draw 3D isometric mini cube
+   this.drawIsometricBlock(g, this.hex(th.top), this.hex(th.side), this.hex('#0F172A'), this.hex(th.border), 1.5, 12, 48, 28, 15, 0);
+   this.createLabel(card, 'Name', new Vec3(0, -25, 0), th.name, 17, isSelected ? '#FFFFFF' : '#CBD5E1', 150, 26);
+   this.createLabel(card, 'Desc', new Vec3(0, -48, 0), th.desc, 12, '#64748B', 150, 20);
+   if (isSelected) {
+    const badge = this.createNode('Badge', new Vec3(65, 50, 0), card);
+    this.ensureTransform(badge, 26, 26);
+    const bg = badge.addComponent(Graphics);
+    bg.fillColor = this.hex(th.border);
+    bg.circle(0, 0, 12);
+    bg.fill();
+    this.createLabel(badge, 'Check', new Vec3(0, 1, 0), '✔', 14, '#000000', 24, 24);
+   }
+   this.addClick(card, () => {
+    if (this.selectedTheme !== idx) {
+    console.log(`[SettingsModal] Selected Theme ${th.name}`);
+    this.selectedTheme = idx;
+    this.updateDialogStyle();
+    this.renderTabs();
+    this.renderContent();
+    if (this.onThemeChangedCallback) {
+    this.onThemeChangedCallback(idx);
+    }
+    }
+   });
+    });
+    // Bullet Time Sensitivity Row Container (Y = -65)
+    const btRow = this.createNode('BTRow', new Vec3(0, -65, 0), parent);
+    this.ensureTransform(btRow, 580, 50);
+    const btG = btRow.addComponent(Graphics);
+    btG.fillColor = this.hex('#1E293B');
+    ((btG.fillColor) as ((any)) as any).a = 150;
+    btG.roundRect(-290, -25, 580, 50, 14);
+    btG.fill();
+    btG.strokeColor = this.hex('#334155');
+    btG.lineWidth = 1.2;
+    btG.stroke();
+    this.createLabel(btRow, 'SliderLabel', new Vec3(-195, 0, 0), '⏱️ 子弹时间速率', 15, '#93C5FD', 150, 28);
+    const speeds = ['慢速 (25%)', '适中 (50%)', '极速 (100%)'];
+    const speedXs = [-50, 80, 210];
+    speeds.forEach((sp, i) => {
+   const isSel = this.bulletTimeSpeed === i;
+   const btn = this.createNode(`Speed_${i}`, new Vec3(speedXs[i], 0, 0), btRow);
+   this.ensureTransform(btn, 116, 36);
+   const bg = btn.addComponent(Graphics);
+   bg.fillColor = isSel ? this.hex('#2563EB') : this.hex('#0F172A');
+   bg.roundRect(-58, -18, 116, 36, 10);
+   bg.fill();
+   bg.strokeColor = isSel ? this.hex('#00F0FF') : this.hex('#334155');
+   bg.lineWidth = 1.5;
+   bg.stroke();
+   this.createLabel(btn, 'Text', new Vec3(0, 1, 0), sp, 13, isSel ? '#FFFFFF' : '#94A3B8', 110, 26);
+   this.addClick(btn, () => {
+    this.bulletTimeSpeed = i;
+    this.renderContent();
+   });
+    });
+    // Graphics Quality Selector Row Container (Y = -135)
+    const qRow = this.createNode('QRow', new Vec3(0, -135, 0), parent);
+    this.ensureTransform(qRow, 580, 50);
+    const qG = qRow.addComponent(Graphics);
+    qG.fillColor = this.hex('#1E293B');
+    ((qG.fillColor) as ((any)) as any).a = 150;
+    qG.roundRect(-290, -25, 580, 50, 14);
+    qG.fill();
+    qG.strokeColor = this.hex('#334155');
+    qG.lineWidth = 1.2;
+    qG.stroke();
+    this.createLabel(qRow, 'QualityLabel', new Vec3(-195, 0, 0), '✨ 视网膜渲染画质', 15, '#93C5FD', 150, 28);
+    const qualities = ['流畅 (60fps)', '均衡 (HD)', '极清 (Retina)'];
+    qualities.forEach((q, i) => {
+   const isSel = this.selectedQuality === i;
+   const btn = this.createNode(`Qual_${i}`, new Vec3(speedXs[i], 0, 0), qRow);
+   this.ensureTransform(btn, 116, 36);
+   const bg = btn.addComponent(Graphics);
+   bg.fillColor = isSel ? this.hex('#4C1D95') : this.hex('#0F172A');
+   bg.roundRect(-58, -18, 116, 36, 10);
+   bg.fill();
+   bg.strokeColor = isSel ? this.hex('#E879F9') : this.hex('#334155');
+   bg.lineWidth = 1.5;
+   bg.stroke();
+   this.createLabel(btn, 'Text', new Vec3(0, 1, 0), q, 13, isSel ? '#FFFFFF' : '#94A3B8', 110, 26);
+   this.addClick(btn, () => {
+    this.selectedQuality = i;
+    this.renderContent();
+   });
+    });
+  }
+  private renderGameplayRulesTab(parent: Node): void {
+    const rulesBox = this.createNode('RulesBox', new Vec3(0, 0, 0), parent);
+    this.ensureTransform(rulesBox, 600, 320);
+    const g = rulesBox.addComponent(Graphics);
+    g.fillColor = this.hex('#1E293B');
+    ((g.fillColor) as ((any)) as any).a = 180;
+    g.roundRect(-300, -160, 600, 320, 18);
+    g.fill();
+    g.strokeColor = this.hex('#3B82F6');
+    g.lineWidth = 1.5;
+    g.stroke();
+    this.createLabel(rulesBox, 'Title', new Vec3(0, 125, 0), '⚡ 浮岛浮光 · 玩法与进阶技巧', 20, '#FDE047', 500, 36);
+    const rules = [
+   '🔷  放置与接通：拖拽下方卡牌堆的水晶地砖，放置在上方棋盘对应方格，接通从起点至终点的光轨通道。',
+   '⏱️  子弹时间：当小球行进到拐角或通路中断处时，系统自动触发极限减速，为你争取宝贵的反应时间！',
+   '🔄  预测与擦除：点击右侧 [预览] 可预测光轨走向；放置失误或卡死时，可点击 [擦除] 重置当前手牌。',
+   '🎁  救场与无敌：若小球不幸坠落，可通过微信好友助力瞬间复活，并获得 3 秒无敌光环冲过难关！'
+    ];
+    rules.forEach((r, idx) => {
+   const y = 60 - idx * 56;
+   const rNode = this.createNode(`Rule_${idx}`, new Vec3(0, y, 0), rulesBox);
+   this.ensureTransform(rNode, 550, 48);
+   const rg = rNode.addComponent(Graphics);
+   rg.fillColor = this.hex('#0F172A');
+   ((rg.fillColor) as ((any)) as any).a = 200;
+   rg.roundRect(-270, -22, 540, 44, 12);
+   rg.fill();
+   this.createLabel(rNode, 'Text', new Vec3(-10, 0, 0), r, 14, '#E2E8F0', 520, 40);
+    });
+  }
+  private renderAboutTab(parent: Node): void {
+    const aboutBox = this.createNode('AboutBox', new Vec3(0, 20, 0), parent);
+    this.ensureTransform(aboutBox, 580, 240);
+    const g = aboutBox.addComponent(Graphics);
+    g.fillColor = this.hex('#1E293B');
+    ((g.fillColor) as ((any)) as any).a = 200;
+    g.roundRect(-290, -120, 580, 240, 18);
+    g.fill();
+    g.strokeColor = this.hex('#60A5FA');
+    g.lineWidth = 2;
+    g.stroke();
+    this.createLabel(aboutBox, 'Emblem', new Vec3(0, 75, 0), '✨  浮 岛 浮 光   (Flow Land Light)  ✨', 24, '#00F0FF', 500, 36);
+    this.createLabel(aboutBox, 'Sub', new Vec3(0, 35, 0), 'Cocos Creator 微信小游戏 · 纯代码程序化视网膜渲染引擎', 15, '#93C5FD', 520, 26);
+    this.createLabel(aboutBox, 'Ver', new Vec3(0, -10, 0), '当前版本: v1.0.0 (Retina 纯程序化版)  |  引擎: Cocos Creator', 14, '#CBD5E1', 500, 24);
+    this.createLabel(aboutBox, 'Team', new Vec3(0, -45, 0), '核心特色: 零外部图片资源依赖 · 视网膜级锐利画质 · 极速加载', 14, '#FDE047', 520, 24);
+    this.createLabel(aboutBox, 'Copy', new Vec3(0, -80, 0), '© 2026 Antigravity AI Team. All Rights Reserved.', 13, '#64748B', 400, 20);
+    // Reset Progress Button (Y = -140)
+    const resetBtn = this.createNode('ResetBtn', new Vec3(0, -140, 0), parent);
+    this.ensureTransform(resetBtn, 260, 46);
+    const rg = resetBtn.addComponent(Graphics);
+    rg.fillColor = this.hex('#991B1B');
+    rg.roundRect(-130, -23, 260, 46, 14);
+    rg.fill();
+    rg.strokeColor = this.hex('#F87171');
+    rg.lineWidth = 1.8;
+    rg.stroke();
+    this.createLabel(resetBtn, 'Text', new Vec3(0, 1, 0), '🔄  重置所有关卡进度', 16, '#FFFFFF', 220, 30);
+    this.addClick(resetBtn, () => {
+   console.log('[SettingsModal] Clicked Reset Progress!');
+   this.closeModal();
+    });
+  }
+  private drawIsometricBlock(
+    g: Graphics,
+    topFill: Color, sideDark: Color, sideLight: Color, stroke: Color,
+    lineWidth: number, depth: number, customW: number, customH: number, offsetY: number, offsetX: number
+  ): void {
+    const halfW = customW / 2;
+    const halfH = customH / 2;
+    g.fillColor = sideDark;
+    g.moveTo(offsetX - halfW, offsetY);
+    g.lineTo(offsetX - halfW, offsetY - depth);
+    g.lineTo(offsetX, offsetY - halfH - depth);
+    g.lineTo(offsetX, offsetY - halfH);
+    g.close();
+    g.fill();
+    g.fillColor = sideLight;
+    g.moveTo(offsetX, offsetY - halfH);
+    g.lineTo(offsetX, offsetY - halfH - depth);
+    g.lineTo(offsetX + halfW, offsetY - depth);
+    g.lineTo(offsetX + halfW, offsetY);
+    g.close();
+    g.fill();
+    g.strokeColor = stroke;
+    g.lineWidth = lineWidth;
+    g.moveTo(offsetX - halfW, offsetY - depth);
+    g.lineTo(offsetX, offsetY - halfH - depth);
+    g.lineTo(offsetX + halfW, offsetY - depth);
+    g.stroke();
+    g.moveTo(offsetX, offsetY - halfH);
+    g.lineTo(offsetX, offsetY - halfH - depth);
+    g.stroke();
+    g.fillColor = topFill;
+    g.strokeColor = stroke;
+    g.lineWidth = lineWidth;
+    g.moveTo(offsetX, offsetY + halfH);
+    g.lineTo(offsetX + halfW, offsetY);
+    g.lineTo(offsetX, offsetY - halfH);
+    g.lineTo(offsetX - halfW, offsetY);
+    g.close();
+    g.fill();
+    g.stroke();
+  }
+  private createNode(name: string, pos: Vec3, parent?: Node): Node {
+    const node = new Node(name);
+    node.layer = Layers.Enum.UI_2D;
+    if (parent) node.setParent(parent);
+    node.setPosition(pos);
+    return node;
+  }
+  private ensureTransform(node: Node, w: number, h: number): UITransform {
+    let t = node.getComponent(UITransform);
+    if (!t) t = node.addComponent(UITransform);
+    t.setContentSize(w, h);
+    return t;
+  }
+  private createLabel(parent: Node, name: string, pos: Vec3, text: string, fontSize: number, hexColor: string, w: number, h: number): Label {
+    const node = this.createNode(name, pos, parent);
+    this.ensureTransform(node, w, h);
+    const label = node.addComponent(Label);
+    label.string = text;
+    label.fontSize = fontSize;
+    label.lineHeight = Math.round(fontSize * 1.2);
+    label.color = this.hex(hexColor);
+    label.horizontalAlign = Label.HorizontalAlign.CENTER;
+    label.verticalAlign = Label.VerticalAlign.CENTER;
+    label.overflow = Label.Overflow.SHRINK;
+    return label;
+  }
+  private hex(hexStr: string): Color {
+    const clean = hexStr.replace('#', '');
+    const r = parseInt(clean.substring(0, 2), 16) || 0;
+    const g = parseInt(clean.substring(2, 4), 16) || 0;
+    const b = parseInt(clean.substring(4, 6), 16) || 0;
+    return new Color(r, g, b, 255);
+  }
+}
+// ====================================================================================
+// [源码模块 6/17] assets/scripts/components/VictoryPoster.ts
+// ====================================================================================
+import { _decorator, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UITransform, Vec3 } from 'cc';
+const { ccclass } = _decorator;
+@ccclass('VictoryPoster')
+export class VictoryPoster extends Component {
+  public onCloseCallback?: () => void;
+  public onNextLevelCallback?: () => void;
+  private posterNode: Node | null = null;
+  private routeGlowNode: Node | null = null;
+  protected onLoad(): void {
+    console.log('[FloatFlow] VictoryPoster onLoad');
+    this.node.layer = Layers.Enum.UI_2D;
+    this.ensureTransform(this.node, 1280, 720);
+    this.node.destroyAllChildren();
+    // 1. Semi-transparent Backdrop Overlay
+    const overlay = this.createNode('Overlay', new Vec3(0, 0, 0), this.node);
+    this.ensureTransform(overlay, 1280, 720);
+    const og = overlay.addComponent(Graphics);
+    og.fillColor = new Color(5, 10, 25, 190);
+    og.rect(-640, -360, 1280, 720);
+    og.fill();
+    overlay.on(Node.EventType.TOUCH_END, () => {
+   this.closePoster();
+    });
+    // 2. Main Glassmorphic Poster Frame (Size: 480 x 620)
+    const poster = this.createNode('PosterBox', new Vec3(0, 0, 0), this.node);
+    this.ensureTransform(poster, 480, 620);
+    this.posterNode = poster;
+    const pg = poster.addComponent(Graphics);
+    // Deep sapphire navy glassmorphic background
+    pg.fillColor = this.hex('#0B132B');
+    ((pg.fillColor) as ((any)) as any).a = 248;
+    pg.roundRect(-240, -310, 480, 620, 24);
+    pg.fill();
+    // Glowing sky blue border
+    pg.strokeColor = this.hex('#3B82F6');
+    pg.lineWidth = 3;
+    pg.stroke();
+    // Inner gold trim at top
+    pg.strokeColor = this.hex('#FDE047');
+    pg.lineWidth = 1.5;
+    pg.moveTo(-220, 290);
+    pg.lineTo(220, 290);
+    pg.stroke();
+    // Prevent clicks inside poster from closing dialog
+    poster.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
+   e.propagationStopped = true;
+    });
+    // 3. Victory Certificate Header (Y = 240 to 170)
+    this.createHeader(poster);
+    // 4. Miniature Isometric Light Route Showcase (Y = 30)
+    this.createRouteShowcase(poster);
+    // 5. Player Stats & WeChat QR Code Footer (Y = -150)
+    this.createStatsAndQR(poster);
+    // 6. WeChat Green Share & Save Image Buttons (Y = -260)
+    this.createBottomActions(poster);
+  }
+  public showVictory(levelName: string, stars: number, moves: number): void {
+    console.log(`[VictoryPoster] Show Victory for ${levelName}: ${stars} Stars, ${moves} Moves`);
+    this.node.active = true;
+  }
+  private closePoster(): void {
+    console.log('[VictoryPoster] Close Poster');
+    this.node.active = false;
+    if (this.onCloseCallback) this.onCloseCallback();
+  }
+  private createHeader(parent: Node): void {
+    // Close Button [ ✖ ] at Top Right (X = 200, Y = 265)
+    const closeBtn = this.createNode('CloseBtn', new Vec3(200, 265, 0), parent);
+    this.ensureTransform(closeBtn, 44, 44);
+    const cg = closeBtn.addComponent(Graphics);
+    cg.fillColor = this.hex('#1E293B');
+    cg.circle(0, 0, 18);
+    cg.fill();
+    cg.strokeColor = this.hex('#60A5FA');
+    cg.lineWidth = 1.8;
+    cg.stroke();
+    this.createLabel(closeBtn, 'Icon', new Vec3(0, 1, 0), '✖', 18, '#FFFFFF', 36, 36);
+    closeBtn.on(Node.EventType.TOUCH_END, () => {
+   this.closePoster();
+    });
+    // Golden & Violet Pulsing Aura behind Title
+    const auraRoot = this.createNode('HeaderAura', new Vec3(0, 220, 0), parent);
+    this.ensureTransform(auraRoot, 360, 80);
+    const ag = auraRoot.addComponent(Graphics);
+    ag.fillColor = this.hex('#4C1D95');
+    ((ag.fillColor) as ((any)) as any).a = 150;
+    ag.circle(0, 0, 70);
+    ag.fill();
+    ag.fillColor = this.hex('#D97706');
+    ((ag.fillColor) as ((any)) as any).a = 90;
+    ag.circle(0, 0, 45);
+    ag.fill();
+    // Top Certificate Titles
+    this.createLabel(parent, 'Title', new Vec3(0, 245, 0), '✨ 恭喜通关！光轨大师达成 ✨', 24, '#FDE047', 420, 36);
+    this.createLabel(parent, 'LevelName', new Vec3(0, 205, 0), '旅途模式 · 冰原章节 5-12', 18, '#00F0FF', 360, 28);
+    this.createLabel(parent, 'StarBanner', new Vec3(0, 172, 0), '⭐️ ⭐️ ⭐️   完美通关 · 耗时 12 秒', 16, '#FFFFFF', 380, 26);
+  }
+  private createRouteShowcase(parent: Node): void {
+    const showcaseRoot = this.createNode('RouteShowcase', new Vec3(0, 35, 0), parent);
+    this.ensureTransform(showcaseRoot, 360, 220);
+    const g = showcaseRoot.addComponent(Graphics);
+    // Draw a mini 3x3 isometric stone tile board
+    const tileW = 72;
+    const tileH = 40;
+    const depth = 14;
+    const coords = [
+   { r: 0, c: 0 }, { r: 0, c: 1 }, { r: 0, c: 2 },
+   { r: 1, c: 0 }, { r: 1, c: 1 }, { r: 1, c: 2 },
+   { r: 2, c: 0 }, { r: 2, c: 1 }, { r: 2, c: 2 }
+    ];
+    coords.forEach(({ r, c }) => {
+   const x = (c - r) * (tileW / 2);
+   const y = (c + r) * (tileH / 2) - 50;
+   const isGoal = r === 2 && c === 2;
+   if (isGoal) {
+    // Golden Goal Crystal Tile (#FDE047 / #D97706)
+    this.drawIsometricBlock(g, this.hex('#FDE047'), this.hex('#B45309'), this.hex('#D97706'), this.hex('#FFFFFF'), 2, depth, tileW, tileH, y, x);
+   } else {
+    // Sapphire Blue Tile
+    const topCol = (r + c) % 2 === 0 ? this.hex('#1E3A8A') : this.hex('#2563EB');
+    const leftCol = (r + c) % 2 === 0 ? this.hex('#1E293B') : this.hex('#1E40AF');
+    const rightCol = (r + c) % 2 === 0 ? this.hex('#0F172A') : this.hex('#1D4ED8');
+    this.drawIsometricBlock(g, topCol, leftCol, rightCol, this.hex('#60A5FA'), 1.5, depth, tileW, tileH, y, x);
+   }
+    });
+    // Draw Continuous Glowing Luminous Route from (0,0) -> (0,1) -> (1,1) -> (1,2) -> (2,2)
+    const routeGlow = this.createNode('RouteGlow', new Vec3(0, 0, 0), showcaseRoot);
+    this.ensureTransform(routeGlow, 360, 220);
+    this.routeGlowNode = routeGlow;
+    const rg = routeGlow.addComponent(Graphics);
+    const getCoordPos = (r: number, c: number) => {
+   const x = (c - r) * (tileW / 2);
+   const y = (c + r) * (tileH / 2) - 50;
+   return { x, y };
+    };
+    const p0 = getCoordPos(0, 0);
+    const p1 = getCoordPos(0, 1);
+    const p2 = getCoordPos(1, 1);
+    const p3 = getCoordPos(1, 2);
+    const p4 = getCoordPos(2, 2);
+    // Magenta outer glow
+    rg.strokeColor = new Color(244, 114, 182, 160);
+    rg.lineWidth = 10;
+    rg.moveTo(p0.x, p0.y);
+    rg.lineTo(p1.x, p1.y);
+    rg.lineTo(p2.x, p2.y);
+    rg.lineTo(p3.x, p3.y);
+    rg.lineTo(p4.x, p4.y);
+    rg.stroke();
+    // Electric Cyan core line
+    rg.strokeColor = this.hex('#00F0FF');
+    rg.lineWidth = 4;
+    rg.moveTo(p0.x, p0.y);
+    rg.lineTo(p1.x, p1.y);
+    rg.lineTo(p2.x, p2.y);
+    rg.lineTo(p3.x, p3.y);
+    rg.lineTo(p4.x, p4.y);
+    rg.stroke();
+    // Glowing Star Sphere at Goal (p4)
+    rg.fillColor = this.hex('#FFFFFF');
+    rg.circle(p4.x, p4.y, 12);
+    rg.fill();
+    rg.strokeColor = this.hex('#FDE047');
+    rg.lineWidth = 3;
+    rg.circle(p4.x, p4.y, 18);
+    rg.stroke();
+    // Pulse animation on goal sphere
+    tween(routeGlow)
+   .to(0.8, { scale: new Vec3(1.06, 1.06, 1) }, { easing: 'sineInOut' })
+   .to(0.8, { scale: new Vec3(0.96, 0.96, 1) }, { easing: 'sineInOut' })
+   .union()
+   .repeatForever()
+   .start();
+  }
+  private createStatsAndQR(parent: Node): void {
+    // Left Column: Player Stats & Ranking (X = -90, Y = -150)
+    const statsRoot = this.createNode('StatsRoot', new Vec3(-90, -150, 0), parent);
+    this.ensureTransform(statsRoot, 260, 110);
+    this.createLabel(statsRoot, 'Badge', new Vec3(0, 36, 0), '🧑‍🚀 流光开拓者 (Lv.18)', 16, '#60A5FA', 240, 26);
+    this.createLabel(statsRoot, 'Stats1', new Vec3(0, 8, 0), '🔥 连击建桥: 18 次 | ⚡ 救场: 0', 14, '#93C5FD', 250, 24);
+    this.createLabel(statsRoot, 'Rank', new Vec3(0, -22, 0), '🌟 击败了微信好友 98.6% 的玩家！', 15, '#FB923C', 260, 26);
+    // Right Column: WeChat Mini-Game QR Code Box (X = 140, Y = -150)
+    const qrRoot = this.createNode('QRRoot', new Vec3(140, -150, 0), parent);
+    this.ensureTransform(qrRoot, 100, 110);
+    const qg = qrRoot.addComponent(Graphics);
+    // Glassmorphic QR box (84 x 84)
+    qg.fillColor = this.hex('#1E293B');
+    ((qg.fillColor) as ((any)) as any).a = 230;
+    qg.roundRect(-42, -32, 84, 84, 14);
+    qg.fill();
+    qg.strokeColor = this.hex('#60A5FA');
+    qg.lineWidth = 2;
+    qg.stroke();
+    // Simulated WeChat Mini-Game Circular Sun/QR Pattern inside box (0, 10)
+    qg.strokeColor = this.hex('#00F0FF');
+    qg.lineWidth = 2.5;
+    qg.circle(0, 10, 26);
+    qg.stroke();
+    qg.strokeColor = this.hex('#A78BFA');
+    qg.lineWidth = 1.8;
+    qg.circle(0, 10, 18);
+    qg.stroke();
+    qg.fillColor = this.hex('#FDE047');
+    qg.circle(0, 10, 8);
+    qg.fill();
+    this.createLabel(qrRoot, 'QRText', new Vec3(0, -48, 0), '长按/扫码超越我', 13, '#93C5FD', 120, 20);
+  }
+  private createBottomActions(parent: Node): void {
+    // Left Button: [ 💬 分享好友炫耀 ] at X = -115, Y = -260
+    const shareBtn = this.createNode('ShareBtn', new Vec3(-115, -260, 0), parent);
+    this.ensureTransform(shareBtn, 210, 48);
+    const sg = shareBtn.addComponent(Graphics);
+    sg.fillColor = this.hex('#10B981');
+    sg.roundRect(-105, -24, 210, 48, 16);
+    sg.fill();
+    sg.strokeColor = this.hex('#6EE7B7');
+    sg.lineWidth = 2;
+    sg.stroke();
+    this.createLabel(shareBtn, 'Text', new Vec3(0, 1, 0), '💬 分享好友炫耀', 16, '#FFFFFF', 190, 30);
+    shareBtn.on(Node.EventType.TOUCH_END, () => {
+   console.log('[VictoryPoster] Clicked Share to Friends -> Brag!');
+   this.closePoster();
+    });
+    // Right Button: [ 🖼️ 保存高清海报 ] at X = 115, Y = -260
+    const saveBtn = this.createNode('SaveBtn', new Vec3(115, -260, 0), parent);
+    this.ensureTransform(saveBtn, 210, 48);
+    const vg = saveBtn.addComponent(Graphics);
+    vg.fillColor = this.hex('#2563EB');
+    vg.roundRect(-105, -24, 210, 48, 16);
+    vg.fill();
+    vg.strokeColor = this.hex('#00F0FF');
+    vg.lineWidth = 2;
+    vg.stroke();
+    this.createLabel(saveBtn, 'Text', new Vec3(0, 1, 0), '🖼️ 保存高清海报', 16, '#FFFFFF', 190, 30);
+    saveBtn.on(Node.EventType.TOUCH_END, () => {
+   console.log('[VictoryPoster] Clicked Save HD Poster -> Saved to Photos!');
+   if (this.onNextLevelCallback) {
+    this.onNextLevelCallback();
+   } else {
+    this.closePoster();
+   }
+    });
+  }
+  private drawIsometricBlock(
+    g: Graphics,
+    topFill: Color, sideDark: Color, sideLight: Color, stroke: Color,
+    lineWidth: number, depth: number, customW: number, customH: number, offsetY: number, offsetX: number
+  ): void {
+    const halfW = customW / 2;
+    const halfH = customH / 2;
+    g.fillColor = sideDark;
+    g.moveTo(offsetX - halfW, offsetY);
+    g.lineTo(offsetX - halfW, offsetY - depth);
+    g.lineTo(offsetX, offsetY - halfH - depth);
+    g.lineTo(offsetX, offsetY - halfH);
+    g.close();
+    g.fill();
+    g.fillColor = sideLight;
+    g.moveTo(offsetX, offsetY - halfH);
+    g.lineTo(offsetX, offsetY - halfH - depth);
+    g.lineTo(offsetX + halfW, offsetY - depth);
+    g.lineTo(offsetX + halfW, offsetY);
+    g.close();
+    g.fill();
+    g.strokeColor = stroke;
+    g.lineWidth = lineWidth;
+    g.moveTo(offsetX - halfW, offsetY - depth);
+    g.lineTo(offsetX, offsetY - halfH - depth);
+    g.lineTo(offsetX + halfW, offsetY - depth);
+    g.stroke();
+    g.moveTo(offsetX, offsetY - halfH);
+    g.lineTo(offsetX, offsetY - halfH - depth);
+    g.stroke();
+    g.fillColor = topFill;
+    g.strokeColor = stroke;
+    g.lineWidth = lineWidth;
+    g.moveTo(offsetX, offsetY + halfH);
+    g.lineTo(offsetX + halfW, offsetY);
+    g.lineTo(offsetX, offsetY - halfH);
+    g.lineTo(offsetX - halfW, offsetY);
+    g.close();
+    g.fill();
+    g.stroke();
+  }
+  private createNode(name: string, pos: Vec3, parent?: Node): Node {
+    const node = new Node(name);
+    node.layer = Layers.Enum.UI_2D;
+    if (parent) node.setParent(parent);
+    node.setPosition(pos);
+    return node;
+  }
+  private ensureTransform(node: Node, w: number, h: number): UITransform {
+    let t = node.getComponent(UITransform);
+    if (!t) t = node.addComponent(UITransform);
+    t.setContentSize(w, h);
+    return t;
+  }
+  private createLabel(parent: Node, name: string, pos: Vec3, text: string, fontSize: number, hexColor: string, w: number, h: number): Label {
+    const node = this.createNode(name, pos, parent);
+    this.ensureTransform(node, w, h);
+    const label = node.addComponent(Label);
+    label.string = text;
+    label.fontSize = fontSize;
+    label.lineHeight = Math.round(fontSize * 1.2);
+    label.color = this.hex(hexColor);
+    label.horizontalAlign = Label.HorizontalAlign.CENTER;
+    label.verticalAlign = Label.VerticalAlign.CENTER;
+    label.overflow = Label.Overflow.SHRINK;
+    return label;
+  }
+  private hex(hexStr: string): Color {
+    const clean = hexStr.replace('#', '');
+    const r = parseInt(clean.substring(0, 2), 16) || 0;
+    const g = parseInt(clean.substring(2, 4), 16) || 0;
+    const b = parseInt(clean.substring(4, 6), 16) || 0;
+    return new Color(r, g, b, 255);
+  }
+}
+// ====================================================================================
+// [源码模块 7/17] assets/scripts/components/ReviveModal.ts
+// ====================================================================================
+import { _decorator, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UITransform, Vec3 } from 'cc';
+const { ccclass } = _decorator;
+@ccclass('ReviveModal')
+export class ReviveModal extends Component {
+  public onReviveCallback?: () => void;
+  public onGiveUpCallback?: () => void;
+  private dialogNode: Node | null = null;
+  private shockwaveNode: Node | null = null;
+  protected onLoad(): void {
+    console.log('[FloatFlow] ReviveModal onLoad');
+    this.node.layer = Layers.Enum.UI_2D;
+    this.ensureTransform(this.node, 1280, 720);
+    this.node.destroyAllChildren();
+    // 1. Semi-transparent Backdrop Overlay
+    const overlay = this.createNode('Overlay', new Vec3(0, 0, 0), this.node);
+    this.ensureTransform(overlay, 1280, 720);
+    const og = overlay.addComponent(Graphics);
+    og.fillColor = new Color(5, 10, 25, 190);
+    og.rect(-640, -360, 1280, 720);
+    og.fill();
+    overlay.on(Node.EventType.TOUCH_END, () => {
+   this.giveUpAndClose();
+    });
+    // 2. Main Glassmorphic Dialog Box (Size: 460 x 580)
+    const dialog = this.createNode('DialogBox', new Vec3(0, 0, 0), this.node);
+    this.ensureTransform(dialog, 460, 580);
+    this.dialogNode = dialog;
+    const dg = dialog.addComponent(Graphics);
+    // Dark glassmorphic background
+    dg.fillColor = this.hex('#0B132B');
+    ((dg.fillColor) as ((any)) as any).a = 245;
+    dg.roundRect(-230, -290, 460, 580, 24);
+    dg.fill();
+    // Sky blue glowing border
+    dg.strokeColor = this.hex('#3B82F6');
+    dg.lineWidth = 2.5;
+    dg.stroke();
+    // Prevent clicks inside dialog from closing modal
+    dialog.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
+   e.propagationStopped = true;
+    });
+    // 3. Header & Close Button
+    this.createHeader(dialog);
+    // 4. Emergency Alert Title Banner (Y = 200)
+    this.createAlertBanner(dialog);
+    // 5. Miniature Crash Site Simulation (Y = 30)
+    this.createCrashSitePreview(dialog);
+    // 6. WeChat Green Share Hero Button (Y = -120)
+    this.createWeChatShareButton(dialog);
+    // 7. Give Up Button & Footer Tip (Y = -205, -260)
+    this.createFooter(dialog);
+  }
+  private giveUpAndClose(): void {
+    console.log('[ReviveModal] Give up and close');
+    this.node.active = false;
+    if (this.onGiveUpCallback) this.onGiveUpCallback();
+  }
+  private createHeader(parent: Node): void {
+    // Close Button [ ✖ ] at Top Right (X = 190, Y = 240)
+    const closeBtn = this.createNode('CloseBtn', new Vec3(190, 240, 0), parent);
+    this.ensureTransform(closeBtn, 44, 44);
+    const cg = closeBtn.addComponent(Graphics);
+    cg.fillColor = this.hex('#1E293B');
+    cg.circle(0, 0, 18);
+    cg.fill();
+    cg.strokeColor = this.hex('#60A5FA');
+    cg.lineWidth = 1.8;
+    cg.stroke();
+    this.createLabel(closeBtn, 'Icon', new Vec3(0, 1, 0), '✖', 18, '#FFFFFF', 36, 36);
+    closeBtn.on(Node.EventType.TOUCH_END, () => {
+   this.giveUpAndClose();
+    });
+  }
+  private createAlertBanner(parent: Node): void {
+    const bannerRoot = this.createNode('AlertBanner', new Vec3(0, 195, 0), parent);
+    this.ensureTransform(bannerRoot, 400, 100);
+    // Red/Purple Emergency Glow Aura
+    const aura = this.createNode('AlertAura', new Vec3(0, 15, 0), bannerRoot);
+    this.ensureTransform(aura, 300, 70);
+    const ag = aura.addComponent(Graphics);
+    ag.fillColor = this.hex('#7F1D1D');
+    ((ag.fillColor) as ((any)) as any).a = 150;
+    ag.circle(0, 5, 75);
+    ag.fill();
+    ag.fillColor = this.hex('#EF4444');
+    ((ag.fillColor) as ((any)) as any).a = 90;
+    ag.circle(0, 5, 45);
+    ag.fill();
+    // Title & Subtitle
+    this.createLabel(bannerRoot, 'Title', new Vec3(0, 25, 0), '即将坠落！', 32, '#FF4B3E', 360, 44);
+    this.createLabel(bannerRoot, 'Sub', new Vec3(0, -16, 0), '呼叫时空导师救我一命吧！', 16, '#A5F3FC', 380, 26);
+  }
+  private createCrashSitePreview(parent: Node): void {
+    const previewRoot = this.createNode('CrashSiteRoot', new Vec3(0, 30, 0), parent);
+    this.ensureTransform(previewRoot, 320, 200);
+    const g = previewRoot.addComponent(Graphics);
+    // Draw a mini 3x3 isometric grid
+    const tileW = 68;
+    const tileH = 38;
+    const depth = 14;
+    const coords = [
+   { r: 0, c: 0 }, { r: 0, c: 1 }, { r: 0, c: 2 },
+   { r: 1, c: 0 }, { r: 1, c: 1 }, { r: 1, c: 2 },
+   { r: 2, c: 0 }, { r: 2, c: 1 }
+    ];
+    coords.forEach(({ r, c }) => {
+   const x = (c - r) * (tileW / 2);
+   const y = (c + r) * (tileH / 2) - 40;
+   const isCrash = r === 1 && c === 1;
+   if (isCrash) {
+    // Red Exploding Crash Tile (#FF3B30)
+    this.drawIsometricBlock(g, this.hex('#EF4444'), this.hex('#991B1B'), this.hex('#B91C1C'), this.hex('#FCA5A5'), 2.5, depth, tileW, tileH, y, x);
+   } else {
+    // Normal sapphire/blue tile
+    const topCol = (r + c) % 2 === 0 ? this.hex('#1E3A8A') : this.hex('#2563EB');
+    const leftCol = (r + c) % 2 === 0 ? this.hex('#1E293B') : this.hex('#1E40AF');
+    const rightCol = (r + c) % 2 === 0 ? this.hex('#0F172A') : this.hex('#1D4ED8');
+    this.drawIsometricBlock(g, topCol, leftCol, rightCol, this.hex('#60A5FA'), 1.5, depth, tileW, tileH, y, x);
+   }
+    });
+    // Draw Pulsing Red Warning Shockwave & Sphere on top of crash tile (0, 20)
+    const shockRoot = this.createNode('Shockwave', new Vec3(0, 22, 0), previewRoot);
+    this.ensureTransform(shockRoot, 100, 100);
+    this.shockwaveNode = shockRoot;
+    const sg = shockRoot.addComponent(Graphics);
+    // Warning halo
+    sg.fillColor = new Color(255, 59, 48, 80);
+    sg.circle(0, 0, 42);
+    sg.fill();
+    sg.strokeColor = this.hex('#FF3B30');
+    sg.lineWidth = 2.5;
+    sg.circle(0, 0, 36);
+    sg.stroke();
+    // Sphere core
+    sg.fillColor = this.hex('#FFFFFF');
+    sg.circle(0, 0, 14);
+    sg.fill();
+    sg.strokeColor = this.hex('#00F0FF');
+    sg.lineWidth = 2;
+    sg.circle(0, 0, 14);
+    sg.stroke();
+    // Pulse animation
+    tween(shockRoot)
+   .to(0.6, { scale: new Vec3(1.2, 1.2, 1) }, { easing: 'sineInOut' })
+   .to(0.6, { scale: new Vec3(0.9, 0.9, 1) }, { easing: 'sineInOut' })
+   .union()
+   .repeatForever()
+   .start();
+  }
+  private createWeChatShareButton(parent: Node): void {
+    const shareBtn = this.createNode('WeChatShareBtn', new Vec3(0, -120, 0), parent);
+    this.ensureTransform(shareBtn, 380, 68);
+    const g = shareBtn.addComponent(Graphics);
+    // Vibrant WeChat Green Background (#10B981 / #07C160)
+    g.fillColor = this.hex('#10B981');
+    ((g.fillColor) as ((any)) as any).a = 245;
+    g.roundRect(-190, -34, 380, 68, 20);
+    g.fill();
+    // Glowing green/white border
+    g.strokeColor = this.hex('#6EE7B7');
+    g.lineWidth = 2.5;
+    g.stroke();
+    // Icon & Text layout
+    this.createLabel(shareBtn, 'Icon', new Vec3(-120, 2, 0), '💬', 28, '#FFFFFF', 50, 50);
+    this.createLabel(shareBtn, 'MainText', new Vec3(15, 10, 0), '分享给微信好友', 22, '#FFFFFF', 220, 30);
+    this.createLabel(shareBtn, 'SubText', new Vec3(15, -14, 0), '帮我续一卡', 14, '#D1FAE5', 220, 22);
+    shareBtn.on(Node.EventType.TOUCH_END, () => {
+   console.log('[ReviveModal] Clicked WeChat Share -> Trigger Revive!');
+   // Simulate WeChat Share success
+   this.node.active = false;
+   if (this.onReviveCallback) this.onReviveCallback();
+    });
+  }
+  private createFooter(parent: Node): void {
+    // Give Up Secondary Button [ 放弃复活 ] at Y = -205
+    const giveUpBtn = this.createNode('GiveUpBtn', new Vec3(0, -205, 0), parent);
+    this.ensureTransform(giveUpBtn, 240, 42);
+    const g = giveUpBtn.addComponent(Graphics);
+    g.fillColor = this.hex('#1E293B');
+    ((g.fillColor) as ((any)) as any).a = 220;
+    g.roundRect(-120, -21, 240, 42, 12);
+    g.fill();
+    g.strokeColor = this.hex('#475569');
+    g.lineWidth = 1.8;
+    g.stroke();
+    this.createLabel(giveUpBtn, 'Text', new Vec3(0, 1, 0), '放弃复活', 16, '#94A3B8', 180, 30);
+    giveUpBtn.on(Node.EventType.TOUCH_END, () => {
+   this.giveUpAndClose();
+    });
+    // Footer tip text at Y = -260
+    this.createLabel(parent, 'FooterTip', new Vec3(0, -260, 0), '好友帮你不按套路出牌后可复活并获得无敌光环3秒', 13, '#64748B', 420, 24);
+  }
+  private drawIsometricBlock(
+    g: Graphics,
+    topFill: Color, sideDark: Color, sideLight: Color, stroke: Color,
+    lineWidth: number, depth: number, customW: number, customH: number, offsetY: number, offsetX: number
+  ): void {
+    const halfW = customW / 2;
+    const halfH = customH / 2;
+    g.fillColor = sideDark;
+    g.moveTo(offsetX - halfW, offsetY);
+    g.lineTo(offsetX - halfW, offsetY - depth);
+    g.lineTo(offsetX, offsetY - halfH - depth);
+    g.lineTo(offsetX, offsetY - halfH);
+    g.close();
+    g.fill();
+    g.fillColor = sideLight;
+    g.moveTo(offsetX, offsetY - halfH);
+    g.lineTo(offsetX, offsetY - halfH - depth);
+    g.lineTo(offsetX + halfW, offsetY - depth);
+    g.lineTo(offsetX + halfW, offsetY);
+    g.close();
+    g.fill();
+    g.strokeColor = stroke;
+    g.lineWidth = lineWidth;
+    g.moveTo(offsetX - halfW, offsetY - depth);
+    g.lineTo(offsetX, offsetY - halfH - depth);
+    g.lineTo(offsetX + halfW, offsetY - depth);
+    g.stroke();
+    g.moveTo(offsetX, offsetY - halfH);
+    g.lineTo(offsetX, offsetY - halfH - depth);
+    g.stroke();
+    g.fillColor = topFill;
+    g.strokeColor = stroke;
+    g.lineWidth = lineWidth;
+    g.moveTo(offsetX, offsetY + halfH);
+    g.lineTo(offsetX + halfW, offsetY);
+    g.lineTo(offsetX, offsetY - halfH);
+    g.lineTo(offsetX - halfW, offsetY);
+    g.close();
+    g.fill();
+    g.stroke();
+  }
+  private createNode(name: string, pos: Vec3, parent?: Node): Node {
+    const node = new Node(name);
+    node.layer = Layers.Enum.UI_2D;
+    if (parent) node.setParent(parent);
+    node.setPosition(pos);
+    return node;
+  }
+  private ensureTransform(node: Node, w: number, h: number): UITransform {
+    let t = node.getComponent(UITransform);
+    if (!t) t = node.addComponent(UITransform);
+    t.setContentSize(w, h);
+    return t;
+  }
+  private createLabel(parent: Node, name: string, pos: Vec3, text: string, fontSize: number, hexColor: string, w: number, h: number): Label {
+    const node = this.createNode(name, pos, parent);
+    this.ensureTransform(node, w, h);
+    const label = node.addComponent(Label);
+    label.string = text;
+    label.fontSize = fontSize;
+    label.lineHeight = Math.round(fontSize * 1.2);
+    label.color = this.hex(hexColor);
+    label.horizontalAlign = Label.HorizontalAlign.CENTER;
+    label.verticalAlign = Label.VerticalAlign.CENTER;
+    label.overflow = Label.Overflow.SHRINK;
+    return label;
+  }
+  private hex(hexStr: string): Color {
+    const clean = hexStr.replace('#', '');
+    const r = parseInt(clean.substring(0, 2), 16) || 0;
+    const g = parseInt(clean.substring(2, 4), 16) || 0;
+    const b = parseInt(clean.substring(4, 6), 16) || 0;
+    return new Color(r, g, b, 255);
+  }
+}
+// ====================================================================================
+// [源码模块 8/17] assets/scripts/core/GridManager.ts
+// ====================================================================================
+import { GridPos, LevelConfig, TileInstance } from './GameTypes';
+import { posKey } from './DirectionUtils';
+export class GridManager {
+  readonly rows: number;
+  readonly cols: number;
+  private tiles = new Map<string, TileInstance>();
+  private obstacles = new Set<string>();
+  constructor(rows: number, cols: number) {
+    this.rows = rows;
+    this.cols = cols;
+  }
+  static fromLevel(level: LevelConfig): GridManager {
+    const [rows, cols] = level.gridSize;
+    const grid = new GridManager(rows, cols);
+    for (const [row, col] of level.obstacles) {
+   grid.setObstacle({ row, col }, true);
+    }
+    for (const item of level.initialTiles ?? []) {
+   grid.setTile({ row: item.row, col: item.col }, item.tile);
+    }
+    return grid;
+  }
+  clone(): GridManager {
+    const cloned = new GridManager(this.rows, this.cols);
+    for (const [key, value] of this.tiles) {
+   cloned.tiles.set(key, { ...value });
+    }
+    for (const key of this.obstacles) {
+   cloned.obstacles.add(key);
+    }
+    return cloned;
+  }
+  isValid(pos: GridPos): boolean {
+    return pos.row >= 0 && pos.row < this.rows && pos.col >= 0 && pos.col < this.cols;
+  }
+  isObstacle(pos: GridPos): boolean {
+    return this.obstacles.has(posKey(pos));
+  }
+  setObstacle(pos: GridPos, enabled: boolean): void {
+    const key = posKey(pos);
+    if (enabled) {
+   this.obstacles.add(key);
+   this.tiles.delete(key);
+    } else {
+   this.obstacles.delete(key);
+    }
+  }
+  getTile(pos: GridPos): TileInstance | null {
+    return this.tiles.get(posKey(pos)) ?? null;
+  }
+  setTile(pos: GridPos, tile: TileInstance | null): boolean {
+    if (!this.isValid(pos) || this.isObstacle(pos)) {
+   return false;
+    }
+    const key = posKey(pos);
+    if (tile) {
+   this.tiles.set(key, { ...tile });
+    } else {
+   this.tiles.delete(key);
+    }
+    return true;
+  }
+  hasTile(pos: GridPos): boolean {
+    return this.tiles.has(posKey(pos));
+  }
+  forEachCell(visitor: (pos: GridPos, tile: TileInstance | null, obstacle: boolean) => void): void {
+    for (let row = 0; row < this.rows; row++) {
+   for (let col = 0; col < this.cols; col++) {
+    const pos = { row, col };
+    visitor(pos, this.getTile(pos), this.isObstacle(pos));
+   }
+    }
+  }
+}
+// ====================================================================================
+// [源码模块 9/17] assets/scripts/core/RouteSimulator.ts
+// ====================================================================================
+import { GridManager } from './GridManager';
+import { move, posKey } from './DirectionUtils';
+import { GoalConfig, GridPos, PathNode, PlacementCandidate, PreviewResult, RunnerState } from './GameTypes';
+import { resolveTileConfig } from './TileDefinitions';
+export class RouteSimulator {
+  static simulate(
+    grid: GridManager,
+    runner: RunnerState,
+    goals: GoalConfig[],
+    candidate?: PlacementCandidate,
+  ): PreviewResult {
+    const tempGrid = grid.clone();
+    if (candidate) {
+   tempGrid.setTile(candidate, candidate.tile);
+    }
+    const path: PathNode[] = [];
+    const visited = new Set<string>();
+    let current: GridPos = { row: runner.row, col: runner.col };
+    let direction = runner.direction;
+    let color = runner.color;
+    const maxSteps = tempGrid.rows * tempGrid.cols * 2;
+    for (let step = 0; step < maxSteps; step++) {
+   const next = move(current, direction);
+   const stateKey = `${posKey(next)}:${direction}:${color}`;
+   if (!tempGrid.isValid(next)) {
+    path.push({ ...next, result: 'dead', color });
+    return { path, success: false, reason: '前方是虚空' };
+   }
+   if (tempGrid.isObstacle(next)) {
+    path.push({ ...next, result: 'blocked', color });
+    return { path, success: false, reason: '前方被障碍阻挡' };
+   }
+   const goal = this.findGoal(next, goals);
+   if (goal && (!goal.color || goal.color === 'none' || goal.color === color)) {
+    path.push({ ...next, result: 'goal', color });
+    return { path, success: true };
+   }
+   const tile = tempGrid.getTile(next);
+   if (!tile) {
+    path.push({ ...next, result: 'dead', color });
+    return { path, success: false, reason: '前方没有水晶路' };
+   }
+   if (visited.has(stateKey)) {
+    path.push({ ...next, result: 'loop', color });
+    return { path, success: false, reason: '路线形成循环' };
+   }
+   visited.add(stateKey);
+   const config = resolveTileConfig(tile);
+   if (config.colorFilter && config.colorFilter !== 'none' && config.colorFilter !== color) {
+    path.push({ ...next, result: 'blocked', color });
+    return { path, success: false, reason: '光的颜色不匹配' };
+   }
+   if (config.colorPaint && config.colorPaint !== 'none') {
+    color = config.colorPaint;
+   }
+   const out = config.routing[direction];
+   if (!out || out === 'dead') {
+    path.push({ ...next, result: 'dead', color });
+    return { path, success: false, reason: '水晶方向不连通' };
+   }
+   path.push({ ...next, result: 'pass', color });
+   current = next;
+   direction = out;
+    }
+    return { path, success: false, reason: '路线过长或无法抵达终点' };
+  }
+  private static findGoal(pos: GridPos, goals: GoalConfig[]): GoalConfig | null {
+    return goals.find((goal) => goal.row === pos.row && goal.col === pos.col) ?? null;
+  }
+}
+// ====================================================================================
+// [源码模块 10/17] assets/scripts/core/CardSystem.ts
+// ====================================================================================
+import { TileType } from './GameTypes';
+export class CardSystem {
+  private hand: TileType[] = [];
+  private cursor = 0;
+  constructor(
+    private readonly pool: TileType[],
+    private readonly handSize: number,
+    private readonly fixedHands: TileType[] = [],
+  ) {}
+  drawInitial(): TileType[] {
+    this.hand = [];
+    for (let i = 0; i < this.handSize; i++) {
+   this.hand.push(this.drawOne());
+    }
+    return this.getHand();
+  }
+  getHand(): TileType[] {
+    return [...this.hand];
+  }
+  consume(index: number): TileType[] {
+    if (index < 0 || index >= this.hand.length) {
+   return this.getHand();
+    }
+    this.hand[index] = this.drawOne();
+    return this.getHand();
+  }
+  redrawAll(): TileType[] {
+    for (let i = 0; i < this.hand.length; i++) {
+   this.hand[i] = this.drawOne();
+    }
+    return this.getHand();
+  }
+  private drawOne(): TileType {
+    if (this.cursor < this.fixedHands.length) {
+   return this.fixedHands[this.cursor++];
+    }
+    if (this.pool.length === 0) {
+   return 'straight';
+    }
+    const randomIndex = Math.floor(Math.random() * this.pool.length);
+    return this.pool[randomIndex];
+  }
+}
+// ====================================================================================
+// [源码模块 11/17] assets/scripts/core/TileDefinitions.ts
+// ====================================================================================
+import { Direction, TileConfig, TileInstance, TileType } from './GameTypes';
+import { rotateDirection } from './DirectionUtils';
+const BASE_TILE_CONFIGS: Record<TileType, TileConfig> = {
+  straight: {
+    id: 'straight',
+    type: 'straight',
+    displayName: '直线水晶',
+    rotatable: true,
+    routing: { right: 'right', left: 'left' },
+  },
+  curve: {
+    id: 'curve',
+    type: 'curve',
+    displayName: '折角镜',
+    rotatable: true,
+    routing: { right: 'up', down: 'left' },
+  },
+  cross: {
+    id: 'cross',
+    type: 'cross',
+    displayName: '十字水晶',
+    rotatable: false,
+    routing: { up: 'up', right: 'right', down: 'down', left: 'left' },
+  },
+  collapse: {
+    id: 'collapse',
+    type: 'collapse',
+    displayName: '崩塌晶体',
+    rotatable: true,
+    routing: { right: 'right', left: 'left' },
+    oneTime: true,
+  },
+  boost: {
+    id: 'boost',
+    type: 'boost',
+    displayName: '加速晶体',
+    rotatable: true,
+    routing: { right: 'right', left: 'left' },
+    speedModifier: 1.25,
+    scoreModifier: 1.2,
+  },
+  paint_red: {
+    id: 'paint_red',
+    type: 'paint_red',
+    displayName: '红色染晶',
+    rotatable: false,
+    routing: { up: 'up', right: 'right', down: 'down', left: 'left' },
+    colorPaint: 'red',
+  },
+  paint_blue: {
+    id: 'paint_blue',
+    type: 'paint_blue',
+    displayName: '蓝色染晶',
+    rotatable: false,
+    routing: { up: 'up', right: 'right', down: 'down', left: 'left' },
+    colorPaint: 'blue',
+  },
+  gate_red: {
+    id: 'gate_red',
+    type: 'gate_red',
+    displayName: '红色能量门',
+    rotatable: false,
+    routing: { up: 'up', right: 'right', down: 'down', left: 'left' },
+    colorFilter: 'red',
+  },
+  gate_blue: {
+    id: 'gate_blue',
+    type: 'gate_blue',
+    displayName: '蓝色能量门',
+    rotatable: false,
+    routing: { up: 'up', right: 'right', down: 'down', left: 'left' },
+    colorFilter: 'blue',
+  },
+  universal: {
+    id: 'universal',
+    type: 'universal',
+    displayName: '万能水晶',
+    rotatable: false,
+    routing: { up: 'up', right: 'right', down: 'down', left: 'left' },
+  },
+};
+export function getBaseTileConfig(type: TileType): TileConfig {
+  return BASE_TILE_CONFIGS[type];
+}
+export function getTileDisplayName(type: TileType): string {
+  return getBaseTileConfig(type).displayName;
+}
+export function createTile(type: TileType, rotation = 0): TileInstance {
+  return { type, rotation: normalizeRotation(rotation) };
+}
+export function normalizeRotation(rotation: number): number {
+  return ((rotation % 4) + 4) % 4;
+}
+export function rotateTile(tile: TileInstance): TileInstance {
+  const config = getBaseTileConfig(tile.type);
+  if (!config.rotatable) {
+    return tile;
+  }
+  return { ...tile, rotation: normalizeRotation(tile.rotation + 1) };
+}
+export function resolveTileConfig(tile: TileInstance): TileConfig {
+  const base = getBaseTileConfig(tile.type);
+  const routing: Partial<Record<Direction, Direction | 'dead'>> = {};
+  for (const key of Object.keys(base.routing) as Direction[]) {
+    const out = base.routing[key];
+    if (!out) {
+   continue;
+    }
+    const rotatedIn = rotateDirection(key, tile.rotation);
+    routing[rotatedIn] = out === 'dead' ? 'dead' : rotateDirection(out, tile.rotation);
+  }
+  return { ...base, routing };
+}
+// ====================================================================================
+// [源码模块 12/17] assets/scripts/core/DirectionUtils.ts
+// ====================================================================================
+import { Direction, GridPos } from './GameTypes';
+export const DIRECTIONS: Direction[] = ['up', 'right', 'down', 'left'];
+export function directionIndex(direction: Direction): number {
+  return DIRECTIONS.indexOf(direction);
+}
+export function rotateDirection(direction: Direction, quarterTurns: number): Direction {
+  const index = directionIndex(direction);
+  const normalized = ((index + quarterTurns) % 4 + 4) % 4;
+  return DIRECTIONS[normalized];
+}
+export function oppositeDirection(direction: Direction): Direction {
+  return rotateDirection(direction, 2);
+}
+export function move(pos: GridPos, direction: Direction): GridPos {
+  switch (direction) {
+    case 'up':
+   return { row: pos.row + 1, col: pos.col };
+    case 'right':
+   return { row: pos.row, col: pos.col + 1 };
+    case 'down':
+   return { row: pos.row - 1, col: pos.col };
+    case 'left':
+   return { row: pos.row, col: pos.col - 1 };
+  }
+}
+export function posKey(pos: GridPos): string {
+  return `${pos.row}:${pos.col}`;
+}
+// ====================================================================================
+// [源码模块 13/17] assets/scripts/core/GameTypes.ts
+// ====================================================================================
+export type Direction = 'up' | 'right' | 'down' | 'left';
+export type RunnerColor = 'none' | 'red' | 'blue' | 'yellow';
+export type RunnerStateName = 'IDLE' | 'RUNNING' | 'BULLET_TIME' | 'SUCCESS' | 'DEAD';
+export type TileType =
+  | 'straight'
+  | 'curve'
+  | 'cross'
+  | 'collapse'
+  | 'boost'
+  | 'paint_red'
+  | 'paint_blue'
+  | 'gate_red'
+  | 'gate_blue'
+  | 'universal';
+export interface GridPos {
+  row: number;
+  col: number;
+}
+export interface GoalConfig extends GridPos {
+  color?: RunnerColor;
+}
+export interface RunnerState extends GridPos {
+  direction: Direction;
+  color: RunnerColor;
+  speed: number;
+  state: RunnerStateName;
+}
+export interface TileConfig {
+  id: string;
+  type: TileType;
+  displayName: string;
+  rotatable: boolean;
+  routing: Partial<Record<Direction, Direction | 'dead'>>;
+  oneTime?: boolean;
+  colorFilter?: RunnerColor;
+  colorPaint?: RunnerColor;
+  speedModifier?: number;
+  scoreModifier?: number;
+}
+export interface TileInstance {
+  type: TileType;
+  rotation: number;
+}
+export interface LevelConfig {
+  id: number;
+  name: string;
+  gridSize: [number, number];
+  start: RunnerState;
+  goals: GoalConfig[];
+  timeLimit?: number;
+  handSize: number;
+  bulletTimeEnergy?: number;
+  bulletTimeSeconds?: number;
+  runnerStepSeconds: number;
+  autoStart: boolean;
+  obstacles: Array<[number, number]>;
+  initialTiles?: Array<{ row: number; col: number; tile: TileInstance }>;
+  tilePool: TileType[];
+  fixedHands?: TileType[];
+  recommendedMoves: number;
+  tutorialTip?: string;
+}
+export type PathNodeResult = 'pass' | 'goal' | 'dead' | 'blocked' | 'loop';
+export interface PathNode extends GridPos {
+  result: PathNodeResult;
+  color: RunnerColor;
+}
+export interface PreviewResult {
+  path: PathNode[];
+  success: boolean;
+  reason?: string;
+}
+export interface PlacementCandidate extends GridPos {
+  tile: TileInstance;
+}
+// ====================================================================================
+// [源码模块 14/17] assets/scripts/level/BuiltinLevels.ts
+// ====================================================================================
+import { LevelConfig } from '../core/GameTypes';
+export const BUILTIN_LEVELS: LevelConfig[] = [
+  {
+    id: 1,
+    name: '第一次连通',
+    gridSize: [5, 5],
+    start: { row: 2, col: 0, direction: 'right', color: 'none', speed: 1, state: 'IDLE' },
+    goals: [{ row: 2, col: 2, color: 'none' }],
+    handSize: 1,
+    runnerStepSeconds: 0.25,
+    autoStart: false,
+    obstacles: [],
+    tilePool: ['straight'],
+    fixedHands: ['straight'],
+    recommendedMoves: 1,
+    tutorialTip: '把直线水晶拖到高亮格，接住这束光。',
+  },
+  {
+    id: 2,
+    name: '第一次转弯',
+    gridSize: [6, 6],
+    start: { row: 1, col: 0, direction: 'right', color: 'none', speed: 1, state: 'IDLE' },
+    goals: [{ row: 3, col: 2, color: 'none' }],
+    handSize: 2,
+    runnerStepSeconds: 0.25,
+    autoStart: false,
+    obstacles: [],
+    initialTiles: [{ row: 1, col: 1, tile: { type: 'straight', rotation: 0 } }],
+    tilePool: ['curve', 'straight'],
+    fixedHands: ['curve', 'straight'],
+    recommendedMoves: 2,
+    tutorialTip: '点一下折角镜可以旋转，让光拐弯。',
+  },
+  {
+    id: 3,
+    name: '蓝线能通，红线会掉',
+    gridSize: [6, 6],
+    start: { row: 2, col: 0, direction: 'right', color: 'none', speed: 1, state: 'IDLE' },
+    goals: [{ row: 4, col: 3, color: 'none' }],
+    handSize: 3,
+    runnerStepSeconds: 0.22,
+    autoStart: false,
+    obstacles: [[2, 2]],
+    initialTiles: [{ row: 2, col: 1, tile: { type: 'curve', rotation: 0 } }],
+    tilePool: ['straight', 'curve'],
+    fixedHands: ['straight', 'curve', 'straight'],
+    recommendedMoves: 3,
+    tutorialTip: '拖动时看预览线：蓝线能通，红线会掉。',
+  },
+  {
+    id: 4,
+    name: '更短更完美',
+    gridSize: [7, 7],
+    start: { row: 1, col: 0, direction: 'right', color: 'none', speed: 1, state: 'IDLE' },
+    goals: [{ row: 4, col: 4, color: 'none' }],
+    handSize: 3,
+    runnerStepSeconds: 0.22,
+    autoStart: false,
+    obstacles: [[2, 2], [3, 2]],
+    tilePool: ['straight', 'curve', 'cross'],
+    fixedHands: ['straight', 'curve', 'curve'],
+    recommendedMoves: 5,
+    tutorialTip: '少用水晶也能通关，就能拿到 Perfect。',
+  },
+  {
+    id: 5,
+    name: '第一次救场',
+    gridSize: [7, 7],
+    start: { row: 2, col: 0, direction: 'right', color: 'none', speed: 1, state: 'IDLE' },
+    goals: [{ row: 2, col: 5, color: 'none' }],
+    handSize: 3,
+    bulletTimeEnergy: 3,
+    runnerStepSeconds: 0.28,
+    autoStart: false,
+    obstacles: [],
+    initialTiles: [{ row: 2, col: 1, tile: { type: 'straight', rotation: 0 } }],
+    tilePool: ['straight', 'curve', 'cross'],
+    fixedHands: ['straight', 'straight', 'curve'],
+    recommendedMoves: 4,
+    tutorialTip: '按住手牌拖动时，时间会稍微变慢。',
+  },
+  {
+    id: 6,
+    name: '绕开裂谷',
+    gridSize: [8, 8],
+    start: { row: 2, col: 0, direction: 'right', color: 'none', speed: 1, state: 'IDLE' },
+    goals: [{ row: 5, col: 6, color: 'none' }],
+    handSize: 3,
+    runnerStepSeconds: 0.26,
+    autoStart: false,
+    obstacles: [[2, 3], [3, 3], [4, 3]],
+    tilePool: ['straight', 'curve', 'cross'],
+    fixedHands: ['curve', 'straight', 'curve'],
+    recommendedMoves: 7,
+  },
+  {
+    id: 7,
+    name: '会碎的路',
+    gridSize: [8, 8],
+    start: { row: 1, col: 0, direction: 'right', color: 'none', speed: 1, state: 'IDLE' },
+    goals: [{ row: 4, col: 6, color: 'none' }],
+    handSize: 3,
+    runnerStepSeconds: 0.26,
+    autoStart: false,
+    obstacles: [[2, 2], [3, 2]],
+    tilePool: ['straight', 'curve', 'collapse'],
+    fixedHands: ['straight', 'collapse', 'curve'],
+    recommendedMoves: 7,
+  },
+  {
+    id: 8,
+    name: '加速流光',
+    gridSize: [8, 8],
+    start: { row: 3, col: 0, direction: 'right', color: 'none', speed: 1, state: 'IDLE' },
+    goals: [{ row: 3, col: 7, color: 'none' }],
+    handSize: 3,
+    runnerStepSeconds: 0.25,
+    autoStart: false,
+    obstacles: [[3, 3]],
+    tilePool: ['straight', 'curve', 'boost', 'cross'],
+    fixedHands: ['curve', 'boost', 'curve'],
+    recommendedMoves: 7,
+  },
+  {
+    id: 9,
+    name: '红色能量门',
+    gridSize: [8, 8],
+    start: { row: 2, col: 0, direction: 'right', color: 'none', speed: 1, state: 'IDLE' },
+    goals: [{ row: 2, col: 7, color: 'red' }],
+    handSize: 3,
+    runnerStepSeconds: 0.25,
+    autoStart: false,
+    obstacles: [],
+    initialTiles: [
+   { row: 2, col: 4, tile: { type: 'gate_red', rotation: 0 } },
+   { row: 2, col: 6, tile: { type: 'straight', rotation: 0 } }
+    ],
+    tilePool: ['straight', 'paint_red', 'curve'],
+    fixedHands: ['straight', 'paint_red', 'straight'],
+    recommendedMoves: 4,
+  },
+  {
+    id: 10,
+    name: '综合小考',
+    gridSize: [9, 9],
+    start: { row: 1, col: 0, direction: 'right', color: 'none', speed: 1, state: 'IDLE' },
+    goals: [{ row: 6, col: 7, color: 'none' }],
+    handSize: 3,
+    runnerStepSeconds: 0.24,
+    autoStart: false,
+    obstacles: [[1, 3], [2, 3], [3, 3], [4, 5]],
+    tilePool: ['straight', 'curve', 'cross', 'collapse', 'boost'],
+    fixedHands: ['curve', 'straight', 'cross'],
+    recommendedMoves: 9,
+  },
+];
+// ====================================================================================
+// [源码模块 15/17] assets/scripts/wx/ShareService.ts
+// ====================================================================================
+import { LevelConfig, RunnerState, TileType } from '../core/GameTypes';
+declare const wx: any;
+export interface ResidualSharePayload {
+  levelId: number;
+  runner: RunnerState;
+  hand: TileType[];
+  seed?: number;
+}
+export class ShareService {
+  static encodeResidual(payload: ResidualSharePayload): string {
+    const json = JSON.stringify(payload);
+    return encodeURIComponent(json);
+  }
+  static decodeResidual(value: string): ResidualSharePayload | null {
+    try {
+   return JSON.parse(decodeURIComponent(value)) as ResidualSharePayload;
+    } catch (_error) {
+   return null;
+    }
+  }
+  static shareResidual(level: LevelConfig, payload: ResidualSharePayload): void {
+    const query = `residual=${this.encodeResidual(payload)}`;
+    const title = `我在《浮岛浮光》第 ${level.id} 关只差一步，帮我接上这束光！`;
+    this.share(title, query);
+  }
+  static sharePoster(level: LevelConfig, scoreText: string): void {
+    const title = `我在《浮岛浮光》第 ${level.id} 关打出了 ${scoreText}，来挑战我的光轨！`;
+    this.share(title, `level=${level.id}`);
+  }
+  private static share(title: string, query: string): void {
+    if (typeof wx === 'undefined' || !wx.shareAppMessage) {
+   // eslint-disable-next-line no-console
+   console.log('[ShareService]', title, query);
+   return;
+    }
+    wx.shareAppMessage({ title, query });
+  }
+}
+// ====================================================================================
+// [源码模块 16/17] assets/scripts/wx/AdService.ts
+// ====================================================================================
+export type RewardedAdPlacement = 'near_miss_rescue' | 'redraw_cards' | 'reward_multiplier';
+export interface RewardedAdResult {
+  completed: boolean;
+  placement: RewardedAdPlacement;
+  error?: string;
+}
+declare const wx: any;
+export class AdService {
+  private static rewardedVideoAd: any = null;
+  static init(adUnitId: string): void {
+    if (typeof wx === 'undefined' || !wx.createRewardedVideoAd || !adUnitId) {
+   return;
+    }
+    this.rewardedVideoAd = wx.createRewardedVideoAd({ adUnitId });
+  }
+  static async showRewarded(placement: RewardedAdPlacement): Promise<RewardedAdResult> {
+    if (!this.rewardedVideoAd) {
+   return { completed: true, placement, error: '广告未接入，开发环境默认发放奖励' };
+    }
+    return new Promise((resolve) => {
+   const ad = this.rewardedVideoAd;
+   const onClose = (res: { isEnded?: boolean }) => {
+    ad.offClose(onClose);
+    resolve({ completed: !!res?.isEnded, placement });
+   };
+   ad.onClose(onClose);
+   ad.show().catch(() => {
+    ad.load()
+    .then(() => ad.show())
+    .catch((error: Error) => {
+    ad.offClose(onClose);
+    resolve({ completed: false, placement, error: error.message });
+    });
+   });
+    });
+  }
+}
+// ====================================================================================
+// [源码模块 17/17] assets/scripts/wx/WeChatService.ts
+// ====================================================================================
+declare const wx: any;
+export class WeChatService {
+  static isWeChatMiniGame(): boolean {
+    return typeof wx !== 'undefined';
+  }
+  static showToast(title: string): void {
+    if (typeof wx !== 'undefined' && wx.showToast) {
+   wx.showToast({ title, icon: 'none' });
+   return;
+    }
+    // eslint-disable-next-line no-console
+    console.log('[Toast]', title);
+  }
+  static vibrateShort(): void {
+    if (typeof wx !== 'undefined' && wx.vibrateShort) {
+   wx.vibrateShort({ type: 'light' });
+    }
+  }
+}

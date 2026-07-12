@@ -1,4 +1,6 @@
 import { _decorator, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UITransform, Vec3 } from 'cc';
+import { WeChatService } from '../wx/WeChatService';
+import { ShareService } from '../wx/ShareService';
 
 const { ccclass } = _decorator;
 
@@ -35,7 +37,7 @@ export class ReviveModal extends Component {
     const dg = dialog.addComponent(Graphics);
     // Dark glassmorphic background
     dg.fillColor = this.hex('#0B132B');
-    dg.fillColor.a = 245;
+    ((dg.fillColor) as ((any)) as any).a = 245;
     dg.roundRect(-230, -290, 460, 580, 24);
     dg.fill();
     // Sky blue glowing border
@@ -64,10 +66,33 @@ export class ReviveModal extends Component {
     this.createFooter(dialog);
   }
 
+  public show(): void {
+    console.log('[ReviveModal] show()');
+    this.node.active = true;
+    WeChatService.vibrateShort('heavy');
+    if (this.dialogNode) {
+      this.dialogNode.setScale(new Vec3(0.6, 0.6, 1));
+      tween(this.dialogNode)
+        .to(0.35, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
+        .start();
+    }
+  }
+
   private giveUpAndClose(): void {
     console.log('[ReviveModal] Give up and close');
-    this.node.active = false;
-    if (this.onGiveUpCallback) this.onGiveUpCallback();
+    WeChatService.vibrateShort('light');
+    if (this.dialogNode) {
+      tween(this.dialogNode)
+        .to(0.2, { scale: new Vec3(0.7, 0.7, 1) }, { easing: 'backIn' })
+        .call(() => {
+          this.node.active = false;
+          if (this.onGiveUpCallback) this.onGiveUpCallback();
+        })
+        .start();
+    } else {
+      this.node.active = false;
+      if (this.onGiveUpCallback) this.onGiveUpCallback();
+    }
   }
 
   private createHeader(parent: Node): void {
@@ -97,11 +122,11 @@ export class ReviveModal extends Component {
     this.ensureTransform(aura, 300, 70);
     const ag = aura.addComponent(Graphics);
     ag.fillColor = this.hex('#7F1D1D');
-    ag.fillColor.a = 150;
+    ((ag.fillColor) as ((any)) as any).a = 150;
     ag.circle(0, 5, 75);
     ag.fill();
     ag.fillColor = this.hex('#EF4444');
-    ag.fillColor.a = 90;
+    ((ag.fillColor) as ((any)) as any).a = 90;
     ag.circle(0, 5, 45);
     ag.fill();
 
@@ -183,7 +208,7 @@ export class ReviveModal extends Component {
     const g = shareBtn.addComponent(Graphics);
     // Vibrant WeChat Green Background (#10B981 / #07C160)
     g.fillColor = this.hex('#10B981');
-    g.fillColor.a = 245;
+    ((g.fillColor) as ((any)) as any).a = 245;
     g.roundRect(-190, -34, 380, 68, 20);
     g.fill();
     // Glowing green/white border
@@ -198,9 +223,21 @@ export class ReviveModal extends Component {
 
     shareBtn.on(Node.EventType.TOUCH_END, () => {
       console.log('[ReviveModal] Clicked WeChat Share -> Trigger Revive!');
-      // Simulate WeChat Share success
-      this.node.active = false;
-      if (this.onReviveCallback) this.onReviveCallback();
+      WeChatService.vibrateShort('light');
+      ShareService.sharePoster({ id: 1, name: '好友求助续光' } as any, '紧急救场请求接力');
+      WeChatService.showToast('正在邀请微信好友续命...', 'success');
+      if (this.dialogNode) {
+        tween(this.dialogNode)
+          .to(0.2, { scale: new Vec3(0.7, 0.7, 1) }, { easing: 'backIn' })
+          .call(() => {
+            this.node.active = false;
+            if (this.onReviveCallback) this.onReviveCallback();
+          })
+          .start();
+      } else {
+        this.node.active = false;
+        if (this.onReviveCallback) this.onReviveCallback();
+      }
     });
   }
 
@@ -210,7 +247,7 @@ export class ReviveModal extends Component {
     this.ensureTransform(giveUpBtn, 240, 42);
     const g = giveUpBtn.addComponent(Graphics);
     g.fillColor = this.hex('#1E293B');
-    g.fillColor.a = 220;
+    ((g.fillColor) as ((any)) as any).a = 220;
     g.roundRect(-120, -21, 240, 42, 12);
     g.fill();
     g.strokeColor = this.hex('#475569');

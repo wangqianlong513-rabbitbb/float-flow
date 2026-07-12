@@ -1,4 +1,4 @@
-import { _decorator, Button, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UITransform, Vec3 } from 'cc';
+import { _decorator, Button, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UITransform, Vec3, view } from 'cc';
 
 const { ccclass } = _decorator;
 
@@ -15,7 +15,8 @@ export class HomeRoot extends Component {
   protected onLoad(): void {
     console.log('[FloatFlow] HomeRoot onLoad');
     this.node.layer = Layers.Enum.UI_2D;
-    this.ensureTransform(this.node, 1280, 720);
+    const vs = view.getVisibleSize();
+    this.ensureTransform(this.node, vs.width, vs.height);
     this.rebuildUI();
   }
 
@@ -25,30 +26,41 @@ export class HomeRoot extends Component {
     this.rebuildUI();
   }
 
+  private getBounds(): { halfW: number; halfH: number } {
+    const size = view.getVisibleSize();
+    let halfW = size.width / 2;
+    let halfH = size.height / 2;
+    if (halfW < 300 || isNaN(halfW)) halfW = 360;
+    if (halfH < 600 || isNaN(halfH)) halfH = 779;
+    return { halfW, halfH };
+  }
+
   private rebuildUI(): void {
     this.node.destroyAllChildren();
+    const { halfW, halfH } = this.getBounds();
 
-    // 1. Top Resource & Settings Bar (Y = 310)
-    this.createTopBar();
+    // 1. Top Resource & Settings Bar (Y = halfH - 60)
+    this.createTopBar(halfH);
 
-    // 2. Main Title Typography & Glow Aura (Y = 210)
-    this.createTitleSection();
+    // 2. Main Title Typography & Glow Aura (Y = halfH * 0.74)
+    this.createTitleSection(halfH);
 
-    // 3. Center Hero Floating 3D Isometric Island & Crystal Core (Y = 30)
-    this.createHeroIsland();
+    // 3. Center Hero Floating 3D Isometric Island & Crystal Core (Y = halfH * 0.38)
+    this.createHeroIsland(halfH);
 
-    // 4. Left Sidebar Action Icons (X = -310)
-    this.createSidebarIcons();
+    // 4. Left Sidebar Action Icons (X = -halfW + 45)
+    this.createSidebarIcons(halfW, halfH);
 
-    // 5. Center/Bottom Dual Mode Hero Cards (Y = -140)
-    this.createModeSelectCards();
+    // 5. Center/Bottom Dual Mode Hero Cards (Y = -halfH * 0.05)
+    this.createModeCards(halfH);
 
-    // 6. Bottom Feature Banner Pills (Y = -285)
-    this.createBottomFeaturePills();
+    // 6. Bottom Feature Banner Pills (Y = -halfH + 180)
+    this.createBottomFeaturePills(halfH);
 
-    // 7. Interactive Sidebar Popup Root (Hidden by default!)
+    // 7. Interactive Sidebar Popup Root
+    const vs = view.getVisibleSize();
     this.popupRoot = this.createNode('PopupRoot', new Vec3(0, 0, 0), this.node);
-    this.ensureTransform(this.popupRoot, 1280, 720);
+    this.ensureTransform(this.popupRoot, vs.width, vs.height);
     this.popupRoot.active = false;
   }
 
@@ -63,8 +75,8 @@ export class HomeRoot extends Component {
     node.on(Node.EventType.TOUCH_END, onClick, this);
   }
 
-  private createTopBar(): void {
-    const topBar = this.createNode('TopBar', new Vec3(0, 310, 0), this.node);
+  private createTopBar(halfH: number): void {
+    const topBar = this.createNode('TopBar', new Vec3(0, halfH - 60, 0), this.node);
     this.ensureTransform(topBar, 1280, 60);
 
     const isRose = this.currentTheme === 1;
@@ -85,7 +97,7 @@ export class HomeRoot extends Component {
     this.ensureTransform(settingsBtn, 48, 48);
     const sg = settingsBtn.addComponent(Graphics);
     sg.fillColor = this.hex(dBg);
-    sg.fillColor.a = 220;
+    ((sg.fillColor) as any).a = 220;
     sg.circle(0, 0, 22);
     sg.fill();
     sg.strokeColor = this.hex(dBorder);
@@ -104,7 +116,7 @@ export class HomeRoot extends Component {
     this.ensureTransform(pill, 150, 42);
     const g = pill.addComponent(Graphics);
     g.fillColor = this.hex(bgHex);
-    g.fillColor.a = 210;
+    ((g.fillColor) as any).a = 210;
     g.roundRect(-75, -21, 150, 42, 21);
     g.fill();
     g.strokeColor = this.hex(borderHex);
@@ -113,9 +125,9 @@ export class HomeRoot extends Component {
     this.createLabel(pill, 'Text', new Vec3(0, 1, 0), text, 16, '#FFFFFF', 140, 36);
   }
 
-  private createTitleSection(): void {
-    const titleRoot = this.createNode('TitleRoot', new Vec3(0, 210, 0), this.node);
-    this.ensureTransform(titleRoot, 500, 120);
+  private createTitleSection(halfH: number): void {
+    const titleRoot = this.createNode('TitleRoot', new Vec3(0, halfH * 0.74, 0), this.node);
+    this.ensureTransform(titleRoot, 600, 140);
 
     const isRose = this.currentTheme === 1;
     const isGold = this.currentTheme === 2;
@@ -127,28 +139,28 @@ export class HomeRoot extends Component {
     this.ensureTransform(aura, 400, 80);
     const ag = aura.addComponent(Graphics);
     ag.fillColor = this.hex(auraOuter);
-    ag.fillColor.a = 140;
+    ((ag.fillColor) as any).a = 140;
     ag.circle(0, 5, 80);
     ag.fill();
     ag.fillColor = this.hex(auraInner);
-    ag.fillColor.a = 80;
+    ((ag.fillColor) as any).a = 80;
     ag.circle(0, 5, 45);
     ag.fill();
 
-    this.createLabel(titleRoot, 'MainTitle', new Vec3(0, 15, 0), '浮 岛 浮 光', 56, '#FFFFFF', 450, 70);
-    this.createLabel(titleRoot, 'SubTitle', new Vec3(0, -32, 0), 'F L O A T   &   F L O W', 17, subCol, 400, 30);
+    this.createLabel(titleRoot, 'MainTitle', new Vec3(0, 15, 0), '浮 岛 浮 光', 64, '#FFFFFF', 520, 80);
+    this.createLabel(titleRoot, 'SubTitle', new Vec3(0, -38, 0), 'F L O A T   &   F L O W', 19, subCol, 460, 32);
   }
 
-  private createHeroIsland(): void {
-    const islandRoot = this.createNode('HeroIslandRoot', new Vec3(0, 30, 0), this.node);
-    this.ensureTransform(islandRoot, 400, 300);
+  private createHeroIsland(halfH: number): void {
+    const islandRoot = this.createNode('HeroIslandRoot', new Vec3(0, halfH * 0.38, 0), this.node);
+    this.ensureTransform(islandRoot, 500, 360);
     this.heroIslandNode = islandRoot;
 
     const g = islandRoot.addComponent(Graphics);
 
-    const tileW = 76;
-    const tileH = 44;
-    const depth = 16;
+    const tileW = 120;
+    const tileH = 70;
+    const depth = 24;
     const coords = [
       { r: 0, c: 0 }, { r: 0, c: 1 }, { r: 0, c: 2 },
       { r: 1, c: 0 }, { r: 1, c: 1 }, { r: 1, c: 2 },
@@ -183,38 +195,39 @@ export class HomeRoot extends Component {
       this.drawIsometricBlock(g, topCol, leftCol, rightCol, strokeCol, 2, depth, tileW, tileH, y, x);
     });
 
-    const coreY = 35;
+    const coreY = 55;
     const coreGlowHex = isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#00F0FF');
     const cg = this.hex(coreGlowHex);
     g.fillColor = new Color(cg.r, cg.g, cg.b, 60);
-    g.circle(0, coreY, 45);
+    g.circle(0, coreY, 65);
     g.fill();
     g.fillColor = new Color(255, 255, 255, 120);
-    g.circle(0, coreY, 25);
+    g.circle(0, coreY, 36);
     g.fill();
 
     const cTop = isRose ? this.hex('#A78BFA') : (isGold ? this.hex('#FCD34D') : this.hex('#00F0FF'));
     const cLeft = isRose ? this.hex('#6D28D9') : (isGold ? this.hex('#B45309') : this.hex('#0099BB'));
     const cRight = isRose ? this.hex('#4C1D95') : (isGold ? this.hex('#7C2D12') : this.hex('#00CCD9'));
 
-    this.drawIsometricBlock(g, cTop, cLeft, cRight, this.hex('#FFFFFF'), 2.5, 22, 54, 32, coreY, 0);
+    this.drawIsometricBlock(g, cTop, cLeft, cRight, this.hex('#FFFFFF'), 3.0, 30, 76, 46, coreY, 0);
 
     tween(islandRoot)
-      .to(2.2, { position: new Vec3(0, 45, 0) }, { easing: 'sineInOut' })
-      .to(2.2, { position: new Vec3(0, 30, 0) }, { easing: 'sineInOut' })
+      .to(2.2, { position: new Vec3(0, 300, 0) }, { easing: 'sineInOut' })
+      .to(2.2, { position: new Vec3(0, 280, 0) }, { easing: 'sineInOut' })
       .union()
       .repeatForever()
       .start();
   }
 
-  private createSidebarIcons(): void {
-    const sidebar = this.createNode('Sidebar', new Vec3(-310, 30, 0), this.node);
-    this.ensureTransform(sidebar, 80, 300);
+  private createSidebarIcons(halfW: number, halfH: number): void {
+    const sidebar = this.createNode('Sidebar', new Vec3(-halfW + 48, halfH * 0.42, 0), this.node);
+    this.ensureTransform(sidebar, 70, 380);
 
+    const spacing = halfH * 0.19;
     const items = [
-      { id: 'daily', name: '每日奖励', icon: '🎁', y: 100, border: '#FDE047', color: '#FDE047' },
+      { id: 'daily', name: '每日奖励', icon: '🎁', y: spacing, border: '#FDE047', color: '#FDE047' },
       { id: 'rank', name: '排行榜', icon: '🏆', y: 0, border: '#60A5FA', color: '#60A5FA' },
-      { id: 'achieve', name: '成 就', icon: '⭐', y: -100, border: '#A855F7', color: '#C084FC' }
+      { id: 'achieve', name: '成 就', icon: '⭐', y: -spacing, border: '#A855F7', color: '#C084FC' }
     ];
 
     items.forEach((item) => {
@@ -222,7 +235,7 @@ export class HomeRoot extends Component {
       this.ensureTransform(btn, 64, 80);
       const g = btn.addComponent(Graphics);
       g.fillColor = this.hex('#1E3A8A');
-      g.fillColor.a = 210;
+      ((g.fillColor) as ((any)) as any).a = 210;
       g.circle(0, 10, 28);
       g.fill();
       g.strokeColor = this.hex(item.border);
@@ -285,7 +298,7 @@ export class HomeRoot extends Component {
     this.ensureTransform(dialog, 640, 460);
     const dg = dialog.addComponent(Graphics);
     dg.fillColor = this.hex('#0B132B');
-    dg.fillColor.a = 245;
+    ((dg.fillColor) as ((any)) as any).a = 245;
     dg.roundRect(-320, -230, 640, 460, 24);
     dg.fill();
     dg.strokeColor = this.hex(borderHex);
@@ -319,7 +332,7 @@ export class HomeRoot extends Component {
       this.ensureTransform(itemNode, 560, 44);
       const ig = itemNode.addComponent(Graphics);
       ig.fillColor = this.hex('#1E293B');
-      ig.fillColor.a = 200;
+      ((ig.fillColor) as ((any)) as any).a = 200;
       ig.roundRect(-270, -20, 540, 40, 12);
       ig.fill();
       ig.strokeColor = this.hex('#334155');
@@ -346,69 +359,61 @@ export class HomeRoot extends Component {
     });
   }
 
-  private createModeSelectCards(): void {
-    const cardsRoot = this.createNode('ModeCardsRoot', new Vec3(0, -140, 0), this.node);
-    this.ensureTransform(cardsRoot, 600, 130);
+  private createModeCards(halfH: number): void {
+    const cardsRoot = this.createNode('ModeCardsRoot', new Vec3(0, -halfH * 0.05, 0), this.node);
+    this.ensureTransform(cardsRoot, 700, 280);
 
     const isRose = this.currentTheme === 1;
     const isGold = this.currentTheme === 2;
 
     const jBg = isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#1E3A8A');
     const jBorder = isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#60A5FA');
-    const jLine = isRose ? '#C4B5FD' : (isGold ? '#FBBF24' : '#00F0FF');
 
     const eBg = isRose ? '#581C87' : (isGold ? '#9A3412' : '#4C1D95');
     const eBorder = isRose ? '#C4B5FD' : (isGold ? '#FBBF24' : '#E879F9');
-    const eLine = isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#F0ABFC');
 
-    const journeyCard = this.createNode('JourneyCard', new Vec3(-145, 0, 0), cardsRoot);
-    this.ensureTransform(journeyCard, 260, 115);
+    // WeChat Mini Game Mainstream Sleek Journey Card (500x108 at Y=60)
+    const journeyCard = this.createNode('JourneyCard', new Vec3(0, 60, 0), cardsRoot);
+    this.ensureTransform(journeyCard, 500, 108);
     const jg = journeyCard.addComponent(Graphics);
     jg.fillColor = this.hex(jBg);
-    jg.fillColor.a = 235;
-    jg.roundRect(-125, -55, 250, 110, 22);
+    ((jg.fillColor) as any).a = 240;
+    jg.roundRect(-250, -54, 500, 108, 28);
     jg.fill();
     jg.strokeColor = this.hex(jBorder);
-    jg.lineWidth = 3;
+    jg.lineWidth = 3.0;
     jg.stroke();
-    jg.strokeColor = this.hex(jLine);
-    jg.lineWidth = 1.5;
-    jg.moveTo(-100, 48);
-    jg.lineTo(100, 48);
-    jg.stroke();
+    // Inner level badge pill
     jg.fillColor = this.hex('#080E24');
-    jg.roundRect(-50, -42, 100, 28, 14);
+    jg.roundRect(105, -18, 110, 36, 18);
     jg.fill();
 
-    this.createLabel(journeyCard, 'Title', new Vec3(0, 12, 0), '🏁   旅 途 模 式', 24, '#FFFFFF', 220, 36);
-    this.createLabel(journeyCard, 'Sub', new Vec3(0, -28, 0), '关卡 56', 15, jBorder, 90, 24);
+    this.createLabel(journeyCard, 'Title', new Vec3(-70, 2, 0), '🏁   闯 关 旅 程', 28, '#FFFFFF', 320, 42);
+    this.createLabel(journeyCard, 'Sub', new Vec3(160, 2, 0), '关卡 56', 18, jBorder, 100, 32);
 
     this.addClick(journeyCard, () => {
       console.log('[HomeRoot] Clicked Journey Mode!');
       if (this.onStartJourneyCallback) this.onStartJourneyCallback();
     });
 
-    const endlessCard = this.createNode('EndlessCard', new Vec3(145, 0, 0), cardsRoot);
-    this.ensureTransform(endlessCard, 260, 115);
+    // WeChat Mini Game Mainstream Sleek Endless Card (500x92 at Y=-70)
+    const endlessCard = this.createNode('EndlessCard', new Vec3(0, -70, 0), cardsRoot);
+    this.ensureTransform(endlessCard, 500, 92);
     const eg = endlessCard.addComponent(Graphics);
     eg.fillColor = this.hex(eBg);
-    eg.fillColor.a = 235;
-    eg.roundRect(-125, -55, 250, 110, 22);
+    ((eg.fillColor) as any).a = 240;
+    eg.roundRect(-250, -46, 500, 92, 24);
     eg.fill();
     eg.strokeColor = this.hex(eBorder);
-    eg.lineWidth = 3;
+    eg.lineWidth = 3.0;
     eg.stroke();
-    eg.strokeColor = this.hex(eLine);
-    eg.lineWidth = 1.5;
-    eg.moveTo(-100, 48);
-    eg.lineTo(100, 48);
-    eg.stroke();
+    // Inner rank badge pill
     eg.fillColor = this.hex('#1E1B4B');
-    eg.roundRect(-60, -42, 120, 28, 14);
+    eg.roundRect(95, -17, 130, 34, 17);
     eg.fill();
 
-    this.createLabel(endlessCard, 'Title', new Vec3(0, 12, 0), '♾️   流 光 无 尽', 24, '#FFFFFF', 220, 36);
-    this.createLabel(endlessCard, 'Sub', new Vec3(0, -28, 0), '最高 2840m', 15, eBorder, 110, 24);
+    this.createLabel(endlessCard, 'Title', new Vec3(-70, 2, 0), '♾️   极 限 排 位', 26, '#FFFFFF', 320, 40);
+    this.createLabel(endlessCard, 'Sub', new Vec3(160, 2, 0), '最高 2840m', 17, eBorder, 120, 30);
 
     this.addClick(endlessCard, () => {
       console.log('[HomeRoot] Clicked Endless Mode!');
@@ -416,32 +421,31 @@ export class HomeRoot extends Component {
     });
   }
 
-  private createBottomFeaturePills(): void {
-    const pillsRoot = this.createNode('FeaturePillsRoot', new Vec3(0, -285, 0), this.node);
-    this.ensureTransform(pillsRoot, 700, 50);
+  private createBottomFeaturePills(halfH: number): void {
+    const pillsRoot = this.createNode('FeaturePillsRoot', new Vec3(0, -halfH + 185, 0), this.node);
+    this.ensureTransform(pillsRoot, 700, 240);
 
     const isRose = this.currentTheme === 1;
     const isGold = this.currentTheme === 2;
 
     const pills = [
-      { text: '🔯  强化手牌  |  看广告 +1槽', x: -230, bg: isRose ? '#3B0764' : (isGold ? '#451A03' : '#312E81'), border: isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#A78BFA'), col: '#E9D5FF' },
-      { text: '⏱️  时空蓄能  |  能量已满', x: 0, bg: isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#004D61'), border: isRose ? '#C4B5FD' : (isGold ? '#FBBF24' : '#00F0FF'), col: '#A5F3FC' },
-      { text: '🔺  主题换色  |  暮色罗兰', x: 230, bg: isRose ? '#581C87' : (isGold ? '#9A3412' : '#701A75'), border: isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#F472B6'), col: '#FBCFE8' }
+      { text: '🔯   强化手牌卡槽 · 广告永久 +1', y: 80, bg: isRose ? '#3B0764' : (isGold ? '#451A03' : '#312E81'), border: isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#A78BFA'), col: '#E9D5FF' },
+      { text: '⏱️   蓄能池状态 · 能量已满格 (10/10)', y: 0, bg: isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#004D61'), border: isRose ? '#C4B5FD' : (isGold ? '#FBBF24' : '#00F0FF'), col: '#A5F3FC' },
+      { text: '🎨   主题场景色彩 · 点击定制换色', y: -80, bg: isRose ? '#581C87' : (isGold ? '#9A3412' : '#701A75'), border: isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#F472B6'), col: '#FBCFE8' }
     ];
 
     pills.forEach((p, idx) => {
-      const node = this.createNode(`Pill_${idx}`, new Vec3(p.x, 0, 0), pillsRoot);
-      this.ensureTransform(node, 210, 40);
+      const node = this.createNode(`Pill_${idx}`, new Vec3(0, p.y, 0), pillsRoot);
+      this.ensureTransform(node, 520, 46);
       const g = node.addComponent(Graphics);
       g.fillColor = this.hex(p.bg);
-      g.fillColor.a = 220;
-      g.roundRect(-100, -18, 200, 36, 18);
+      g.roundRect(-260, -23, 520, 46, 23);
       g.fill();
       g.strokeColor = this.hex(p.border);
-      g.lineWidth = 1.8;
+      g.lineWidth = 2.0;
       g.stroke();
 
-      this.createLabel(node, 'Text', new Vec3(0, 1, 0), p.text, 13, p.col, 190, 30);
+      this.createLabel(node, 'Text', new Vec3(0, 1, 0), p.text, 17, p.col, 480, 32);
 
       this.addClick(node, () => {
         console.log(`[HomeRoot] Clicked feature pill: ${p.text}`);

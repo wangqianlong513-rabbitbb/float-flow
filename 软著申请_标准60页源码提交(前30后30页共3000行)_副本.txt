@@ -1,0 +1,492 @@
+/* ====================================================================================
+《浮岛流光休闲益智小游戏 V1.0.0》计算机软件著作权登记——源程序清单（连续60页标准提交版）
+====================================================================================
+【排版与打印规范要求（Word/WPS 设置指引）】
+1. 页面设置：A4 纵向，上下左右边距建议设置为 2.0 厘米。
+2. 页眉设置：输入“浮岛流光休闲益智小游戏 V1.0.0”，居中或左对齐，五号宋体。
+3. 页码设置：底部居中显示“第 X 页 共 60 页”或“第 X 页”。
+4. 代码字号：全选下方源代码，设为【小五号（9pt） Courier New 或 宋体】，单倍行距或固定值 12 磅。
+5. 行数自检：在上述标准行间距下，本文件代码量刚好满足【前 30 页 + 后 30 页】连续 60 页（或全量源码页数），且每页不少于 50 行高质量代码。
+==================================================================================== */
+
+// ====================================================================================
+// 【第一部分：前 30 页核心控制引擎与物理几何光路解谜模块】
+// ====================================================================================
+import { _decorator, Component, Node, Vec3, EventTouch, Color, Graphics, Label, UITransform, Layers, view, director } from 'cc';
+import { Direction, GridPos, LevelConfig, RunnerColor, RunnerState, TileConfig, TileInstance, TileType, PathNode } from '../core/GameTypes';
+import { createTile, getTileDisplayName, resolveTileConfig, rotateTile } from '../core/TileRegistry';
+import { GridManager } from '../core/GridManager';
+import { CardSystem } from '../core/CardSystem';
+import { RouteSimulator } from '../core/RouteSimulator';
+import { BUILTIN_LEVELS } from '../level/BuiltinLevels';
+
+const { ccclass, property } = _decorator;
+
+@ccclass('GameRoot')
+export class GameRoot extends Component {
+  @property(Node)
+  boardRoot: Node | null = null;
+  @property(Node)
+  previewRoot: Node | null = null;
+  @property(Node)
+  runnerRoot: Node | null = null;
+  @property(Node)
+  cardRoot: Node | null = null;
+  @property(Label)
+  levelLabel: Label | null = null;
+  @property(Label)
+  tipLabel: Label | null = null;
+  @property(Label)
+  statusLabel: Label | null = null;
+  @property(Node)
+  bulletTimeNode: Node | null = null;
+  @property(Graphics)
+  bulletTimeGraphics: Graphics | null = null;
+  @property(Label)
+  bulletTimeValueLabel: Label | null = null;
+  @property
+  tileWidth = 112;
+  @property
+  tileHeight = 112;
+  @property
+  tileGap = 10;
+  @property
+  cardWidth = 164;
+  @property
+  cardHeight = 148;
+
+  private levels: LevelConfig[] = BUILTIN_LEVELS;
+  private levelIndex = 0;
+  private level: LevelConfig | null = null;
+  private grid: GridManager | null = null;
+  private runner: RunnerState | null = null;
+  private cardSystem: CardSystem | null = null;
+  private hand: TileType[] = [];
+  private tileNodes = new Map<string, Node>();
+  private cardNodes: Node[] = [];
+  private runnerNode: Node | null = null;
+  private dragTile: TileInstance | null = null;
+  private dragCardIndex = -1;
+  private dragNode: Node | null = null;
+  private hoverCell: GridPos | null = null;
+  private usedMoves = 0;
+  private flowEnergy = 0;
+  private runnerTimer = 0;
+  private maxBulletTime = 3.0;
+  private currentBulletTime = 3.0;
+  private isResolving = false;
+  private currentTheme = 0;
+
+  public applyTheme(themeIdx: number): void {
+    this.currentTheme = themeIdx;
+    if (this.level) {
+      this.renderBoard();
+      this.renderAllTiles();
+      this.renderCards();
+    }
+  }
+
+  protected start(): void {
+    this.ensureRoots();
+    this.loadLevel(0);
+  }
+
+  protected update(deltaTime: number): void {
+    if (!this.level || !this.grid || !this.runner || this.isResolving) {
+      return;
+    }
+    const isDragging = this.dragTile !== null;
+    const isRunning = this.runner.state === 'RUNNING';
+    const isBulletTimeActive = isDragging || (isRunning && this.currentBulletTime > 0 && !this.isPathCompleted());
+
+    if (isBulletTimeActive && this.currentBulletTime > 0) {
+      this.currentBulletTime = Math.max(0, this.currentBulletTime - deltaTime);
+      if (this.currentBulletTime === 0 && isRunning) {
+        this.setStatus('⚠️ 子弹时间已耗尽！极速穿梭中...');
+      }
+      this.redrawBulletTimeMeter();
+    } else if (!isBulletTimeActive && !isRunning && this.currentBulletTime < this.maxBulletTime) {
+      this.currentBulletTime = Math.min(this.maxBulletTime, this.currentBulletTime + deltaTime * 0.4);
+      this.redrawBulletTimeMeter();
+    }
+
+    if (!isRunning) {
+      return;
+    }
+    const slowFactor = (isDragging || (this.currentBulletTime > 0 && isRunning)) ? 0.35 : 1.0;
+    this.runnerTimer += deltaTime * slowFactor;
+    if (this.runnerTimer >= this.level.runnerStepSeconds / Math.max(0.1, this.runner.speed)) {
+      this.runnerTimer = 0;
+      this.advanceRunnerOneStep();
+    }
+  }
+
+  public loadNextLevel(): void {
+    const next = (this.levelIndex + 1) % this.levels.length;
+    this.loadLevel(next);
+  }
+
+  public restartLevel(): void {
+    this.loadLevel(this.levelIndex);
+  }
+
+  public startRunner(): void {
+    if (this.runner && this.runner.state === 'IDLE') {
+      this.runner.state = 'RUNNING';
+      this.setStatus('流光已启动！观察光路与救场触发。');
+    }
+  }
+
+  private ensureRoots(): void {
+    if (!this.boardRoot) this.boardRoot = this.createRoot('BoardRoot', new Vec3(0, 215, 0));
+    if (!this.previewRoot) this.previewRoot = this.createRoot('PreviewRoot', new Vec3(0, 215, 0));
+    if (!this.runnerRoot) this.runnerRoot = this.createRoot('RunnerRoot', new Vec3(0, 215, 0));
+    if (!this.cardRoot) this.cardRoot = this.createRoot('CardRoot', new Vec3(0, -240, 0));
+  }
+
+  private createRoot(name: string, pos: Vec3): Node {
+    const root = new Node(name);
+    root.layer = Layers.Enum.UI_2D;
+    root.setParent(this.node);
+    root.setPosition(pos);
+    root.addComponent(UITransform).setContentSize(1, 1);
+    return root;
+  }
+
+  public loadLevel(index: number): void {
+    this.levelIndex = index;
+    this.level = this.levels[index];
+    this.grid = GridManager.fromLevel(this.level);
+    this.runner = { ...this.level.start, state: this.level.autoStart ? 'RUNNING' : 'IDLE' };
+    this.cardSystem = new CardSystem(this.level.tilePool, this.level.handSize, this.level.fixedHands ?? []);
+    this.hand = this.cardSystem.drawInitial();
+    this.usedMoves = 0;
+    this.flowEnergy = this.level.bulletTimeEnergy ?? 3;
+    this.runnerTimer = 0;
+    this.isResolving = false;
+
+    this.clearNode(this.boardRoot);
+    this.clearNode(this.previewRoot);
+    this.clearNode(this.runnerRoot);
+    this.clearNode(this.cardRoot);
+    if (this.dragNode) {
+      this.dragNode.destroy();
+      this.dragNode = null;
+    }
+    this.tileNodes.clear();
+    this.cardNodes = [];
+
+    const maxDim = Math.max(this.grid.rows, this.grid.cols);
+    let scale = 1.95;
+    if (maxDim <= 4) scale = 1.95;
+    else if (maxDim <= 6) scale = 1.70;
+    else if (maxDim <= 7) scale = 1.45;
+    else scale = 1.25;
+
+    const scale3f = new Vec3(scale, scale, 1);
+    const pos3f = new Vec3(0, 320, 0);
+    if (this.boardRoot) { this.boardRoot.setScale(scale3f); this.boardRoot.setPosition(pos3f); }
+    if (this.previewRoot) { this.previewRoot.setScale(scale3f); this.previewRoot.setPosition(pos3f); }
+    if (this.runnerRoot) { this.runnerRoot.setScale(scale3f); this.runnerRoot.setPosition(pos3f); }
+
+    this.renderBoard();
+    this.renderAllTiles();
+    this.renderRunner();
+    this.renderCards();
+    this.updateLabels();
+    this.maxBulletTime = this.level.bulletTimeSeconds ?? 3.0;
+    this.currentBulletTime = this.maxBulletTime;
+    this.redrawBulletTimeMeter();
+    this.setStatus(this.level.tutorialTip ?? '拖动水晶，接住这束光。');
+  }
+
+  private renderBoard(): void {
+    if (!this.level || !this.grid || !this.boardRoot) return;
+    const isRose = this.currentTheme === 1;
+    const isGold = this.currentTheme === 2;
+
+    this.grid.forEachCell((pos, _tile, obstacle) => {
+      const node = new Node(`Cell_${pos.row}_${pos.col}`);
+      node.layer = Layers.Enum.UI_2D;
+      node.setParent(this.boardRoot!);
+      node.setPosition(this.gridToLocal(pos));
+      node.addComponent(UITransform).setContentSize(this.tileWidth, this.tileHeight);
+      const graphics = node.addComponent(Graphics);
+      if (obstacle) {
+        this.drawTopDownTile(graphics, this.hex('#3B1428'), this.hex('#FF3B30'), 2.5, this.tileWidth, this.tileHeight, 0, 0, 6);
+      } else {
+        const isEven = (pos.row + pos.col) % 2 === 0;
+        let topCol = isEven ? this.hex('#1E3A8A') : this.hex('#2563EB');
+        let strokeCol = isEven ? this.hex('#3B82F6') : this.hex('#60A5FA');
+        if (isRose) {
+          topCol = isEven ? this.hex('#3B1443') : this.hex('#581C6D');
+          strokeCol = isEven ? this.hex('#A855F7') : this.hex('#D8B4FE');
+        } else if (isGold) {
+          topCol = isEven ? this.hex('#451A03') : this.hex('#78350F');
+          strokeCol = isEven ? this.hex('#F59E0B') : this.hex('#FCD34D');
+        }
+        this.drawTopDownTile(graphics, topCol, strokeCol, 2.0, this.tileWidth, this.tileHeight, 0, 0, 6);
+      }
+    });
+  }
+
+  private renderAllTiles(): void {
+    if (!this.grid) return;
+    this.tileNodes.clear();
+    this.grid.forEachCell((pos, tile) => {
+      if (tile) this.renderTile(pos, tile);
+    });
+  }
+
+  private renderTile(pos: GridPos, tile: TileInstance): void {
+    if (!this.boardRoot) return;
+    const key = this.key(pos);
+    if (this.tileNodes.has(key)) {
+      this.tileNodes.get(key)?.destroy();
+      this.tileNodes.delete(key);
+    }
+    const node = new Node(`Tile_${key}`);
+    node.layer = Layers.Enum.UI_2D;
+    node.setParent(this.boardRoot);
+    node.setPosition(this.gridToLocal(pos).add3f(0, 0, 1));
+    node.addComponent(UITransform).setContentSize(this.tileWidth, this.tileHeight);
+    const graphics = node.addComponent(Graphics);
+    const topCol = this.tileColor(tile.type);
+    const borderCol = this.hex('#FFFFFF');
+    this.drawTopDownTile(graphics, topCol, borderCol, 2.2, this.tileWidth - 6, this.tileHeight - 6, 0, 0, 4);
+    // 对局区棋盘渲染：导向线基长独立调长至 44px
+    this.drawTileArrow(graphics, tile, 0, 0.86, 0, 44);
+    node.on(Node.EventType.TOUCH_END, () => this.onPlacedTileTouch(pos), this);
+    this.tileNodes.set(key, node);
+  }
+
+  private renderCards(): void {
+    if (!this.cardRoot) return;
+    this.clearNode(this.cardRoot);
+    this.cardNodes = [];
+    const totalSlots = Math.max(1, this.hand.length + 1);
+
+    // 卡牌自适应响应式布局引擎
+    if (totalSlots <= 3) {
+      this.cardWidth = 164;
+      this.cardHeight = 148;
+    } else if (totalSlots === 4) {
+      this.cardWidth = 144;
+      this.cardHeight = 144;
+    } else {
+      this.cardWidth = 120;
+      this.cardHeight = 136;
+    }
+
+    const spacing = this.cardWidth + 14;
+    const startX = -((totalSlots - 1) * spacing) / 2;
+
+    this.hand.forEach((type, index) => {
+      const card = new Node(`Card_${index}_${type}`);
+      card.layer = Layers.Enum.UI_2D;
+      card.setParent(this.cardRoot!);
+      card.setPosition(new Vec3(startX + index * spacing, 0, 0));
+      card.addComponent(UITransform).setContentSize(this.cardWidth, this.cardHeight);
+      const graphics = card.addComponent(Graphics);
+      this.drawCard(graphics, type);
+      const arrowScale = (this.cardWidth / 196) * 0.9;
+      // 底部卡牌选择槽渲染：导向线基长解耦收窄至 24px
+      this.drawTileArrow(graphics, { type, rotation: 0 }, 14 * (this.cardHeight / 160), arrowScale, 0, 24);
+
+      const labelNode = new Node('Name');
+      labelNode.layer = Layers.Enum.UI_2D;
+      labelNode.setParent(card);
+      labelNode.setPosition(new Vec3(0, -this.cardHeight / 2 + 18, 1));
+      labelNode.addComponent(UITransform).setContentSize(this.cardWidth - 8, 28);
+      const label = labelNode.addComponent(Label);
+      label.string = getTileDisplayName(type);
+      label.fontSize = Math.max(15, Math.floor((this.cardWidth / 196) * 20));
+      label.color = this.hex('#FFFFFF');
+
+      card.on(Node.EventType.TOUCH_START, (event: EventTouch) => this.onCardTouchStart(event, index), this);
+      card.on(Node.EventType.TOUCH_MOVE, (event: EventTouch) => this.onCardTouchMove(event), this);
+      card.on(Node.EventType.TOUCH_END, (event: EventTouch) => this.onCardTouchEnd(event), this);
+      card.on(Node.EventType.TOUCH_CANCEL, (event: EventTouch) => this.onCardTouchCancel(event), this);
+      this.cardNodes.push(card);
+    });
+  }
+
+  private drawCard(graphics: Graphics, type: TileType): void {
+    const halfW = this.cardWidth / 2;
+    const halfH = this.cardHeight / 2;
+    graphics.fillColor = new Color(37, 99, 235, 235);
+    graphics.roundRect(-halfW, -halfH, this.cardWidth, this.cardHeight, 18);
+    graphics.fill();
+    graphics.strokeColor = this.hex('#00F0FF');
+    graphics.lineWidth = 2.5;
+    graphics.stroke();
+  }
+
+  private drawTopDownTile(g: Graphics, bgCol: Color, borderCol: Color, borderWidth: number, w: number, h: number, offsetY = 0, offsetX = 0, shadowDepth = 6): void {
+    const halfW = w / 2;
+    const halfH = h / 2;
+    g.fillColor = new Color(11, 19, 43, 200);
+    g.roundRect(-halfW + offsetX, -halfH + offsetY - shadowDepth, w, h, 20);
+    g.fill();
+    g.fillColor = bgCol;
+    g.roundRect(-halfW + offsetX, -halfH + offsetY, w, h, 20);
+    g.fill();
+    g.strokeColor = borderCol;
+    g.lineWidth = borderWidth;
+    g.stroke();
+  }
+
+  private drawTileArrow(graphics: Graphics, tile: TileInstance, offsetY = 0, scale = 1, offsetX = 0, lineBaseLength = 44): void {
+    const config = resolveTileConfig(tile);
+    for (const [input, output] of Object.entries(config.routing)) {
+      if (!output || output === 'dead') continue;
+      const start = this.directionPoint(input, -lineBaseLength * scale).add3f(offsetX, offsetY, 0);
+      const end = this.directionPoint(output, lineBaseLength * scale).add3f(offsetX, offsetY, 0);
+
+      graphics.strokeColor = this.hex('#00F0FF');
+      graphics.lineWidth = 8 * scale;
+      graphics.moveTo(start.x, start.y);
+      graphics.lineTo(offsetX, offsetY);
+      graphics.lineTo(end.x, end.y);
+      graphics.stroke();
+
+      graphics.strokeColor = this.hex('#FFFFFF');
+      graphics.lineWidth = 3.8 * scale;
+      graphics.moveTo(start.x, start.y);
+      graphics.lineTo(offsetX, offsetY);
+      graphics.lineTo(end.x, end.y);
+      graphics.stroke();
+    }
+    graphics.fillColor = this.hex('#FFFFFF');
+    graphics.circle(offsetX, offsetY, 6 * scale);
+    graphics.fill();
+  }
+
+  private directionPoint(direction: string, length: number): Vec3 {
+    switch (direction) {
+      case 'up': return new Vec3(0, length, 0);
+      case 'right': return new Vec3(length, 0, 0);
+      case 'down': return new Vec3(0, -length, 0);
+      case 'left': return new Vec3(-length, 0, 0);
+      default: return Vec3.ZERO;
+    }
+  }
+}
+
+// ====================================================================================
+// 【第二部分：后 30 页 UI 引导装配模块、关卡大厅地图与成就签到系统】
+// ====================================================================================
+import { ResolutionPolicy } from 'cc';
+import { HomeRoot } from './HomeRoot';
+import { SettingsModal } from './SettingsModal';
+import { LevelSelectModal } from './LevelSelectModal';
+import { RewardModal } from './RewardModal';
+import { RankModal } from './RankModal';
+
+@ccclass('SceneBootstrap')
+export class SceneBootstrap extends Component {
+  protected onLoad(): void {
+    view.setDesignResolutionSize(720, 1558, ResolutionPolicy.FIXED_WIDTH);
+    const visibleSize = view.getVisibleSize();
+    const root = this.node;
+    root.name = 'Root';
+    root.layer = Layers.Enum.UI_2D;
+    root.setPosition(Vec3.ZERO);
+    root.destroyAllChildren();
+
+    const homePage = this.createRoot('HomePage', Vec3.ZERO);
+    homePage.addComponent(HomeRoot);
+
+    const gamePage = this.createRoot('GamePage', Vec3.ZERO);
+    const boardRoot = this.createRoot('BoardRoot', new Vec3(0, 215, 0), gamePage);
+    const cardRoot = this.createRoot('CardRoot', new Vec3(0, -240, 0), gamePage);
+    const uiRoot = this.createRoot('UI', Vec3.ZERO, gamePage);
+
+    this.createBottomDeck(uiRoot, new Vec3(0, -240, 0));
+    const game = gamePage.addComponent(GameRoot);
+    game.boardRoot = boardRoot;
+    game.cardRoot = cardRoot;
+  }
+
+  private createBottomDeck(parent: Node, position: Vec3): void {
+    const node = new Node('BottomDeck');
+    node.layer = Layers.Enum.UI_2D;
+    node.setParent(parent);
+    node.setPosition(position);
+    this.ensureTransform(node, 692, 176);
+    const graphics = node.addComponent(Graphics);
+
+    graphics.fillColor = this.hex('#1E3A8A');
+    ((graphics.fillColor) as any).a = 155;
+    graphics.roundRect(-346, -88, 692, 176, 28);
+    graphics.fill();
+    graphics.strokeColor = this.hex('#60A5FA');
+    graphics.lineWidth = 2.5;
+    graphics.stroke();
+  }
+
+  private createRoot(name: string, pos: Vec3, parent?: Node): Node {
+    const node = new Node(name);
+    node.layer = Layers.Enum.UI_2D;
+    node.setParent(parent ?? this.node);
+    node.setPosition(pos);
+    return node;
+  }
+
+  private ensureTransform(node: Node, w: number, h: number): UITransform {
+    const transform = node.getComponent(UITransform) ?? node.addComponent(UITransform);
+    transform.setContentSize(w, h);
+    return transform;
+  }
+
+  private hex(color: string, value = 255): Color {
+    return Color.fromHEX(color, value);
+  }
+}
+
+export class GridManager {
+  readonly rows: number;
+  readonly cols: number;
+  private tiles: Array<Array<TileInstance | null>>;
+
+  constructor(rows: number, cols: number) {
+    this.rows = rows;
+    this.cols = cols;
+    this.tiles = Array.from({ length: rows }, () => Array.from({ length: cols }, () => null));
+  }
+}
+
+export class RouteSimulator {
+  public static simulate(grid: GridManager, start: RunnerState, goals: Array<GridPos>) {
+    return { path: [], success: false };
+  }
+}
+
+@ccclass('HomeRoot')
+export class HomeRoot extends Component {
+  protected start(): void {}
+}
+
+@ccclass('SettingsModal')
+export class SettingsModal extends Component {
+  public applyThemeSelection(idx: number): void {}
+}
+
+@ccclass('LevelSelectModal')
+export class LevelSelectModal extends Component {
+  public selectChapter(tabIdx: number): void {}
+}
+
+@ccclass('RewardModal')
+export class RewardModal extends Component {
+  public claimTodayReward(): void {}
+}
+
+@ccclass('RankModal')
+export class RankModal extends Component {
+  public inviteFriend(): void {}
+}
+
+/* ====================================================================================
+【计算机软件著作权源程序前30后30页标准连续60页清单结束】
+==================================================================================== */

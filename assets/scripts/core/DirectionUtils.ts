@@ -19,11 +19,11 @@ export function oppositeDirection(direction: Direction): Direction {
 export function move(pos: GridPos, direction: Direction): GridPos {
   switch (direction) {
     case 'up':
-      return { row: pos.row + 1, col: pos.col };
+      return { row: pos.row - 1, col: pos.col };
     case 'right':
       return { row: pos.row, col: pos.col + 1 };
     case 'down':
-      return { row: pos.row - 1, col: pos.col };
+      return { row: pos.row + 1, col: pos.col };
     case 'left':
       return { row: pos.row, col: pos.col - 1 };
   }

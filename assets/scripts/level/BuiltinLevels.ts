@@ -30,7 +30,7 @@ export const BUILTIN_LEVELS: LevelConfig[] = [
     tilePool: ['curve', 'straight'],
     fixedHands: ['curve', 'straight'],
     recommendedMoves: 2,
-    tutorialTip: '点一下折角镜可以旋转，让光拐弯。',
+    tutorialTip: '放好手牌后点地砖可旋转；当光轨预测线变为青色通向终点时，再启动流光！',
   },
   {
     id: 3,

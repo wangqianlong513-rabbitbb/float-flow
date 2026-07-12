@@ -19,6 +19,8 @@ import { GoalConfig, GridPos, LevelConfig, RunnerColor, RunnerState, TileInstanc
 import { RouteSimulator } from '../core/RouteSimulator';
 import { createTile, getTileDisplayName, resolveTileConfig, rotateTile } from '../core/TileDefinitions';
 import { BUILTIN_LEVELS } from '../level/BuiltinLevels';
+import { WeChatService } from '../wx/WeChatService';
+import { ShareService } from '../wx/ShareService';
 
 const { ccclass, property } = _decorator;
 
@@ -45,20 +47,32 @@ export class GameRoot extends Component {
   @property(Label)
   statusLabel: Label | null = null;
 
+  @property(Node)
+  bulletTimeNode: Node | null = null;
+
+  @property(Graphics)
+  bulletTimeGraphics: Graphics | null = null;
+
+  @property(Label)
+  bulletTimeValueLabel: Label | null = null;
+
   public onShowReviveModalCallback?: () => void;
   public onShowVictoryPosterCallback?: (levelName: string, stars: number, moves: number) => void;
 
   @property
-  tileWidth = 96;
+  tileWidth = 112;
 
   @property
-  tileHeight = 56;
+  tileHeight = 112;
 
   @property
-  cardWidth = 120;
+  tileGap = 10;
 
   @property
-  cardHeight = 96;
+  cardWidth = 196;
+
+  @property
+  cardHeight = 160;
 
   private levels: LevelConfig[] = BUILTIN_LEVELS;
   private levelIndex = 0;
@@ -75,8 +89,13 @@ export class GameRoot extends Component {
   private dragNode: Node | null = null;
   private hoverCell: GridPos | null = null;
   private usedMoves = 0;
+  public undoRemaining = 1;
+  public eraseRemaining = 1;
+  private moveHistory: { pos: GridPos; cardIndex: number; tileType: TileType }[] = [];
   private flowEnergy = 0;
   private runnerTimer = 0;
+  private maxBulletTime = 3.0;
+  private currentBulletTime = 3.0;
   private isResolving = false;
   private currentTheme = 0; // 0: Icefield, 1: Violet Dusk, 2: Sunset Glow
 
@@ -98,11 +117,32 @@ export class GameRoot extends Component {
   }
 
   protected update(deltaTime: number): void {
-    if (!this.level || !this.grid || !this.runner || this.runner.state !== 'RUNNING' || this.isResolving) {
+    if (!this.level || !this.grid || !this.runner || this.isResolving) {
       return;
     }
 
-    const slowFactor = this.dragTile ? 0.35 : 1;
+    // 1. Bullet Time Mechanics: specifically triggers ONLY during card dragging (`isDragging`), never just by running!
+    const isDragging = this.dragTile !== null;
+    const isRunning = this.runner.state === 'RUNNING';
+    const isBulletTimeActive = isDragging;
+
+    if (isBulletTimeActive && this.currentBulletTime > 0) {
+      this.currentBulletTime = Math.max(0, this.currentBulletTime - deltaTime);
+      if (this.currentBulletTime === 0 && isRunning) {
+        this.setStatus('⚠️ 子弹时间已耗尽！流光恢复正常光速飞行...');
+      }
+      this.redrawBulletTimeMeter();
+    } else if (!isBulletTimeActive && !isRunning && this.currentBulletTime < this.maxBulletTime) {
+      // Recharges slowly while resting/planning in IDLE
+      this.currentBulletTime = Math.min(this.maxBulletTime, this.currentBulletTime + deltaTime * 0.4);
+      this.redrawBulletTimeMeter();
+    }
+
+    if (!isRunning) {
+      return;
+    }
+
+    const slowFactor = (isDragging && this.currentBulletTime > 0) ? 0.35 : 1.0;
     this.runnerTimer += deltaTime * slowFactor;
     if (this.runnerTimer >= this.level.runnerStepSeconds / Math.max(0.1, this.runner.speed)) {
       this.runnerTimer = 0;
@@ -111,16 +151,19 @@ export class GameRoot extends Component {
   }
 
   public loadNextLevel(): void {
+    WeChatService.vibrateShort('light');
     const next = (this.levelIndex + 1) % this.levels.length;
     this.loadLevel(next);
   }
 
-  public restartLevel(): void {
-    this.loadLevel(this.levelIndex);
+  public restartLevel(preserveChances = false): void {
+    WeChatService.vibrateShort('light');
+    this.loadLevel(this.levelIndex, preserveChances);
   }
 
   public startRunner(): void {
     if (this.runner && this.runner.state === 'IDLE') {
+      WeChatService.vibrateShort('light');
       this.runner.state = 'RUNNING';
       this.setStatus('流光已启动！观察光路与救场触发。');
     }
@@ -131,6 +174,7 @@ export class GameRoot extends Component {
     if (!this.cardSystem) {
       return;
     }
+    WeChatService.vibrateShort('light');
     this.hand = this.cardSystem.redrawAll();
     this.renderCards();
     this.setStatus('手牌已刷新');
@@ -138,21 +182,96 @@ export class GameRoot extends Component {
 
   public clearPlacedTiles(): void {
     console.log('[FloatFlow] Clear Placed Tiles');
-    this.restartLevel();
-    this.setStatus('已擦除放置地砖，手牌已重置');
+    WeChatService.vibrateShort('light');
+    if (this.moveHistory.length === 0 && this.usedMoves === 0) {
+      this.setStatus('当前棋盘已经很干净啦，无需擦除。');
+      return;
+    }
+    if (this.eraseRemaining <= 0) {
+      WeChatService.showModal({
+        title: '擦除次数已用完 (0/1)',
+        content: '本关卡免费擦除次数已用完！是否观看 30 秒激励广告立刻重置 1 次擦除机会？',
+        confirmText: '📺 观看广告',
+        cancelText: '暂不需要',
+        success: (res) => {
+          if (res.confirm) {
+            console.log('[FloatFlow] Watch Ad for Erase Reset');
+            this.eraseRemaining = 1;
+            WeChatService.showToast('🎉 广告观看成功，已重置 1 次擦除机会！', 'success');
+            this.setStatus('🎉 已重置 1 次擦除机会！');
+            this.clearPlacedTiles();
+          }
+        },
+      });
+      return;
+    }
+
+    this.eraseRemaining--;
+    this.restartLevel(true);
+    this.setStatus(`已擦除放置地砖，手牌已重置（本关剩余擦除：${this.eraseRemaining}/1 次）`);
+  }
+
+  public undoLastMove(): void {
+    console.log('[FloatFlow] Undo Last Move');
+    WeChatService.vibrateShort('light');
+    if (!this.grid || !this.cardSystem || this.runner?.state === 'RUNNING') {
+      return;
+    }
+    if (this.moveHistory.length === 0) {
+      this.setStatus('当前没有任何可撤回的放置操作！');
+      return;
+    }
+    if (this.undoRemaining <= 0) {
+      WeChatService.showModal({
+        title: '撤回次数已用完 (0/1)',
+        content: '本关卡免费撤回上一步次数已用完！是否观看 30 秒激励广告立刻重置 1 次撤回机会？',
+        confirmText: '📺 观看广告',
+        cancelText: '暂不需要',
+        success: (res) => {
+          if (res.confirm) {
+            console.log('[FloatFlow] Watch Ad for Undo Reset');
+            this.undoRemaining = 1;
+            WeChatService.showToast('🎉 广告观看成功，已重置 1 次撤回机会！', 'success');
+            this.setStatus('🎉 已重置 1 次撤回机会！');
+            this.undoLastMove();
+          }
+        },
+      });
+      return;
+    }
+
+    const last = this.moveHistory.pop();
+    if (!last) return;
+
+    this.undoRemaining--;
+    this.grid.setTile(last.pos, null);
+    const key = this.key(last.pos);
+    this.tileNodes.get(key)?.destroy();
+    this.tileNodes.delete(key);
+
+    this.hand = this.cardSystem.returnTileToHand(last.cardIndex, last.tileType);
+    this.renderCards();
+
+    this.usedMoves = Math.max(0, this.usedMoves - 1);
+    this.updateLabels();
+    this.updateRoutePreviewLine();
+    this.setStatus(`已撤回上一步地砖（本关剩余撤回：${this.undoRemaining}/1 次）`);
   }
 
   public showRoutePreview(): void {
     console.log('[FloatFlow] Show Route Preview');
+    WeChatService.vibrateShort('light');
     if (this.previewRoot) {
       this.previewRoot.active = !this.previewRoot.active;
       this.setStatus(this.previewRoot.active ? '光轨预测已开启' : '光轨预测已隐藏');
+      this.updateRoutePreviewLine();
     }
   }
 
   public reviveRunner(): void {
     console.log('[FloatFlow] Revive Runner!');
     if (this.runner && (this.runner.state === 'DEAD' || this.runner.state === 'IDLE')) {
+      WeChatService.vibrateShort('light');
       this.runner.state = 'IDLE';
       if (this.cardSystem) {
         this.hand = this.cardSystem.drawInitial();
@@ -162,12 +281,46 @@ export class GameRoot extends Component {
     }
   }
 
+  public findIndexByLevelId(levelId: number): number {
+    return this.levels.findIndex((l) => l.id === levelId);
+  }
+
+  public shareCurrentResidual(): void {
+    if (!this.level || !this.runner) return;
+    WeChatService.vibrateShort('light');
+    ShareService.shareResidual(this.level, {
+      levelId: this.level.id,
+      runner: this.runner,
+      hand: this.hand,
+    });
+    WeChatService.showToast('分享残局求助中...', 'success');
+  }
+
+  public loadResidualFromShare(residualStr: string): void {
+    const payload = ShareService.decodeResidual(residualStr);
+    if (!payload || typeof payload.levelId !== 'number') return;
+    const idx = this.findIndexByLevelId(payload.levelId);
+    if (idx >= 0) {
+      this.loadLevel(idx);
+      if (payload.runner) {
+        this.runner = { ...payload.runner };
+        this.renderRunner();
+      }
+      if (payload.hand && Array.isArray(payload.hand)) {
+        this.hand = [...payload.hand];
+        this.renderCards();
+      }
+      this.setStatus('已还原好友求助残局，帮 TA 接上这束光吧！');
+      WeChatService.vibrateShort('medium');
+    }
+  }
+
   private ensureRoots(): void {
     this.node.layer = Layers.Enum.UI_2D;
-    this.boardRoot = this.boardRoot ?? this.createRoot('BoardRoot', new Vec3(0, -100, 0));
-    this.previewRoot = this.previewRoot ?? this.createRoot('PreviewRoot', new Vec3(0, -100, 0));
-    this.runnerRoot = this.runnerRoot ?? this.createRoot('RunnerRoot', new Vec3(0, -100, 0));
-    this.cardRoot = this.cardRoot ?? this.createRoot('CardRoot', new Vec3(0, -225, 0));
+    this.boardRoot = this.boardRoot ?? this.createRoot('BoardRoot', new Vec3(0, 160, 0));
+    this.previewRoot = this.previewRoot ?? this.createRoot('PreviewRoot', new Vec3(0, 160, 0));
+    this.runnerRoot = this.runnerRoot ?? this.createRoot('RunnerRoot', new Vec3(0, 160, 0));
+    this.cardRoot = this.cardRoot ?? this.createRoot('CardRoot', new Vec3(0, -340, 0));
   }
 
   private createRoot(name: string, pos: Vec3): Node {
@@ -179,7 +332,12 @@ export class GameRoot extends Component {
     return root;
   }
 
-  public loadLevel(index: number): void {
+  public loadLevel(index: number, preserveChances = false): void {
+    if (!preserveChances || this.levelIndex !== index) {
+      this.undoRemaining = 1;
+      this.eraseRemaining = 1;
+    }
+    this.moveHistory = [];
     this.levelIndex = index;
     this.level = this.levels[index];
     this.grid = GridManager.fromLevel(this.level);
@@ -203,21 +361,21 @@ export class GameRoot extends Component {
     this.cardNodes = [];
 
     const maxDim = Math.max(this.grid.rows, this.grid.cols);
-    let scale = 1.0;
-    let offsetY = 50;
+    let scale = 1.95;
+    let offsetY = 320;
     if (maxDim <= 4) {
-      scale = 1.0;
-      offsetY = 50;
+      scale = 1.95;
+      offsetY = 320;
     } else if (maxDim <= 6) {
-      scale = 0.9;
-      offsetY = 45;
+      scale = 1.70;
+      offsetY = 320;
     } else if (maxDim <= 7) {
-      scale = 0.82;
-      offsetY = 45;
+      scale = 1.45;
+      offsetY = 320;
     } else {
-      // 8x8 or 9x9 or larger grids (like Level 8 and Level 10!)
-      scale = 0.72;
-      offsetY = 45;
+      // 8x8 or 9x9 or larger grids
+      scale = 1.25;
+      offsetY = 320;
     }
     const scale3f = new Vec3(scale, scale, 1);
     const pos3f = new Vec3(0, offsetY, 0);
@@ -239,13 +397,31 @@ export class GameRoot extends Component {
     this.renderRunner();
     this.renderCards();
     this.updateLabels();
+    this.maxBulletTime = this.level.bulletTimeSeconds ?? 3.0;
+    this.currentBulletTime = this.maxBulletTime;
+    this.redrawBulletTimeMeter();
     this.setStatus(this.level.tutorialTip ?? '拖拽水晶，接住这束光。');
+    if (this.previewRoot) {
+      this.previewRoot.active = false;
+      this.clearNode(this.previewRoot);
+    }
   }
 
   private renderBoard(): void {
     if (!this.level || !this.grid || !this.boardRoot) {
       return;
     }
+
+    const step = this.tileWidth + (this.tileGap || 10);
+    const rawWidth = this.grid.cols * step;
+    const rawHeight = this.grid.rows * step;
+    let sW = 530 / rawWidth;
+    let sH = 610 / rawHeight;
+    let s = Math.min(sW, sH);
+    if (s > 1.18) s = 1.18;
+    if (this.boardRoot) this.boardRoot.setScale(new Vec3(s, s, 1));
+    if (this.previewRoot) this.previewRoot.setScale(new Vec3(s, s, 1));
+    if (this.runnerRoot) this.runnerRoot.setScale(new Vec3(s, s, 1));
 
     // 0. Floating Island Under-Glow & Shadow Aura (浮岛底座悬空极光云与深邃投影)
     const shadowNode = new Node('IslandShadow');
@@ -258,12 +434,12 @@ export class GameRoot extends Component {
 
     // Aurora field under the island
     shadowG.fillColor = this.hex(isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#4C1D95'));
-    shadowG.fillColor.a = 75;
+    ((shadowG.fillColor) as ((any)) as any).a = 75;
     shadowG.ellipse(0, 0, 240, 110);
     shadowG.fill();
     // Core glow
     shadowG.fillColor = this.hex(isRose ? '#831843' : (isGold ? '#B45309' : '#0083B0'));
-    shadowG.fillColor.a = 90;
+    ((shadowG.fillColor) as ((any)) as any).a = 90;
     shadowG.ellipse(0, 0, 160, 70);
     shadowG.fill();
 
@@ -275,27 +451,21 @@ export class GameRoot extends Component {
       node.addComponent(UITransform).setContentSize(this.tileWidth, this.tileHeight);
       const graphics = node.addComponent(Graphics);
       if (obstacle) {
-        this.drawIsometricPlatform(graphics, this.hex('#3B1428'), this.hex('#1E0A14'), this.hex('#2D0F1E'), this.hex('#FF3B30'), 2, 8);
+        this.drawTopDownTile(graphics, this.hex('#3B1428'), this.hex('#FF3B30'), 2.5, this.tileWidth, this.tileHeight, 0, 0, 6);
       } else {
         const isEven = (pos.row + pos.col) % 2 === 0;
-        let topCol = isEven ? this.hex('#2563EB') : this.hex('#3B82F6');
-        let leftCol = isEven ? this.hex('#1E40AF') : this.hex('#1D4ED8');
-        let rightCol = isEven ? this.hex('#1E3A8A') : this.hex('#1E40AF');
-        let strokeCol = isEven ? this.hex('#60A5FA') : this.hex('#93C5FD');
+        let topCol = isEven ? this.hex('#1E3A8A') : this.hex('#2563EB');
+        let strokeCol = isEven ? this.hex('#3B82F6') : this.hex('#60A5FA');
 
         if (isRose) {
-          topCol = isEven ? this.hex('#6D28D9') : this.hex('#7C3AED');
-          leftCol = isEven ? this.hex('#4C1D95') : this.hex('#581C87');
-          rightCol = isEven ? this.hex('#3B0764') : this.hex('#4C1D95');
-          strokeCol = isEven ? this.hex('#A78BFA') : this.hex('#C4B5FD');
+          topCol = isEven ? this.hex('#4C1D95') : this.hex('#6D28D9');
+          strokeCol = isEven ? this.hex('#7C3AED') : this.hex('#A78BFA');
         } else if (isGold) {
-          topCol = isEven ? this.hex('#B45309') : this.hex('#C2410C');
-          leftCol = isEven ? this.hex('#7C2D12') : this.hex('#9A3412');
-          rightCol = isEven ? this.hex('#451A03') : this.hex('#7C2D12');
-          strokeCol = isEven ? this.hex('#FBBF24') : this.hex('#FCD34D');
+          topCol = isEven ? this.hex('#7C2D12') : this.hex('#B45309');
+          strokeCol = isEven ? this.hex('#C2410C') : this.hex('#FBBF24');
         }
 
-        this.drawIsometricPlatform(graphics, topCol, leftCol, rightCol, strokeCol, 2, 10);
+        this.drawTopDownTile(graphics, topCol, strokeCol, 2, this.tileWidth, this.tileHeight, 0, 0, 6);
       }
     });
 
@@ -304,7 +474,7 @@ export class GameRoot extends Component {
       const startNode = new Node('StartAura');
       startNode.layer = Layers.Enum.UI_2D;
       startNode.setParent(this.boardRoot!);
-      startNode.setPosition(this.gridToLocal(this.level.start).add3f(0, 10, 1));
+      startNode.setPosition(this.gridToLocal(this.level.start).add3f(0, 0, 1));
       const sg = startNode.addComponent(Graphics);
       // Sleek flat floor ring
       sg.strokeColor = this.hex('#FDE047');
@@ -348,12 +518,12 @@ export class GameRoot extends Component {
     const node = new Node(`Tile_${pos.row}_${pos.col}_${tile.type}`);
     node.layer = Layers.Enum.UI_2D;
     node.setParent(this.boardRoot);
-    node.setPosition(this.gridToLocal(pos).add3f(0, 10, 1));
+    node.setPosition(this.gridToLocal(pos).add3f(0, 0, 1));
     node.addComponent(UITransform).setContentSize(this.tileWidth, this.tileHeight);
     const graphics = node.addComponent(Graphics);
     const topCol = this.tileColor(tile.type);
     this.drawDiamond(graphics, topCol, this.hex('#FFFFFF'), 2.2);
-    this.drawTileArrow(graphics, tile, 4, 0.86);
+    this.drawTileArrow(graphics, tile, 0, 0.86, 0, 44);
     node.on(Node.EventType.TOUCH_END, () => this.onPlacedTileTouch(pos), this);
     this.tileNodes.set(key, node);
   }
@@ -365,39 +535,27 @@ export class GameRoot extends Component {
     const node = new Node(`Goal_${goal.row}_${goal.col}`);
     node.layer = Layers.Enum.UI_2D;
     node.setParent(this.boardRoot);
-    node.setPosition(this.gridToLocal(goal).add3f(0, 12, 2));
-    node.addComponent(UITransform).setContentSize(this.tileWidth * 0.8, this.tileHeight * 0.8);
+    node.setPosition(this.gridToLocal(goal).add3f(0, 0, 2));
+    node.addComponent(UITransform).setContentSize(this.tileWidth * 0.9, this.tileHeight * 0.9);
     const graphics = node.addComponent(Graphics);
     const goalCol = this.colorForRunner(goal.color ?? 'none');
 
-    // 1. Teleport Pad Diamond Base
-    this.drawIsometricPlatform(graphics, goalCol, this.darken(goalCol, 0.5), this.darken(goalCol, 0.7), this.hex('#FFFFFF'), 2.5, 8, this.tileWidth * 0.8, this.tileHeight * 0.8);
+    // 1. Goal Pad Rounded Base
+    this.drawTopDownTile(graphics, goalCol, this.hex('#FFFFFF'), 3, this.tileWidth * 0.9, this.tileHeight * 0.9, 0, 0, 6);
 
-    // 2. Towering 2.5D Upright Cyber Portal Door Frame (matching Concept Art Pink/Purple Portals!)
+    // 2. Glowing Portal Ring
     const portalCol = goal.color === 'red' ? this.hex('#FF2E93') : (goal.color === 'blue' ? this.hex('#00F0FF') : this.hex('#E066FF'));
-    graphics.fillColor = new Color(portalCol.r, portalCol.g, portalCol.b, 80);
-    graphics.rect(-24, 0, 48, 56);
+    graphics.fillColor = new Color(portalCol.r, portalCol.g, portalCol.b, 65);
+    graphics.circle(0, 0, 36);
     graphics.fill();
-
     graphics.strokeColor = portalCol;
-    graphics.lineWidth = 5;
-    graphics.moveTo(-24, 0);
-    graphics.lineTo(-24, 56);
-    graphics.lineTo(24, 56);
-    graphics.lineTo(24, 0);
-    graphics.stroke();
-
-    graphics.strokeColor = this.hex('#FFFFFF');
-    graphics.lineWidth = 2;
-    graphics.moveTo(-24, 0);
-    graphics.lineTo(-24, 56);
-    graphics.lineTo(24, 56);
-    graphics.lineTo(24, 0);
+    graphics.lineWidth = 4;
+    graphics.circle(0, 0, 36);
     graphics.stroke();
 
     // Center portal vortex star
     graphics.fillColor = this.hex('#FFFFFF');
-    graphics.circle(0, 28, 6);
+    graphics.circle(0, 0, 10);
     graphics.fill();
   }
 
@@ -409,7 +567,7 @@ export class GameRoot extends Component {
     const node = new Node('Runner');
     node.layer = Layers.Enum.UI_2D;
     node.setParent(this.runnerRoot);
-    node.setPosition(this.gridToLocal(this.runner).add3f(0, 10, 10));
+    node.setPosition(this.gridToLocal(this.runner).add3f(0, 0, 10));
     node.addComponent(UITransform).setContentSize(52, 52);
     const graphics = node.addComponent(Graphics);
     this.runnerNode = node;
@@ -423,8 +581,23 @@ export class GameRoot extends Component {
 
     this.clearNode(this.cardRoot);
     this.cardNodes = [];
-    const spacing = this.cardWidth + 18;
-    const totalSlots = this.hand.length + 1; // Include + button slot
+    const totalSlots = Math.max(1, this.hand.length + 1); // Include + button slot
+
+    // Responsive compact sizing guaranteeing 100% fits inside sapphire glass tray (-346 to +346) with 0 overflow!
+    if (totalSlots <= 3) {
+      this.cardWidth = 164;
+      this.cardHeight = 148;
+    } else if (totalSlots === 4) {
+      // 3 hand cards + 1 plus slot -> width 144px each, spacing 158px -> total span from -309 to +309!
+      this.cardWidth = 144;
+      this.cardHeight = 144;
+    } else {
+      // 4 or more hand cards + 1 plus slot
+      this.cardWidth = 120;
+      this.cardHeight = 136;
+    }
+
+    const spacing = this.cardWidth + 14;
     const startX = -((totalSlots - 1) * spacing) / 2;
 
     this.hand.forEach((type, index) => {
@@ -435,16 +608,17 @@ export class GameRoot extends Component {
       card.addComponent(UITransform).setContentSize(this.cardWidth, this.cardHeight);
       const graphics = card.addComponent(Graphics);
       this.drawCard(graphics, type);
-      this.drawTileArrow(graphics, { type, rotation: 0 }, 14, 0.9);
+      const arrowScale = (this.cardWidth / 196) * 0.9;
+      this.drawTileArrow(graphics, { type, rotation: 0 }, 14 * (this.cardHeight / 160), arrowScale, 0, 24);
 
       const labelNode = new Node('Name');
       labelNode.layer = Layers.Enum.UI_2D;
       labelNode.setParent(card);
-      labelNode.setPosition(new Vec3(0, -28, 1));
-      labelNode.addComponent(UITransform).setContentSize(this.cardWidth, 30);
+      labelNode.setPosition(new Vec3(0, -this.cardHeight / 2 + 18, 1));
+      labelNode.addComponent(UITransform).setContentSize(this.cardWidth - 8, 28);
       const label = labelNode.addComponent(Label);
       label.string = getTileDisplayName(type);
-      label.fontSize = 17;
+      label.fontSize = Math.max(15, Math.floor((this.cardWidth / 196) * 20));
       label.color = this.hex('#FFFFFF');
 
       card.on(Node.EventType.TOUCH_START, (event: EventTouch) => this.onCardTouchStart(event, index), this);
@@ -468,11 +642,12 @@ export class GameRoot extends Component {
     pg.lineWidth = 2.5;
     pg.stroke();
     pg.strokeColor = this.hex('#FFFFFF');
-    pg.lineWidth = 4;
-    pg.moveTo(-18, 0);
-    pg.lineTo(18, 0);
-    pg.moveTo(0, -18);
-    pg.lineTo(0, 18);
+    pg.lineWidth = 4.0;
+    const plusArm = Math.min(20, Math.floor(this.cardWidth * 0.15));
+    pg.moveTo(-plusArm, 0);
+    pg.lineTo(plusArm, 0);
+    pg.moveTo(0, -plusArm);
+    pg.lineTo(0, plusArm);
     pg.stroke();
   }
 
@@ -494,7 +669,7 @@ export class GameRoot extends Component {
     dragNode.addComponent(UITransform).setContentSize(this.tileWidth, this.tileHeight);
     const graphics = dragNode.addComponent(Graphics);
     this.drawDiamond(graphics, this.tileColor(this.dragTile.type), this.hex('#FFFFFF'), 3);
-    this.drawTileArrow(graphics, this.dragTile, 4, 0.86);
+    this.drawTileArrow(graphics, this.dragTile, 0, 0.86, 0, 44);
     this.dragNode = dragNode;
 
     if (this.cardNodes[index]) {
@@ -534,18 +709,28 @@ export class GameRoot extends Component {
     const pos = event.getUILocation();
     const cell = this.uiToGrid(pos.x, pos.y);
     if (cell && this.canPlace(cell)) {
+      WeChatService.vibrateShort('light');
       this.grid.setTile(cell, this.dragTile);
       this.renderTile(cell, this.dragTile);
+      this.moveHistory.push({
+        pos: { ...cell },
+        cardIndex: this.dragCardIndex,
+        tileType: this.dragTile.type,
+      });
       this.usedMoves++;
       this.hand = this.cardSystem.consume(this.dragCardIndex);
       this.renderCards();
-      this.setStatus('放置成功！可继续铺路，或点击底部【启动流光】按钮。');
+      this.currentBulletTime = Math.min(this.maxBulletTime, this.currentBulletTime + 1.2);
+      this.redrawBulletTimeMeter();
+      this.setStatus('放置成功！已补充 1.2s 子弹时间。可继续铺路或启动流光。');
     } else {
+      WeChatService.vibrateShort('heavy');
       this.setStatus('这里不能放置');
     }
 
     this.endDrag();
     this.updateLabels();
+    this.updateRoutePreviewLine();
   }
 
   private onPlacedTileTouch(pos: GridPos): void {
@@ -554,6 +739,7 @@ export class GameRoot extends Component {
     }
 
     if (pos.row === this.runner.row && pos.col === this.runner.col) {
+      WeChatService.vibrateShort('heavy');
       this.setStatus('Runner 正在这里，不能旋转这块水晶。');
       return;
     }
@@ -565,13 +751,18 @@ export class GameRoot extends Component {
 
     const rotated = rotateTile(tile);
     if (rotated.rotation === tile.rotation) {
+      WeChatService.vibrateShort('heavy');
       this.setStatus(`${getTileDisplayName(tile.type)}不能旋转。`);
       return;
     }
 
+    WeChatService.vibrateShort('light');
     this.grid.setTile(pos, rotated);
     this.renderTile(pos, rotated);
-    this.setStatus('水晶已旋转，继续观察光路。');
+    this.currentBulletTime = Math.min(this.maxBulletTime, this.currentBulletTime + 0.6);
+    this.redrawBulletTimeMeter();
+    this.setStatus('水晶已旋转，补充 0.6s 子弹时间，继续观察光路。');
+    this.updateRoutePreviewLine();
   }
 
   private endDrag(): void {
@@ -585,6 +776,42 @@ export class GameRoot extends Component {
       this.dragNode = null;
     }
     this.cardNodes.forEach((card) => card.setScale(new Vec3(1, 1, 1)));
+    this.redrawBulletTimeMeter();
+  }
+
+  public updateRoutePreviewLine(): void {
+    if (!this.grid || !this.runner || !this.level || !this.previewRoot || !this.previewRoot.active || this.runner.state !== 'IDLE') {
+      return;
+    }
+    this.clearNode(this.previewRoot);
+    const preview = RouteSimulator.simulate(this.grid, this.runner, this.level.goals);
+    const node = new Node('LivePreviewLine');
+    node.layer = Layers.Enum.UI_2D;
+    node.setParent(this.previewRoot);
+    const graphics = node.addComponent(Graphics);
+    graphics.lineWidth = 6;
+    graphics.strokeColor = preview.success ? this.hex('#00F0FF') : this.hex('#FF4B3E');
+
+    const start = this.gridToLocal(this.runner).add3f(0, 10, 0);
+    const outerCol = preview.success ? this.hex('#00F0FF') : this.hex('#FF3B30');
+    ((outerCol) as ((any)) as any).a = 140;
+    graphics.strokeColor = outerCol;
+    graphics.lineWidth = 12;
+    graphics.moveTo(start.x, start.y);
+    for (const pathNode of preview.path) {
+      const point = this.gridToLocal(pathNode).add3f(0, 10, 0);
+      graphics.lineTo(point.x, point.y);
+    }
+    graphics.stroke();
+
+    graphics.strokeColor = preview.success ? this.hex('#E0FFFF') : this.hex('#FFD1D1');
+    graphics.lineWidth = 4;
+    graphics.moveTo(start.x, start.y);
+    for (const pathNode of preview.path) {
+      const point = this.gridToLocal(pathNode).add3f(0, 0, 0);
+      graphics.lineTo(point.x, point.y);
+    }
+    graphics.stroke();
   }
 
   private renderPreview(cell: GridPos | null, tile: TileInstance): void {
@@ -603,7 +830,7 @@ export class GameRoot extends Component {
 
     const start = this.gridToLocal(this.runner).add3f(0, 10, 0);
     const outerCol = preview.success ? this.hex('#00F0FF') : this.hex('#FF3B30');
-    outerCol.a = 140;
+    ((outerCol) as ((any)) as any).a = 140;
     graphics.strokeColor = outerCol;
     graphics.lineWidth = 12;
     graphics.moveTo(start.x, start.y);
@@ -617,17 +844,17 @@ export class GameRoot extends Component {
     graphics.lineWidth = 4;
     graphics.moveTo(start.x, start.y);
     for (const pathNode of preview.path) {
-      const point = this.gridToLocal(pathNode).add3f(0, 10, 0);
+      const point = this.gridToLocal(pathNode).add3f(0, 0, 0);
       graphics.lineTo(point.x, point.y);
     }
     graphics.stroke();
 
     // Draw cell highlight and snapped tile ghost
-    const cellPos = this.gridToLocal(cell).add3f(0, 10, 5);
+    const cellPos = this.gridToLocal(cell).add3f(0, 0, 5);
     const topCol = this.tileColor(tile.type);
     const ghostTop = new Color(topCol.r, topCol.g, topCol.b, 160);
-    this.drawIsometricPlatform(graphics, ghostTop, this.darken(ghostTop, 0.55), this.darken(ghostTop, 0.75), this.hex('#FFFFFF'), 2.5, 11, this.tileWidth * 0.82, this.tileHeight * 0.82, cellPos.y + 4, cellPos.x);
-    this.drawTileArrow(graphics, tile, cellPos.y + 4, 0.86, cellPos.x);
+    this.drawTopDownTile(graphics, ghostTop, this.hex('#FFFFFF'), 2.5, this.tileWidth * 0.94, this.tileHeight * 0.94, cellPos.y, cellPos.x, 5);
+    this.drawTileArrow(graphics, tile, cellPos.y, 0.86, cellPos.x, 44);
   }
 
   private advanceRunnerOneStep(): void {
@@ -696,7 +923,7 @@ export class GameRoot extends Component {
     }
     this.isResolving = true;
     const startPos = this.runnerNode.position.clone();
-    const endPos = this.gridToLocal(pos).add3f(0, 10, 10);
+    const endPos = this.gridToLocal(pos).add3f(0, 0, 10);
     const baseCol = this.colorForRunner(this.runner?.color ?? 'none');
 
     // Spawn 3 high-speed laser afterimage / trail ghosts along the movement path
@@ -761,6 +988,7 @@ export class GameRoot extends Component {
       return;
     }
     this.runner.state = 'SUCCESS';
+    WeChatService.vibrateShort('medium');
     const stars = this.calculateStars();
     this.setStatus(`通关！${stars} 星，光能 +${stars * 20}`);
     this.updateLabels();
@@ -778,6 +1006,7 @@ export class GameRoot extends Component {
     const near = last ? this.distanceToNearestGoal(last, this.level.goals) <= 2 : false;
     if (near && this.flowEnergy > 0) {
       this.flowEnergy--;
+      WeChatService.vibrateShort('heavy');
       this.setStatus(`Near Miss：${reason}。已消耗 1 点救场能量，可继续补路。`);
       this.updateLabels();
       return;
@@ -789,6 +1018,7 @@ export class GameRoot extends Component {
     if (!this.runner) {
       return;
     }
+    WeChatService.vibrateShort('heavy');
     this.runner.state = 'DEAD';
     this.setStatus(`失败：${reason}。呼叫时空导师救我一命！`);
     this.updateLabels();
@@ -825,7 +1055,7 @@ export class GameRoot extends Component {
   }
 
   private uiToGrid(uiX: number, uiY: number): GridPos | null {
-    if (!this.boardRoot) {
+    if (!this.boardRoot || !this.grid) {
       return null;
     }
     const transform = this.boardRoot.getComponent(UITransform);
@@ -833,26 +1063,24 @@ export class GameRoot extends Component {
       return null;
     }
     const local = transform.convertToNodeSpaceAR(new Vec3(uiX, uiY, 0));
-    const halfW = this.tileWidth / 2;
-    const halfH = this.tileHeight / 2;
-    let localY = local.y;
-    if (this.grid) {
-      const yCenter = ((this.grid.cols - 1) + (this.grid.rows - 1)) * (this.tileHeight / 4);
-      localY += yCenter;
-    }
-    const col = Math.round((local.x / halfW + localY / halfH) / 2);
-    const row = Math.round((localY / halfH - local.x / halfW) / 2);
+    const step = this.tileWidth + (this.tileGap || 10);
+    const centerCol = (this.grid.cols - 1) / 2;
+    const centerRow = (this.grid.rows - 1) / 2;
+    const col = Math.round(local.x / step + centerCol);
+    const row = Math.round(centerRow - local.y / step);
     const pos = { row, col };
-    return this.grid?.isValid(pos) ? pos : null;
+    return this.grid.isValid(pos) ? pos : null;
   }
 
   private gridToLocal(pos: GridPos): Vec3 {
-    const x = (pos.col - pos.row) * (this.tileWidth / 2);
-    let y = (pos.col + pos.row) * (this.tileHeight / 2);
-    if (this.grid) {
-      const yCenter = ((this.grid.cols - 1) + (this.grid.rows - 1)) * (this.tileHeight / 4);
-      y -= yCenter;
+    if (!this.grid) {
+      return new Vec3(0, 0, 0);
     }
+    const step = this.tileWidth + (this.tileGap || 10);
+    const centerCol = (this.grid.cols - 1) / 2;
+    const centerRow = (this.grid.rows - 1) / 2;
+    const x = (pos.col - centerCol) * step;
+    const y = (centerRow - pos.row) * step;
     return new Vec3(x, y, 0);
   }
 
@@ -903,13 +1131,55 @@ export class GameRoot extends Component {
     graphics.fill();
   }
 
-  private drawDiamond(graphics: Graphics, fill: Color, stroke: Color, lineWidth: number): void {
-    // 1. Dark cyber socket base plate (offsetY = -4, size = 90% of cell)
-    const socketCol = new Color(16, 26, 52, 255);
-    this.drawIsometricPlatform(graphics, socketCol, this.darken(socketCol, 0.6), this.darken(socketCol, 0.8), new Color(50, 90, 160, 200), 1.5, 4, this.tileWidth * 0.9, this.tileHeight * 0.9, -4);
+  private drawTopDownTile(
+    g: Graphics,
+    bgCol: Color,
+    borderCol: Color,
+    borderWidth: number,
+    w: number,
+    h: number,
+    offsetY = 0,
+    offsetX = 0,
+    shadowDepth = 6
+  ): void {
+    const halfW = w / 2;
+    const halfH = h / 2;
+    const radius = 22;
 
-    // 2. Elevated floating crystal module with breathing room (offsetY = +4, size = 82% of cell, depth = 11)
-    this.drawIsometricPlatform(graphics, fill, this.darken(fill, 0.55), this.darken(fill, 0.75), stroke, lineWidth, 11, this.tileWidth * 0.82, this.tileHeight * 0.82, 4);
+    // 1. Draw bottom shadow/depth for 2.5D floating Neumorphic look
+    if (shadowDepth > 0) {
+      g.fillColor = this.darken(bgCol, 0.55);
+      g.roundRect(offsetX - halfW, offsetY - halfH - shadowDepth, w, h, radius);
+      g.fill();
+    }
+
+    // 2. Draw main square tile body
+    g.fillColor = bgCol;
+    g.roundRect(offsetX - halfW, offsetY - halfH, w, h, radius);
+    g.fill();
+
+    // 3. Draw border glow
+    if (borderWidth > 0) {
+      g.strokeColor = borderCol;
+      g.lineWidth = borderWidth;
+      g.stroke();
+    }
+
+    // 4. Draw subtle inner glassmorphic highlight on top rim
+    if (shadowDepth > 0) {
+      g.fillColor = new Color(255, 255, 255, 35);
+      g.roundRect(offsetX - halfW + 4, offsetY + halfH - 12, w - 8, 8, 4);
+      g.fill();
+    }
+  }
+
+  private drawDiamond(graphics: Graphics, fill: Color, stroke: Color, lineWidth: number): void {
+    // 1. Dark cyber socket base plate
+    const socketCol = new Color(16, 26, 52, 255);
+    this.drawTopDownTile(graphics, socketCol, stroke, 1.5, this.tileWidth * 0.96, this.tileHeight * 0.96, 0, 0, 4);
+
+    // 2. Elevated floating crystal module with breathing room
+    this.drawTopDownTile(graphics, fill, stroke, lineWidth, this.tileWidth * 0.86, this.tileHeight * 0.86, 0, 0, 6);
   }
 
   private drawIsometricPlatform(
@@ -970,18 +1240,18 @@ export class GameRoot extends Component {
     graphics.stroke();
   }
 
-  private drawTileArrow(graphics: Graphics, tile: TileInstance, offsetY = 0, scale = 1, offsetX = 0): void {
+  private drawTileArrow(graphics: Graphics, tile: TileInstance, offsetY = 0, scale = 1, offsetX = 0, lineBaseLength = 44): void {
     const config = resolveTileConfig(tile);
     for (const [input, output] of Object.entries(config.routing)) {
       if (!output || output === 'dead') {
         continue;
       }
-      const start = this.directionPoint(input, -26 * scale).add3f(offsetX, offsetY, 0);
-      const end = this.directionPoint(output, 26 * scale).add3f(offsetX, offsetY, 0);
+      const start = this.directionPoint(input, -lineBaseLength * scale).add3f(offsetX, offsetY, 0);
+      const end = this.directionPoint(output, lineBaseLength * scale).add3f(offsetX, offsetY, 0);
 
       // Outer cyan neon glow (route through center point!)
       graphics.strokeColor = this.hex('#00F0FF');
-      graphics.lineWidth = 7 * scale;
+      graphics.lineWidth = 8 * scale;
       graphics.moveTo(start.x, start.y);
       graphics.lineTo(offsetX, offsetY);
       graphics.lineTo(end.x, end.y);
@@ -989,7 +1259,7 @@ export class GameRoot extends Component {
 
       // Inner white core (route through center point!)
       graphics.strokeColor = this.hex('#FFFFFF');
-      graphics.lineWidth = 3 * scale;
+      graphics.lineWidth = 3.8 * scale;
       graphics.moveTo(start.x, start.y);
       graphics.lineTo(offsetX, offsetY);
       graphics.lineTo(end.x, end.y);
@@ -998,24 +1268,20 @@ export class GameRoot extends Component {
 
     // Center glowing crystal gem
     graphics.fillColor = this.hex('#FFFFFF');
-    graphics.circle(offsetX, offsetY, 5 * scale);
+    graphics.circle(offsetX, offsetY, 6 * scale);
     graphics.fill();
   }
 
   private directionPoint(direction: string, length: number): Vec3 {
-    // Convert logical grid directions into 2.5D Isometric screen vectors
-    // Grid right (col+1) is diagonally Up-Right, left is Down-Left, up (row+1) is Up-Left, down is Down-Right
-    const dx = length * 0.89;
-    const dy = length * 0.46;
     switch (direction) {
       case 'up':
-        return new Vec3(-dx, dy, 0);
+        return new Vec3(0, length, 0);
       case 'right':
-        return new Vec3(dx, dy, 0);
+        return new Vec3(length, 0, 0);
       case 'down':
-        return new Vec3(dx, -dy, 0);
+        return new Vec3(0, -length, 0);
       case 'left':
-        return new Vec3(-dx, -dy, 0);
+        return new Vec3(-length, 0, 0);
       default:
         return new Vec3(0, 0, 0);
     }
@@ -1115,6 +1381,49 @@ export class GameRoot extends Component {
     const color = new Color();
     Color.fromHEX(color, value);
     return color;
+  }
+
+  private isPathCompleted(): boolean {
+    if (!this.grid || !this.runner || !this.level) {
+      return false;
+    }
+    const preview = RouteSimulator.simulate(this.grid, this.runner, this.level.goals);
+    return preview.path.length > 0 && preview.path[0].result === 'goal';
+  }
+
+  public redrawBulletTimeMeter(): void {
+    if (!this.bulletTimeGraphics || !this.bulletTimeValueLabel) {
+      return;
+    }
+    const g = this.bulletTimeGraphics;
+    g.clear();
+
+    // Track
+    g.fillColor = this.hex('#0B132B');
+    g.roundRect(-4, -40, 8, 80, 4);
+    g.fill();
+
+    // Active Liquid Fill
+    const ratio = Math.max(0, Math.min(1, this.currentBulletTime / this.maxBulletTime));
+    const barH = 80 * ratio;
+    if (barH > 1) {
+      if (ratio > 0.5) {
+        g.fillColor = this.hex('#00F0FF');
+      } else if (ratio > 0.25) {
+        g.fillColor = this.hex('#FBBF24');
+      } else {
+        g.fillColor = this.hex('#FF3B30');
+      }
+      g.roundRect(-4, -40, 8, barH, 4);
+      g.fill();
+    }
+
+    this.bulletTimeValueLabel.string = `${this.currentBulletTime.toFixed(1)}s`;
+    if (ratio <= 0.25) {
+      this.bulletTimeValueLabel.color = this.hex('#FF3B30');
+    } else {
+      this.bulletTimeValueLabel.color = this.hex('#00F0FF');
+    }
   }
 
   private updateLabels(): void {

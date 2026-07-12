@@ -56,6 +56,7 @@ export interface LevelConfig {
   timeLimit?: number;
   handSize: number;
   bulletTimeEnergy?: number;
+  bulletTimeSeconds?: number;
   runnerStepSeconds: number;
   autoStart: boolean;
   obstacles: Array<[number, number]>;
