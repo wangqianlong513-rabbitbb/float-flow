@@ -21,8 +21,17 @@ export class WeChatService {
     cancelText?: string;
     success?: (res: { confirm: boolean; cancel: boolean }) => void;
   }): void {
+    const confirm = (options.confirmText || '确定').substring(0, 4);
+    const cancel = (options.cancelText || '取消').substring(0, 4);
+
     if (typeof wx !== 'undefined' && wx.showModal) {
-      wx.showModal(options);
+      wx.showModal({
+        title: options.title,
+        content: options.content,
+        confirmText: confirm,
+        cancelText: cancel,
+        success: options.success,
+      });
     } else if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
       const confirmed = window.confirm(`${options.title}\n\n${options.content}`);
       if (options.success) {
@@ -34,6 +43,44 @@ export class WeChatService {
         options.success({ confirm: true, cancel: false });
       }
     }
+  }
+
+  static showVideoAd(onSuccess: () => void, onFail?: () => void): void {
+    if (typeof wx !== 'undefined' && wx.createRewardedVideoAd) {
+      try {
+        let videoAd: any = (WeChatService as any)._videoAd;
+        if (!videoAd) {
+          videoAd = wx.createRewardedVideoAd({ adUnitId: 'adunit-demo-id' });
+          (WeChatService as any)._videoAd = videoAd;
+        }
+        videoAd.offClose();
+        videoAd.onClose((res: any) => {
+          if (res && res.isEnded || res === undefined) {
+            onSuccess();
+          } else {
+            WeChatService.showToast('广告中途退出，未获得补给说明。', 'none');
+            if (onFail) onFail();
+          }
+        });
+        videoAd.offError();
+        videoAd.onError((err: any) => {
+          console.log('[VideoAd Error]', err);
+          // 调试及未配置广告位ID时自动发放奖励
+          onSuccess();
+        });
+        videoAd.show().catch(() => {
+          videoAd.load().then(() => videoAd.show()).catch(() => {
+            onSuccess();
+          });
+        });
+        return;
+      } catch (e) {
+        onSuccess();
+        return;
+      }
+    }
+    // 非微信环境或开发环境下，直接发放补给奖励
+    onSuccess();
   }
 
   static vibrateShort(type: 'light' | 'medium' | 'heavy' = 'light'): void {

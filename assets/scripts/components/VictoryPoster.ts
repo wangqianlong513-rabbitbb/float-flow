@@ -11,6 +11,8 @@ export class VictoryPoster extends Component {
 
   private posterNode: Node | null = null;
   private routeGlowNode: Node | null = null;
+  private levelNameLabel: Label | null = null;
+  private starBannerLabel: Label | null = null;
 
   protected onLoad(): void {
     console.log('[FloatFlow] VictoryPoster onLoad');
@@ -81,6 +83,14 @@ export class VictoryPoster extends Component {
     this.node.active = true;
     WeChatService.vibrateShort('medium');
 
+    if (this.levelNameLabel) {
+      this.levelNameLabel.string = levelName;
+    }
+    if (this.starBannerLabel) {
+      const starStr = '⭐ '.repeat(stars) + '☆ '.repeat(3 - stars);
+      this.starBannerLabel.string = `${starStr}  完美通关 · 步数: ${moves} 步`;
+    }
+
     if (this.posterNode) {
       this.posterNode.setScale(new Vec3(0.6, 0.6, 1));
       tween(this.posterNode)
@@ -137,9 +147,9 @@ export class VictoryPoster extends Component {
     ag.fill();
 
     // Top Certificate Titles
-    this.createLabel(parent, 'Title', new Vec3(0, 245, 0), '✨ 恭喜通关！光轨大师达成 ✨', 24, '#FDE047', 420, 36);
-    this.createLabel(parent, 'LevelName', new Vec3(0, 205, 0), '旅途模式 · 冰原章节 5-12', 18, '#00F0FF', 360, 28);
-    this.createLabel(parent, 'StarBanner', new Vec3(0, 172, 0), '⭐️ ⭐️ ⭐️   完美通关 · 耗时 12 秒', 16, '#FFFFFF', 380, 26);
+    this.createLabel(parent, 'Title', new Vec3(0, 245, 0), '✨ 恭喜通关！光轨大师达成 ✨', 28, '#FDE047', 420, 42);
+    this.levelNameLabel = this.createLabel(parent, 'LevelName', new Vec3(0, 205, 0), '旅途模式 · 冰原章节 5-12', 21, '#00F0FF', 360, 32);
+    this.starBannerLabel = this.createLabel(parent, 'StarBanner', new Vec3(0, 172, 0), '⭐ ⭐ ⭐   完美通关 · 步数: -- 步', 19, '#FFFFFF', 380, 28);
   }
 
   private createRouteShowcase(parent: Node): void {
@@ -236,9 +246,9 @@ export class VictoryPoster extends Component {
     const statsRoot = this.createNode('StatsRoot', new Vec3(-90, -150, 0), parent);
     this.ensureTransform(statsRoot, 260, 110);
 
-    this.createLabel(statsRoot, 'Badge', new Vec3(0, 36, 0), '🧑‍🚀 流光开拓者 (Lv.18)', 16, '#60A5FA', 240, 26);
-    this.createLabel(statsRoot, 'Stats1', new Vec3(0, 8, 0), '🔥 连击建桥: 18 次 | ⚡ 救场: 0', 14, '#93C5FD', 250, 24);
-    this.createLabel(statsRoot, 'Rank', new Vec3(0, -22, 0), '🌟 击败了微信好友 98.6% 的玩家！', 15, '#FB923C', 260, 26);
+    this.createLabel(statsRoot, 'Badge', new Vec3(0, 36, 0), '🧑‍🚀 流光开拓者 (Lv.18)', 19, '#60A5FA', 240, 30);
+    this.createLabel(statsRoot, 'Stats1', new Vec3(0, 8, 0), '🔥 连击建桥: 18 次 | ⚡ 救场: 0', 16, '#93C5FD', 250, 26);
+    this.createLabel(statsRoot, 'Rank', new Vec3(0, -22, 0), '🌟 击败了微信好友 98.6% 的玩家！', 18, '#FB923C', 260, 28);
 
     // Right Column: WeChat Mini-Game QR Code Box (X = 140, Y = -150)
     const qrRoot = this.createNode('QRRoot', new Vec3(140, -150, 0), parent);
@@ -267,21 +277,21 @@ export class VictoryPoster extends Component {
     qg.circle(0, 10, 8);
     qg.fill();
 
-    this.createLabel(qrRoot, 'QRText', new Vec3(0, -48, 0), '长按/扫码超越我', 13, '#93C5FD', 120, 20);
+    this.createLabel(qrRoot, 'QRText', new Vec3(0, -48, 0), '长按/扫码超越我', 15, '#93C5FD', 120, 22);
   }
 
   private createBottomActions(parent: Node): void {
     // Left Button: [ 💬 分享好友炫耀 ] at X = -115, Y = -260
     const shareBtn = this.createNode('ShareBtn', new Vec3(-115, -260, 0), parent);
-    this.ensureTransform(shareBtn, 210, 48);
+    this.ensureTransform(shareBtn, 220, 56);
     const sg = shareBtn.addComponent(Graphics);
     sg.fillColor = this.hex('#10B981');
-    sg.roundRect(-105, -24, 210, 48, 16);
+    sg.roundRect(-110, -28, 220, 56, 18);
     sg.fill();
     sg.strokeColor = this.hex('#6EE7B7');
     sg.lineWidth = 2;
     sg.stroke();
-    this.createLabel(shareBtn, 'Text', new Vec3(0, 1, 0), '💬 分享好友炫耀', 16, '#FFFFFF', 190, 30);
+    this.createLabel(shareBtn, 'Text', new Vec3(0, 1, 0), '💬 分享好友炫耀', 19, '#FFFFFF', 200, 36);
 
     shareBtn.on(Node.EventType.TOUCH_END, () => {
       console.log('[VictoryPoster] Clicked Share to Friends -> Brag!');
@@ -293,17 +303,17 @@ export class VictoryPoster extends Component {
       WeChatService.showToast('正在调起微信分享...', 'success');
     });
 
-    // Right Button: [ ⏭️ 继续下一关卡 ] at X = 115, Y = -260
+    // Right Button: [ ⏭ 继续挑战下一关 ] at X = 115, Y = -260
     const saveBtn = this.createNode('SaveBtn', new Vec3(115, -260, 0), parent);
-    this.ensureTransform(saveBtn, 210, 48);
+    this.ensureTransform(saveBtn, 220, 56);
     const vg = saveBtn.addComponent(Graphics);
     vg.fillColor = this.hex('#2563EB');
-    vg.roundRect(-105, -24, 210, 48, 16);
+    vg.roundRect(-110, -28, 220, 56, 18);
     vg.fill();
     vg.strokeColor = this.hex('#00F0FF');
     vg.lineWidth = 2;
     vg.stroke();
-    this.createLabel(saveBtn, 'Text', new Vec3(0, 1, 0), '⏭️ 继续挑战下一关', 16, '#FFFFFF', 190, 30);
+    this.createLabel(saveBtn, 'Text', new Vec3(0, 1, 0), '⏭ 继续挑战下一关', 19, '#FFFFFF', 200, 36);
 
     saveBtn.on(Node.EventType.TOUCH_END, () => {
       console.log('[VictoryPoster] Clicked Next Level!');

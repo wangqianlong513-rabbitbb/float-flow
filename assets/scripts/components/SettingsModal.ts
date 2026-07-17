@@ -101,7 +101,7 @@ export class SettingsModal extends Component {
   }
 
   private createHeader(parent: Node): void {
-    this.createLabel(parent, 'Title', new Vec3(0, 225, 0), '⚙️   设 置 与 帮 助', 26, '#FFFFFF', 400, 40);
+    this.createLabel(parent, 'Title', new Vec3(0, 225, 0), '⚙   设 置 与 帮 助', 30, '#FFFFFF', 400, 44);
 
     const closeBtn = this.createNode('CloseBtn', new Vec3(300, 225, 0), parent);
     this.ensureTransform(closeBtn, 44, 44);
@@ -125,7 +125,7 @@ export class SettingsModal extends Component {
     if (!this.tabsRoot) return;
     this.tabsRoot.destroyAllChildren();
 
-    const tabs = ['🎨 主 题', '🎮 玩 法', 'ℹ️ 关 于'];
+    const tabs = ['🎨 主 题', '🎮 玩 法', 'ℹ 关 于'];
     const tabXs = [-200, 0, 200];
 
     const isRose = this.selectedTheme === 1;
@@ -136,12 +136,12 @@ export class SettingsModal extends Component {
     tabs.forEach((name, idx) => {
       const isSelected = this.activeTab === idx;
       const tabNode = this.createNode(`Tab_${idx}`, new Vec3(tabXs[idx], 0, 0), this.tabsRoot!);
-      this.ensureTransform(tabNode, 170, 44);
+      this.ensureTransform(tabNode, 180, 50);
 
       const g = tabNode.addComponent(Graphics);
       if (isSelected) {
         g.fillColor = this.hex(activeBg);
-        g.roundRect(-85, -22, 170, 44, 14);
+        g.roundRect(-90, -25, 180, 50, 16);
         g.fill();
         g.strokeColor = this.hex(activeBorder);
         g.lineWidth = 2;
@@ -149,14 +149,14 @@ export class SettingsModal extends Component {
       } else {
         g.fillColor = this.hex('#1E293B');
         ((g.fillColor) as ((any)) as any).a = 180;
-        g.roundRect(-85, -22, 170, 44, 14);
+        g.roundRect(-90, -25, 180, 50, 16);
         g.fill();
         g.strokeColor = this.hex('#334155');
         g.lineWidth = 1.5;
         g.stroke();
       }
 
-      this.createLabel(tabNode, 'Text', new Vec3(0, 1, 0), name, 17, isSelected ? '#FFFFFF' : '#94A3B8', 160, 30);
+      this.createLabel(tabNode, 'Text', new Vec3(0, 1, 0), name, 21, isSelected ? '#FFFFFF' : '#94A3B8', 170, 36);
 
       this.addClick(tabNode, () => {
         if (this.activeTab !== idx) {
@@ -183,7 +183,7 @@ export class SettingsModal extends Component {
   }
 
   private renderThemeTab(parent: Node): void {
-    this.createLabel(parent, 'SubTitle', new Vec3(-210, 140, 0), '✨ 选择宇宙背景主题与配色：', 16, '#93C5FD', 260, 28);
+    this.createLabel(parent, 'SubTitle', new Vec3(-200, 140, 0), '✨ 选择宇宙背景主题与配色：', 19, '#93C5FD', 280, 32);
 
     const themes = [
       { name: '极光冰原', desc: '经典深蓝紫流光', top: '#2563EB', side: '#1E3A8A', border: '#00F0FF' },
@@ -209,8 +209,8 @@ export class SettingsModal extends Component {
       // Draw 3D isometric mini cube
       this.drawIsometricBlock(g, this.hex(th.top), this.hex(th.side), this.hex('#0F172A'), this.hex(th.border), 1.5, 12, 48, 28, 15, 0);
 
-      this.createLabel(card, 'Name', new Vec3(0, -25, 0), th.name, 17, isSelected ? '#FFFFFF' : '#CBD5E1', 150, 26);
-      this.createLabel(card, 'Desc', new Vec3(0, -48, 0), th.desc, 12, '#64748B', 150, 20);
+      this.createLabel(card, 'Name', new Vec3(0, -25, 0), th.name, 21, isSelected ? '#FFFFFF' : '#CBD5E1', 150, 28);
+      this.createLabel(card, 'Desc', new Vec3(0, -49, 0), th.desc, 15, '#64748B', 150, 22);
 
       if (isSelected) {
         const badge = this.createNode('Badge', new Vec3(65, 50, 0), card);
@@ -238,31 +238,31 @@ export class SettingsModal extends Component {
 
     // Bullet Time Sensitivity Row Container (Y = -65)
     const btRow = this.createNode('BTRow', new Vec3(0, -65, 0), parent);
-    this.ensureTransform(btRow, 580, 50);
+    this.ensureTransform(btRow, 580, 52);
     const btG = btRow.addComponent(Graphics);
     btG.fillColor = this.hex('#1E293B');
     ((btG.fillColor) as ((any)) as any).a = 150;
-    btG.roundRect(-290, -25, 580, 50, 14);
+    btG.roundRect(-290, -26, 580, 52, 14);
     btG.fill();
     btG.strokeColor = this.hex('#334155');
     btG.lineWidth = 1.2;
     btG.stroke();
 
-    this.createLabel(btRow, 'SliderLabel', new Vec3(-195, 0, 0), '⏱️ 子弹时间速率', 15, '#93C5FD', 150, 28);
+    this.createLabel(btRow, 'SliderLabel', new Vec3(-185, 0, 0), '⏱ 子弹时间速率', 18, '#93C5FD', 160, 28);
     const speeds = ['慢速 (25%)', '适中 (50%)', '极速 (100%)'];
-    const speedXs = [-50, 80, 210];
+    const speedXs = [-40, 95, 230];
     speeds.forEach((sp, i) => {
       const isSel = this.bulletTimeSpeed === i;
       const btn = this.createNode(`Speed_${i}`, new Vec3(speedXs[i], 0, 0), btRow);
-      this.ensureTransform(btn, 116, 36);
+      this.ensureTransform(btn, 124, 40);
       const bg = btn.addComponent(Graphics);
       bg.fillColor = isSel ? this.hex('#2563EB') : this.hex('#0F172A');
-      bg.roundRect(-58, -18, 116, 36, 10);
+      bg.roundRect(-62, -20, 124, 40, 12);
       bg.fill();
       bg.strokeColor = isSel ? this.hex('#00F0FF') : this.hex('#334155');
       bg.lineWidth = 1.5;
       bg.stroke();
-      this.createLabel(btn, 'Text', new Vec3(0, 1, 0), sp, 13, isSel ? '#FFFFFF' : '#94A3B8', 110, 26);
+      this.createLabel(btn, 'Text', new Vec3(0, 1, 0), sp, 16, isSel ? '#FFFFFF' : '#94A3B8', 118, 28);
       this.addClick(btn, () => {
         this.bulletTimeSpeed = i;
         this.renderContent();
@@ -271,30 +271,30 @@ export class SettingsModal extends Component {
 
     // Graphics Quality Selector Row Container (Y = -135)
     const qRow = this.createNode('QRow', new Vec3(0, -135, 0), parent);
-    this.ensureTransform(qRow, 580, 50);
+    this.ensureTransform(qRow, 580, 52);
     const qG = qRow.addComponent(Graphics);
     qG.fillColor = this.hex('#1E293B');
     ((qG.fillColor) as ((any)) as any).a = 150;
-    qG.roundRect(-290, -25, 580, 50, 14);
+    qG.roundRect(-290, -26, 580, 52, 14);
     qG.fill();
     qG.strokeColor = this.hex('#334155');
     qG.lineWidth = 1.2;
     qG.stroke();
 
-    this.createLabel(qRow, 'QualityLabel', new Vec3(-195, 0, 0), '✨ 视网膜渲染画质', 15, '#93C5FD', 150, 28);
+    this.createLabel(qRow, 'QualityLabel', new Vec3(-185, 0, 0), '✨ 视网膜渲染画质', 18, '#93C5FD', 160, 28);
     const qualities = ['流畅 (60fps)', '均衡 (HD)', '极清 (Retina)'];
     qualities.forEach((q, i) => {
       const isSel = this.selectedQuality === i;
       const btn = this.createNode(`Qual_${i}`, new Vec3(speedXs[i], 0, 0), qRow);
-      this.ensureTransform(btn, 116, 36);
+      this.ensureTransform(btn, 124, 40);
       const bg = btn.addComponent(Graphics);
       bg.fillColor = isSel ? this.hex('#4C1D95') : this.hex('#0F172A');
-      bg.roundRect(-58, -18, 116, 36, 10);
+      bg.roundRect(-62, -20, 124, 40, 12);
       bg.fill();
       bg.strokeColor = isSel ? this.hex('#E879F9') : this.hex('#334155');
       bg.lineWidth = 1.5;
       bg.stroke();
-      this.createLabel(btn, 'Text', new Vec3(0, 1, 0), q, 13, isSel ? '#FFFFFF' : '#94A3B8', 110, 26);
+      this.createLabel(btn, 'Text', new Vec3(0, 1, 0), q, 16, isSel ? '#FFFFFF' : '#94A3B8', 118, 28);
       this.addClick(btn, () => {
         this.selectedQuality = i;
         this.renderContent();
@@ -304,35 +304,35 @@ export class SettingsModal extends Component {
 
   private renderGameplayRulesTab(parent: Node): void {
     const rulesBox = this.createNode('RulesBox', new Vec3(0, 0, 0), parent);
-    this.ensureTransform(rulesBox, 600, 320);
+    this.ensureTransform(rulesBox, 620, 340);
     const g = rulesBox.addComponent(Graphics);
     g.fillColor = this.hex('#1E293B');
-    ((g.fillColor) as ((any)) as any).a = 180;
-    g.roundRect(-300, -160, 600, 320, 18);
+    ((g.fillColor) as any).a = 180;
+    g.roundRect(-310, -170, 620, 340, 20);
     g.fill();
     g.strokeColor = this.hex('#3B82F6');
-    g.lineWidth = 1.5;
+    g.lineWidth = 2.0;
     g.stroke();
 
-    this.createLabel(rulesBox, 'Title', new Vec3(0, 125, 0), '⚡ 浮岛浮光 · 玩法与进阶技巧', 20, '#FDE047', 500, 36);
+    this.createLabel(rulesBox, 'Title', new Vec3(0, 140, 0), '⚡ 浮岛浮光 · 玩法与进阶技巧', 25, '#FDE047', 540, 40);
 
     const rules = [
       '🔷  放置与接通：拖拽下方卡牌堆的水晶地砖，放置在上方棋盘对应方格，接通从起点至终点的光轨通道。',
-      '⏱️  子弹时间：当小球行进到拐角或通路中断处时，系统自动触发极限减速，为你争取宝贵的反应时间！',
+      '⏱  子弹时间：当小球行进到拐角或通路中断处时，系统自动触发极限减速，为你争取宝贵的反应时间！',
       '🔄  预测与擦除：点击右侧 [预览] 可预测光轨走向；放置失误或卡死时，可点击 [擦除] 重置当前手牌。',
       '🎁  救场与无敌：若小球不幸坠落，可通过微信好友助力瞬间复活，并获得 3 秒无敌光环冲过难关！'
     ];
 
     rules.forEach((r, idx) => {
-      const y = 60 - idx * 56;
+      const y = 55 - idx * 64;
       const rNode = this.createNode(`Rule_${idx}`, new Vec3(0, y, 0), rulesBox);
-      this.ensureTransform(rNode, 550, 48);
+      this.ensureTransform(rNode, 580, 60);
       const rg = rNode.addComponent(Graphics);
       rg.fillColor = this.hex('#0F172A');
-      ((rg.fillColor) as ((any)) as any).a = 200;
-      rg.roundRect(-270, -22, 540, 44, 12);
+      ((rg.fillColor) as any).a = 210;
+      rg.roundRect(-280, -30, 560, 60, 14);
       rg.fill();
-      this.createLabel(rNode, 'Text', new Vec3(-10, 0, 0), r, 14, '#E2E8F0', 520, 40);
+      this.createLabel(rNode, 'Text', new Vec3(-10, 0, 0), r, 20, '#E2E8F0', 560, 52);
     });
   }
 
@@ -341,30 +341,30 @@ export class SettingsModal extends Component {
     this.ensureTransform(aboutBox, 580, 240);
     const g = aboutBox.addComponent(Graphics);
     g.fillColor = this.hex('#1E293B');
-    ((g.fillColor) as ((any)) as any).a = 200;
+    ((g.fillColor) as any).a = 200;
     g.roundRect(-290, -120, 580, 240, 18);
     g.fill();
     g.strokeColor = this.hex('#60A5FA');
     g.lineWidth = 2;
     g.stroke();
 
-    this.createLabel(aboutBox, 'Emblem', new Vec3(0, 75, 0), '✨  浮 岛 浮 光   (Flow Land Light)  ✨', 24, '#00F0FF', 500, 36);
-    this.createLabel(aboutBox, 'Sub', new Vec3(0, 35, 0), 'Cocos Creator 微信小游戏 · 纯代码程序化视网膜渲染引擎', 15, '#93C5FD', 520, 26);
-    this.createLabel(aboutBox, 'Ver', new Vec3(0, -10, 0), '当前版本: v1.0.0 (Retina 纯程序化版)  |  引擎: Cocos Creator', 14, '#CBD5E1', 500, 24);
-    this.createLabel(aboutBox, 'Team', new Vec3(0, -45, 0), '核心特色: 零外部图片资源依赖 · 视网膜级锐利画质 · 极速加载', 14, '#FDE047', 520, 24);
-    this.createLabel(aboutBox, 'Copy', new Vec3(0, -80, 0), '© 2026 Antigravity AI Team. All Rights Reserved.', 13, '#64748B', 400, 20);
+    this.createLabel(aboutBox, 'Emblem', new Vec3(0, 75, 0), '✨  浮 岛 浮 光   (Flow Land Light)  ✨', 28, '#00F0FF', 500, 40);
+    this.createLabel(aboutBox, 'Sub', new Vec3(0, 35, 0), 'Cocos Creator 微信小游戏 · 纯代码程序化视网膜渲染引擎', 18, '#93C5FD', 520, 30);
+    this.createLabel(aboutBox, 'Ver', new Vec3(0, -10, 0), '当前版本: v1.0.0 (Retina 纯程序化版)  |  引擎: Cocos Creator', 16, '#CBD5E1', 500, 26);
+    this.createLabel(aboutBox, 'Team', new Vec3(0, -45, 0), '核心特色: 零外部图片资源依赖 · 视网膜级锐利画质 · 极速加载', 16, '#FDE047', 520, 26);
+    this.createLabel(aboutBox, 'Copy', new Vec3(0, -80, 0), '© 2026 Antigravity AI Team. All Rights Reserved.', 15, '#64748B', 400, 22);
 
-    // Reset Progress Button (Y = -140)
-    const resetBtn = this.createNode('ResetBtn', new Vec3(0, -140, 0), parent);
-    this.ensureTransform(resetBtn, 260, 46);
+    // Reset Progress Button (Y = -145, 尺寸 320x60)
+    const resetBtn = this.createNode('ResetBtn', new Vec3(0, -145, 0), parent);
+    this.ensureTransform(resetBtn, 320, 60);
     const rg = resetBtn.addComponent(Graphics);
     rg.fillColor = this.hex('#991B1B');
-    rg.roundRect(-130, -23, 260, 46, 14);
+    rg.roundRect(-160, -30, 320, 60, 18);
     rg.fill();
     rg.strokeColor = this.hex('#F87171');
-    rg.lineWidth = 1.8;
+    rg.lineWidth = 2.4;
     rg.stroke();
-    this.createLabel(resetBtn, 'Text', new Vec3(0, 1, 0), '★  重置所有关卡进度', 16, '#FFFFFF', 220, 30);
+    this.createLabel(resetBtn, 'Text', new Vec3(0, 1, 0), '★  重置所有关卡进度', 23, '#FFFFFF', 280, 40);
 
     this.addClick(resetBtn, () => {
       console.log('[SettingsModal] Clicked Reset Progress!');

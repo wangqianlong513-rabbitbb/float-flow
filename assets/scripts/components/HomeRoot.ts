@@ -39,23 +39,23 @@ export class HomeRoot extends Component {
     this.node.destroyAllChildren();
     const { halfW, halfH } = this.getBounds();
 
-    // 1. Top Resource & Settings Bar (Y = halfH - 60)
+    // 1. Top Resource & Settings Bar (Y = halfH - 125, safely left-aligned to leave X > +150 100% BLANK for WeChat Capsule!)
     this.createTopBar(halfH);
 
-    // 2. Main Title Typography & Glow Aura (Y = halfH * 0.74)
+    // 2. Main Title Typography & Glow Aura (Y = halfH * 0.73)
     this.createTitleSection(halfH);
 
-    // 3. Center Hero Floating 3D Isometric Island & Crystal Core (Y = halfH * 0.38)
+    // 3. Center Hero Floating 3D Isometric Island & Crystal Core (Y = halfH * 0.36)
     this.createHeroIsland(halfH);
 
-    // 4. Left Sidebar Action Icons (X = -halfW + 45)
+    // 4. Left Sidebar Modern Flat Icon Buttons (X = -halfW + 52) - Sleek concrete icons replacing rigid text boxes!
     this.createSidebarIcons(halfW, halfH);
 
-    // 5. Center/Bottom Dual Mode Hero Cards (Y = -halfH * 0.05)
+    // 5. Center/Bottom Dual Mode Hero Cards (Y = -halfH * 0.04) - Enhanced visual dominance!
     this.createModeCards(halfH);
 
-    // 6. Bottom Feature Banner Pills (Y = -halfH + 180)
-    this.createBottomFeaturePills(halfH);
+    // 6. Bottom Feature Mini Pills (Y = -halfH + 160) - Compact row, no longer competing with gameplay modes!
+    this.createBottomFeatureRow(halfH);
 
     // 7. Interactive Sidebar Popup Root
     const vs = view.getVisibleSize();
@@ -74,92 +74,99 @@ export class HomeRoot extends Component {
   }
 
   private createTopBar(halfH: number): void {
-    // Moved safely down to halfH - 85 to stay completely clear of iOS notch and WeChat right-top capsule!
-    const topBar = this.createNode('TopBar', new Vec3(0, halfH - 85, 0), this.node);
-    this.ensureTransform(topBar, 1280, 64);
+    // 微信胶囊按钮固定于屏幕右上角。
+    // 本次优化将按钮高度从 48 提升至 56，字体变大，保持左对齐 32px 边距，最大 X 为 +184 确保胶囊安全。
+    const topBar = this.createNode('TopBar', new Vec3(0, halfH - 125, 0), this.node);
+    this.ensureTransform(topBar, 1280, 76);
 
     const isRose = this.currentTheme === 1;
     const isGold = this.currentTheme === 2;
-    const dBorder = isRose ? '#E879F9' : (isGold ? '#FDE047' : '#00F0FF');
-    const dBg = isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#1E3A8A');
-    const eBorder = isRose ? '#F472B6' : (isGold ? '#EA580C' : '#FDE047');
-    const eBg = isRose ? '#581C87' : (isGold ? '#9A3412' : '#4C1D95');
+    const dBorder = isRose ? '#E879F9' : (isGold ? '#FDE047' : '#00D4FF'); // Primary500
+    const dBg = isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#131C39');    // BG200
+    const eBorder = isRose ? '#F472B6' : (isGold ? '#EA580C' : '#8B5CF6'); // Accent500
+    const eBg = isRose ? '#581C87' : (isGold ? '#9A3412' : '#1E2A4F');    // BG300
 
-    // Diamond Resource Pill (No Mojibake Emojis)
-    this.createResourcePill(topBar, 'DiamondPill', new Vec3(-110, 0, 0), '晶核  1260 +', dBorder, dBg);
-
-    // Energy Resource Pill
-    this.createResourcePill(topBar, 'EnergyPill', new Vec3(80, 0, 0), '能量  8 / 10 +', eBorder, eBg);
-
-    // Settings Gear Button moved safely to the LEFT (-280) to never intersect with WeChat top-right capsule button!
-    const settingsBtn = this.createNode('SettingsBtn', new Vec3(-280, 0, 0), topBar);
-    this.ensureTransform(settingsBtn, 110, 48);
+    // 1. 设置齿轮按钮 (X = -268, 宽度 120, 高度 56, 左边缘对齐 -328)
+    const settingsBtn = this.createNode('SettingsBtn', new Vec3(-268, 0, 0), topBar);
+    this.ensureTransform(settingsBtn, 120, 56);
     const sg = settingsBtn.addComponent(Graphics);
     sg.fillColor = this.hex(dBg);
-    ((sg.fillColor) as any).a = 230;
-    sg.roundRect(-55, -24, 110, 48, 24);
+    ((sg.fillColor) as any).a = 210;
+    sg.roundRect(-60, -28, 120, 56, 28); // 圆角 28
     sg.fill();
-    sg.strokeColor = this.hex(dBorder);
-    sg.lineWidth = 2.2;
+    const borderCol = this.hex(dBorder);
+    borderCol.a = 120;
+    sg.strokeColor = borderCol;
+    sg.lineWidth = 1.6;
     sg.stroke();
-    this.createLabel(settingsBtn, 'Icon', new Vec3(0, 1, 0), '设 置', 18, '#FFFFFF', 100, 44);
+    this.createLabel(settingsBtn, 'Icon', new Vec3(0, 1, 0), '⚙ 设置', 22, '#FFFFFF', 106, 44); // 字体 22
 
     this.addClick(settingsBtn, () => {
       console.log('[HomeRoot] Click Settings');
       if (this.onOpenSettingsCallback) this.onOpenSettingsCallback();
     });
+
+    // 2. 晶核资源胶囊 (X = -102, 宽度 180, 高度 56, 间距 16px)
+    this.createResourcePill(topBar, 'DiamondPill', new Vec3(-102, 0, 0), '💎 1260 +', dBorder, dBg, 180);
+
+    // 3. 能量资源胶囊 (X = 94, 宽度 180, 高度 56, 间距 16px, 最右侧边缘到 +184)
+    this.createResourcePill(topBar, 'EnergyPill', new Vec3(94, 0, 0), '⚡ 8/10 +', eBorder, eBg, 180);
   }
 
-  private createResourcePill(parent: Node, name: string, pos: Vec3, text: string, borderHex: string, bgHex: string): void {
+  private createResourcePill(parent: Node, name: string, pos: Vec3, text: string, borderHex: string, bgHex: string, width: number): void {
     const pill = this.createNode(name, pos, parent);
-    this.ensureTransform(pill, 170, 48);
+    this.ensureTransform(pill, width, 56); // 56px 高度
     const g = pill.addComponent(Graphics);
     g.fillColor = this.hex(bgHex);
-    ((g.fillColor) as any).a = 220;
-    g.roundRect(-85, -24, 170, 48, 24);
+    ((g.fillColor) as any).a = 200;
+    g.roundRect(-width / 2, -28, width, 56, 28); // 圆角 28
     g.fill();
-    g.strokeColor = this.hex(borderHex);
-    g.lineWidth = 2.2;
+    const borderCol = this.hex(borderHex);
+    borderCol.a = 120;
+    g.strokeColor = borderCol;
+    g.lineWidth = 1.6;
     g.stroke();
-    this.createLabel(pill, 'Text', new Vec3(0, 1, 0), text, 17, '#FFFFFF', 160, 40);
+    this.createLabel(pill, 'Text', new Vec3(0, 1, 0), text, 21, '#FFFFFF', width - 16, 44); // 字体 21
   }
 
   private createTitleSection(halfH: number): void {
-    const titleRoot = this.createNode('TitleRoot', new Vec3(0, halfH * 0.74, 0), this.node);
-    this.ensureTransform(titleRoot, 600, 140);
+    // 优化：把主标题下移至 halfH * 0.64 (约 +498)，为顶部导航条与中间浮岛留出完美黄金分割布局
+    const titleRoot = this.createNode('TitleRoot', new Vec3(0, halfH * 0.64, 0), this.node);
+    this.ensureTransform(titleRoot, 640, 130);
 
     const isRose = this.currentTheme === 1;
     const isGold = this.currentTheme === 2;
-    const auraOuter = isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#4C1D95');
+    const auraOuter = isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#1E3A8A');
     const auraInner = isRose ? '#831843' : (isGold ? '#B45309' : '#00F0FF');
-    const subCol = isRose ? '#C4B5FD' : (isGold ? '#FCD34D' : '#60A5FA');
+    const subCol = isRose ? '#F472B6' : (isGold ? '#FDE047' : '#38BDF8');
 
-    const aura = this.createNode('TitleAura', new Vec3(0, 0, 0), titleRoot);
+    const aura = this.createNode('TitleAura', new Vec3(0, 2, 0), titleRoot);
     this.ensureTransform(aura, 400, 80);
     const ag = aura.addComponent(Graphics);
     ag.fillColor = this.hex(auraOuter);
-    ((ag.fillColor) as any).a = 140;
-    ag.circle(0, 5, 80);
+    ((ag.fillColor) as any).a = 150; // Softened
+    ag.circle(0, 4, 76);
     ag.fill();
     ag.fillColor = this.hex(auraInner);
-    ((ag.fillColor) as any).a = 80;
-    ag.circle(0, 5, 45);
+    ((ag.fillColor) as any).a = 90;
+    ag.circle(0, 4, 42);
     ag.fill();
 
-    this.createLabel(titleRoot, 'MainTitle', new Vec3(0, 15, 0), '浮 岛 浮 光', 64, '#FFFFFF', 520, 80);
-    this.createLabel(titleRoot, 'SubTitle', new Vec3(0, -38, 0), 'F L O A T   &   F L O W', 19, subCol, 460, 32);
+    this.createLabel(titleRoot, 'MainTitle', new Vec3(0, 14, 0), '浮 岛 流 光', 60, '#FFFFFF', 540, 72);
+    this.createLabel(titleRoot, 'SubTitle', new Vec3(0, -36, 0), '═══  F L O A T   &   F L O W  ═══', 18, subCol, 500, 34);
   }
 
   private createHeroIsland(halfH: number): void {
-    const islandRoot = this.createNode('HeroIslandRoot', new Vec3(0, halfH * 0.38, 0), this.node);
-    this.ensureTransform(islandRoot, 500, 360);
+    // 优化：把浮岛位置调整到 halfH * 0.22 (约 +171)，并使之成为可点击入口，且修复了 tween 跳动的 Bug
+    const islandRoot = this.createNode('HeroIslandRoot', new Vec3(0, halfH * 0.22, 0), this.node);
+    this.ensureTransform(islandRoot, 540, 380);
     this.heroIslandNode = islandRoot;
 
     const g = islandRoot.addComponent(Graphics);
 
-    const tileW = 120;
-    const tileH = 70;
-    const depth = 24;
+    const tileW = 136;
+    const tileH = 78;
+    const depth = 30;
     const coords = [
       { r: 0, c: 0 }, { r: 0, c: 1 }, { r: 0, c: 2 },
       { r: 1, c: 0 }, { r: 1, c: 1 }, { r: 1, c: 2 },
@@ -191,58 +198,79 @@ export class HomeRoot extends Component {
         strokeCol = isCenter ? this.hex('#FBBF24') : ((r + c) % 2 === 0 ? this.hex('#FCD34D') : this.hex('#FDE047'));
       }
 
-      this.drawIsometricBlock(g, topCol, leftCol, rightCol, strokeCol, 2, depth, tileW, tileH, y, x);
+      this.drawIsometricBlock(g, topCol, leftCol, rightCol, strokeCol, 2.2, depth, tileW, tileH, y, x);
     });
 
-    const coreY = 55;
+    const coreY = 63;
     const coreGlowHex = isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#00F0FF');
     const cg = this.hex(coreGlowHex);
-    g.fillColor = new Color(cg.r, cg.g, cg.b, 60);
-    g.circle(0, coreY, 65);
+    g.fillColor = new Color(cg.r, cg.g, cg.b, 55);
+    g.circle(0, coreY, 76);
     g.fill();
-    g.fillColor = new Color(255, 255, 255, 120);
-    g.circle(0, coreY, 36);
+    g.fillColor = new Color(255, 255, 255, 110);
+    g.circle(0, coreY, 40);
     g.fill();
 
     const cTop = isRose ? this.hex('#A78BFA') : (isGold ? this.hex('#FCD34D') : this.hex('#00F0FF'));
     const cLeft = isRose ? this.hex('#6D28D9') : (isGold ? this.hex('#B45309') : this.hex('#0099BB'));
     const cRight = isRose ? this.hex('#4C1D95') : (isGold ? this.hex('#7C2D12') : this.hex('#00CCD9'));
 
-    this.drawIsometricBlock(g, cTop, cLeft, cRight, this.hex('#FFFFFF'), 3.0, 30, 76, 46, coreY, 0);
+    this.drawIsometricBlock(g, cTop, cLeft, cRight, this.hex('#FFFFFF'), 3.2, 36, 86, 50, coreY, 0);
 
+    // 点击浮岛也可以直接触发“闯关旅程”主入口！
+    this.addClick(islandRoot, () => {
+      console.log('[HomeRoot] Clicked hero island -> start journey');
+      if (this.onStartJourneyCallback) this.onStartJourneyCallback();
+    });
+
+    // 修复动画抖跃/跳动Bug：初始Y轴坐标为 halfH * 0.22，使动画以此为中值上下平滑漂移
     tween(islandRoot)
-      .to(2.2, { position: new Vec3(0, 300, 0) }, { easing: 'sineInOut' })
-      .to(2.2, { position: new Vec3(0, 280, 0) }, { easing: 'sineInOut' })
+      .to(2.2, { position: new Vec3(0, halfH * 0.22 + 10, 0) }, { easing: 'sineInOut' })
+      .to(2.2, { position: new Vec3(0, halfH * 0.22 - 10, 0) }, { easing: 'sineInOut' })
       .union()
       .repeatForever()
       .start();
   }
 
   private createSidebarIcons(halfW: number, halfH: number): void {
-    const sidebar = this.createNode('Sidebar', new Vec3(-halfW + 56, halfH * 0.40, 0), this.node);
-    this.ensureTransform(sidebar, 90, 400);
+    // 优化：侧边栏对齐左侧 32px 边界安全区 (X = -halfW + 74)，按钮尺寸从 84 放大到 96 更加易点
+    const sidebar = this.createNode('Sidebar', new Vec3(-halfW + 74, halfH * 0.22, 0), this.node);
+    this.ensureTransform(sidebar, 96, 360);
 
-    const spacing = halfH * 0.20;
+    const spacing = halfH * 0.18;
     const items = [
-      { id: 'daily', name: '每日奖励', tag: '奖 励', y: spacing, border: '#FDE047', color: '#FDE047' },
-      { id: 'rank', name: '排行榜', tag: '排 行', y: 0, border: '#60A5FA', color: '#60A5FA' },
-      { id: 'achieve', name: '成 就', tag: '成 就', y: -spacing, border: '#A855F7', color: '#C084FC' }
+      { id: 'daily', name: '签 到', symbol: '🎁', y: spacing, border: '#FDE047', bg: '#7C2D12' },
+      { id: 'rank', name: '排 行', symbol: '🏆', y: 0, border: '#00F0FF', bg: '#1E3A8A' },
+      { id: 'achieve', name: '成 就', symbol: '🎖️', y: -spacing, border: '#C084FC', bg: '#4C1D95' }
     ];
 
     items.forEach((item) => {
       const btn = this.createNode(`Btn_${item.id}`, new Vec3(0, item.y, 0), sidebar);
-      this.ensureTransform(btn, 86, 76);
+      this.ensureTransform(btn, 96, 96); // 放大至 96 x 96
       const g = btn.addComponent(Graphics);
-      g.fillColor = this.hex('#1E3A8A');
-      ((g.fillColor) as ((any)) as any).a = 230;
-      g.roundRect(-43, -38, 86, 76, 20);
+
+      // Sleek Circular Icon Badge
+      g.fillColor = this.hex(item.bg);
+      ((g.fillColor) as any).a = 210;
+      g.circle(0, 10, 38); // 38 半径，直径 76 符合放大要求
       g.fill();
-      g.strokeColor = this.hex(item.border);
-      g.lineWidth = 2.4;
+      const sBorderCol = this.hex(item.border);
+      sBorderCol.a = 120; // 降低描边亮度以凸显主界面游戏按钮
+      g.strokeColor = sBorderCol;
+      g.lineWidth = 1.6;
+      g.circle(0, 10, 38);
       g.stroke();
 
-      this.createLabel(btn, 'Icon', new Vec3(0, 13, 0), item.tag, 19, '#FFFFFF', 80, 36);
-      this.createLabel(btn, 'Label', new Vec3(0, -18, 0), item.name, 14, item.color, 80, 26);
+      // Inner subtle glow ring
+      g.strokeColor = new Color(255, 255, 255, 60);
+      g.lineWidth = 0.8;
+      g.circle(0, 10, 31);
+      g.stroke();
+
+      // Concrete Emoji/Icon symbol inside the round badge
+      this.createLabel(btn, 'Symbol', new Vec3(0, 11, 0), item.symbol, 34, '#FFFFFF', 72, 48); // 字体 34
+      // Clean single-line label below the badge
+      this.createLabel(btn, 'Label', new Vec3(0, -38, 0), item.name, 18, item.border, 90, 28); // 字体 18
 
       this.addClick(btn, () => {
         console.log(`[HomeRoot] Clicked sidebar item: ${item.name}`);
@@ -285,23 +313,33 @@ export class HomeRoot extends Component {
     const overlay = this.createNode('Overlay', new Vec3(0, 0, 0), this.popupRoot);
     this.ensureTransform(overlay, 1280, 720);
     const og = overlay.addComponent(Graphics);
-    og.fillColor = new Color(5, 10, 25, 180);
+    og.fillColor = new Color(5, 10, 25, 185);
     og.rect(-640, -360, 1280, 720);
     og.fill();
     this.addClick(overlay, () => {
       this.popupRoot!.active = false;
     });
 
-    // 2. Glassmorphic Dialog Box
-    const dialog = this.createNode('Dialog', new Vec3(0, 20, 0), this.popupRoot);
-    this.ensureTransform(dialog, 640, 460);
+    const isRose = this.currentTheme === 1;
+    const isGold = this.currentTheme === 2;
+    const isCheckin = title.indexOf('签到') >= 0;
+    const isLeaderboard = title.indexOf('排行') >= 0;
+    const isReinforce = title.indexOf('强化') >= 0;
+    const isAchievement = title.indexOf('成就') >= 0;
+
+    const dialogHeight = 500;
+    const halfDialogH = dialogHeight / 2;
+
+    // 2. Glassmorphic Dialog Box (宽度 620 符合 86% 规范，圆角 32)
+    const dialog = this.createNode('Dialog', new Vec3(0, 15, 0), this.popupRoot);
+    this.ensureTransform(dialog, 620, dialogHeight);
     const dg = dialog.addComponent(Graphics);
-    dg.fillColor = this.hex('#0B132B');
-    ((dg.fillColor) as ((any)) as any).a = 245;
-    dg.roundRect(-320, -230, 640, 460, 24);
+    dg.fillColor = this.hex('#111827'); // 极暗深灰蓝 (BG100)
+    ((dg.fillColor) as any).a = 242;    // 95% 不透明度
+    dg.roundRect(-310, -halfDialogH, 620, dialogHeight, 32); // 32px 圆角
     dg.fill();
     dg.strokeColor = this.hex(borderHex);
-    dg.lineWidth = 2.5;
+    dg.lineWidth = 2.4;
     dg.stroke();
 
     dialog.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
@@ -309,48 +347,127 @@ export class HomeRoot extends Component {
     });
 
     // 3. Title & Close Button
-    this.createLabel(dialog, 'Title', new Vec3(0, 185, 0), title, 24, '#FFFFFF', 450, 36);
-    const closeBtn = this.createNode('CloseBtn', new Vec3(280, 185, 0), dialog);
+    this.createLabel(dialog, 'Title', new Vec3(0, halfDialogH - 45, 0), title, 24, '#FFFFFF', 420, 40); // Size 24
+    const closeBtn = this.createNode('CloseBtn', new Vec3(270, halfDialogH - 45, 0), dialog); // 270 使得按钮外侧留距正好 30-40px
     this.ensureTransform(closeBtn, 40, 40);
     const cg = closeBtn.addComponent(Graphics);
     cg.fillColor = this.hex('#1E293B');
-    cg.circle(0, 0, 16);
+    cg.circle(0, 0, 18);
     cg.fill();
     cg.strokeColor = this.hex(borderHex);
-    cg.lineWidth = 1.5;
+    cg.lineWidth = 1.8;
     cg.stroke();
     this.createLabel(closeBtn, 'Icon', new Vec3(0, 1, 0), '✖', 16, '#FFFFFF', 32, 32);
     this.addClick(closeBtn, () => {
       this.popupRoot!.active = false;
     });
 
-    // 4. List Items
+    // 4. Custom List Items Rendering Engine (宽度 556，左右留距 32px 边距安全区)
     lines.forEach((line, idx) => {
-      const y = 110 - idx * 52;
-      const itemNode = this.createNode(`Item_${idx}`, new Vec3(0, y, 0), dialog);
-      this.ensureTransform(itemNode, 560, 44);
+      let itemBg = '#1E293B';
+      let itemBgAlpha = 210;
+      let itemBorder = '#334155';
+      let borderWidth = 1.2;
+      let textColor = '#E2E8F0';
+      let rowHeight = 46;
+      let yOffset = (halfDialogH - 115) - idx * 60; // 默认垂直排版
+      let fontSize = 17;
+
+      if (isCheckin) {
+        rowHeight = 48;
+        yOffset = (halfDialogH - 110) - idx * 62;
+        if (line.indexOf('今日可领') >= 0) {
+          itemBg = isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#1E3A8A');
+          itemBgAlpha = 250;
+          itemBorder = borderHex; 
+          borderWidth = 2.4;
+          textColor = '#FFFBEB';
+          fontSize = 18;
+        } else if (line.indexOf('已领取') >= 0) {
+          itemBg = '#0F172A';
+          itemBgAlpha = 110;
+          textColor = '#64748B';
+          itemBorder = '#1E293B';
+          borderWidth = 1.0;
+        } else {
+          itemBg = '#0F172A';
+          itemBgAlpha = 140;
+          textColor = '#475569';
+          itemBorder = '#1E293B';
+          borderWidth = 1.0;
+        }
+      } else if (isLeaderboard) {
+        rowHeight = 48;
+        yOffset = (halfDialogH - 110) - idx * 62;
+        if (idx === 0) {
+          itemBg = '#451A03';
+          itemBgAlpha = 245;
+          itemBorder = '#F59E0B';
+          borderWidth = 2.2;
+          textColor = '#FDE047';
+          fontSize = 18;
+        } else if (idx === 1) {
+          itemBg = '#1E293B';
+          itemBgAlpha = 240;
+          itemBorder = '#94A3B8';
+          borderWidth = 1.8;
+          textColor = '#F8FAFC';
+        } else if (idx === 2) {
+          itemBg = '#3B2314';
+          itemBgAlpha = 220;
+          itemBorder = '#B45309';
+          borderWidth = 1.4;
+          textColor = '#FFF7ED';
+        }
+      } else if (isReinforce) {
+        rowHeight = 50;
+        yOffset = (halfDialogH - 110) - idx * 64; 
+        if (line.indexOf('激励视频广告') >= 0) {
+          itemBg = '#311062';
+          itemBgAlpha = 245;
+          itemBorder = '#C084FC';
+          borderWidth = 2.2;
+          textColor = '#FAF5FF';
+          fontSize = 18;
+        }
+      } else if (isAchievement) {
+        rowHeight = 50;
+        yOffset = (halfDialogH - 110) - idx * 64;
+        if (line.indexOf('领取') >= 0 && line.indexOf('已达成') < 0) {
+          itemBg = '#1E3A8A';
+          itemBgAlpha = 240;
+          itemBorder = '#60A5FA';
+          borderWidth = 2.2;
+          textColor = '#EFF6FF';
+          fontSize = 18;
+        }
+      }
+
+      const itemNode = this.createNode(`Item_${idx}`, new Vec3(0, yOffset, 0), dialog);
+      this.ensureTransform(itemNode, 556, rowHeight); // 宽度 556
       const ig = itemNode.addComponent(Graphics);
-      ig.fillColor = this.hex('#1E293B');
-      ((ig.fillColor) as ((any)) as any).a = 200;
-      ig.roundRect(-270, -20, 540, 40, 12);
+      ig.fillColor = this.hex(itemBg);
+      ((ig.fillColor) as any).a = itemBgAlpha;
+      ig.roundRect(-278, -rowHeight / 2, 556, rowHeight, 16); // 278符合一半宽度
       ig.fill();
-      ig.strokeColor = this.hex('#334155');
-      ig.lineWidth = 1;
+      ig.strokeColor = this.hex(itemBorder);
+      ig.lineWidth = borderWidth;
       ig.stroke();
-      this.createLabel(itemNode, 'Text', new Vec3(-10, 0, 0), line, 15, '#E2E8F0', 500, 36);
+
+      this.createLabel(itemNode, 'Text', new Vec3(-10, 0, 0), line, fontSize, textColor, 510, rowHeight - 6);
     });
 
-    // 5. Bottom Hero Action Button
-    const heroBtn = this.createNode('HeroBtn', new Vec3(0, -170, 0), dialog);
-    this.ensureTransform(heroBtn, 360, 54);
+    // 5. Bottom Hero Action Button (符合 Primary CTA 规范：高度 72, 圆角 36)
+    const heroBtn = this.createNode('HeroBtn', new Vec3(0, -halfDialogH + 60, 0), dialog);
+    this.ensureTransform(heroBtn, 400, 72);
     const hg = heroBtn.addComponent(Graphics);
     hg.fillColor = this.hex(btnBgHex);
-    hg.roundRect(-180, -27, 360, 54, 27);
+    hg.roundRect(-200, -36, 400, 72, 36); // 72高度，36圆角
     hg.fill();
     hg.strokeColor = this.hex(borderHex);
-    hg.lineWidth = 2;
+    hg.lineWidth = 2.6;
     hg.stroke();
-    this.createLabel(heroBtn, 'Text', new Vec3(0, 2, 0), btnText, 18, '#FFFFFF', 320, 36);
+    this.createLabel(heroBtn, 'Text', new Vec3(0, 2, 0), btnText, 21, '#FFFFFF', 360, 44);
 
     this.addClick(heroBtn, () => {
       console.log(`[HomeRoot] Popup action clicked: ${btnText}`);
@@ -358,96 +475,131 @@ export class HomeRoot extends Component {
     });
   }
 
+
   private createModeCards(halfH: number): void {
-    const cardsRoot = this.createNode('ModeCardsRoot', new Vec3(0, -halfH * 0.05, 0), this.node);
-    this.ensureTransform(cardsRoot, 700, 280);
+    // 优化：重构为单核心主按钮 + 次级入口结构。宽度为 656，两侧留出 32px 边距安全区。
+    const cardsRoot = this.createNode('ModeCardsRoot', new Vec3(0, -halfH * 0.16, 0), this.node);
+    this.ensureTransform(cardsRoot, 656, 240);
 
     const isRose = this.currentTheme === 1;
     const isGold = this.currentTheme === 2;
 
-    const jBg = isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#1E3A8A');
-    const jBorder = isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#60A5FA');
+    const jBg = isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#131C39');
+    const jBorder = isRose ? '#E879F9' : (isGold ? '#FDE047' : '#00D4FF');
 
-    const eBg = isRose ? '#581C87' : (isGold ? '#9A3412' : '#4C1D95');
-    const eBorder = isRose ? '#C4B5FD' : (isGold ? '#FBBF24' : '#E879F9');
+    const eBg = isRose ? '#581C87' : (isGold ? '#9A3412' : '#1E2A4F');
+    const eBorder = isRose ? '#C4B5FD' : (isGold ? '#FBBF24' : '#60A5FA');
 
-    // WeChat Mini Game Mainstream Sleek Journey Card (520x112 at Y=65)
-    const journeyCard = this.createNode('JourneyCard', new Vec3(0, 65, 0), cardsRoot);
-    this.ensureTransform(journeyCard, 520, 112);
+    // 1. 核心绝对主行动按钮 (Primary CTA)：继续冒险 (高度从 72 提高到 88, 圆角 44, 更加显眼易触)
+    const journeyCard = this.createNode('JourneyCard', new Vec3(0, 56, 0), cardsRoot);
+    this.ensureTransform(journeyCard, 580, 88);
     const jg = journeyCard.addComponent(Graphics);
+    
+    // Outer cyber neon pulse aura
+    jg.fillColor = this.hex(jBorder);
+    ((jg.fillColor) as any).a = 40;
+    jg.roundRect(-298, -50, 596, 100, 50);
+    jg.fill();
+    
+    // Card base
     jg.fillColor = this.hex(jBg);
-    ((jg.fillColor) as any).a = 245;
-    jg.roundRect(-260, -56, 520, 112, 28);
+    ((jg.fillColor) as any).a = 255;
+    jg.roundRect(-290, -44, 580, 88, 44);
     jg.fill();
     jg.strokeColor = this.hex(jBorder);
-    jg.lineWidth = 3.2;
+    jg.lineWidth = 3.6; // 3.6px 描边
     jg.stroke();
-    // Inner level badge pill
-    jg.fillColor = this.hex('#080E24');
-    jg.roundRect(110, -20, 120, 40, 20);
+    
+    // Inner level status tag pill
+    jg.fillColor = this.hex('#060916');
+    jg.roundRect(120, -20, 150, 40, 20);
     jg.fill();
+    jg.strokeColor = this.hex(jBorder);
+    jg.lineWidth = 1.6;
+    jg.stroke();
 
-    this.createLabel(journeyCard, 'Title', new Vec3(-70, 2, 0), '★   闯 关 旅 程', 28, '#FFFFFF', 320, 44);
-    this.createLabel(journeyCard, 'Sub', new Vec3(170, 2, 0), '关卡 56', 18, jBorder, 110, 34);
+    this.createLabel(journeyCard, 'Title', new Vec3(-70, 2, 0), '▶   继 续 冒 险', 32, '#FFFFFF', 300, 48); // 字体 32
+    this.createLabel(journeyCard, 'Sub', new Vec3(195, 2, 0), '第 56 / 120 关', 19, jBorder, 136, 32);  // 字体 19
 
     this.addClick(journeyCard, () => {
-      console.log('[HomeRoot] Clicked Journey Mode!');
+      console.log('[HomeRoot] Clicked Primary CTA: Journey Mode!');
       if (this.onStartJourneyCallback) this.onStartJourneyCallback();
     });
 
-    // WeChat Mini Game Mainstream Sleek Endless Card (520x96 at Y=-68)
-    const endlessCard = this.createNode('EndlessCard', new Vec3(0, -68, 0), cardsRoot);
-    this.ensureTransform(endlessCard, 520, 96);
+    // 专属黄金/霓虹主按钮呼吸动效
+    tween(journeyCard)
+      .to(1.4, { scale: new Vec3(1.03, 1.03, 1) }, { easing: 'sineInOut' })
+      .to(1.4, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'sineInOut' })
+      .union()
+      .repeatForever()
+      .start();
+
+    // 2. 次级入口 (Secondary CTA)：极限排位 / 无尽挑战 (高度从 64 提高到 76, 圆角 38)
+    const endlessCard = this.createNode('EndlessCard', new Vec3(0, -56, 0), cardsRoot);
+    this.ensureTransform(endlessCard, 460, 76);
     const eg = endlessCard.addComponent(Graphics);
     eg.fillColor = this.hex(eBg);
-    ((eg.fillColor) as any).a = 245;
-    eg.roundRect(-260, -48, 520, 96, 24);
+    ((eg.fillColor) as any).a = 210;
+    eg.roundRect(-230, -38, 460, 76, 38);
     eg.fill();
-    eg.strokeColor = this.hex(eBorder);
-    eg.lineWidth = 3.2;
+    
+    const eBorderColor = this.hex(eBorder);
+    eBorderColor.a = 120; // 降低次级按钮描边亮度，不喧宾夺主
+    eg.strokeColor = eBorderColor;
+    eg.lineWidth = 2.0;
     eg.stroke();
-    // Inner rank badge pill
-    eg.fillColor = this.hex('#1E1B4B');
-    eg.roundRect(100, -18, 140, 36, 18);
+    
+    // Inner highscore status tag pill
+    eg.fillColor = this.hex('#0A0F24');
+    eg.roundRect(95, -16, 116, 32, 16);
     eg.fill();
+    eg.strokeColor = eBorderColor;
+    eg.lineWidth = 1.2;
+    eg.stroke();
 
-    this.createLabel(endlessCard, 'Title', new Vec3(-70, 2, 0), '极 限 排 位', 26, '#FFFFFF', 320, 42);
-    this.createLabel(endlessCard, 'Sub', new Vec3(170, 2, 0), '最高 2840m', 17, eBorder, 130, 32);
+    this.createLabel(endlessCard, 'Title', new Vec3(-60, 2, 0), '🚀  极限挑战 · 无尽模式', 22, '#FFFFFF', 260, 38); // 字体 22
+    this.createLabel(endlessCard, 'Sub', new Vec3(153, 2, 0), '巅峰 2840m', 16, eBorder, 100, 28); // 字体 16
 
     this.addClick(endlessCard, () => {
-      console.log('[HomeRoot] Clicked Endless Mode!');
+      console.log('[HomeRoot] Clicked Secondary CTA: Endless Mode!');
       if (this.onStartEndlessCallback) this.onStartEndlessCallback();
     });
   }
 
-  private createBottomFeaturePills(halfH: number): void {
-    const pillsRoot = this.createNode('FeaturePillsRoot', new Vec3(0, -halfH + 175, 0), this.node);
-    this.ensureTransform(pillsRoot, 700, 250);
+  private createBottomFeatureRow(halfH: number): void {
+    // 优化：使用对称的 32px 安全页边距，容器宽度 656px，按钮尺寸提升至 208x88，圆角 26，两端完美贴齐 -328 和 328
+    const pillsRoot = this.createNode('FeatureRowRoot', new Vec3(0, -halfH + 146, 0), this.node);
+    this.ensureTransform(pillsRoot, 656, 88);
 
     const isRose = this.currentTheme === 1;
     const isGold = this.currentTheme === 2;
 
-    const pills = [
-      { text: '★   强化手牌卡槽 · 广告永久 +1', y: 84, bg: isRose ? '#3B0764' : (isGold ? '#451A03' : '#312E81'), border: isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#A78BFA'), col: '#E9D5FF' },
-      { text: '蓄能池状态 · 能量已满格 (10/10)', y: 0, bg: isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#004D61'), border: isRose ? '#C4B5FD' : (isGold ? '#FBBF24' : '#00F0FF'), col: '#A5F3FC' },
-      { text: '主题场景色彩 · 点击定制换色', y: -84, bg: isRose ? '#581C87' : (isGold ? '#9A3412' : '#701A75'), border: isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#F472B6'), col: '#FBCFE8' }
+    const items = [
+      { id: 'adCard', title: '强 化 手 牌', sub: '永久 +1 卡槽', icon: '📺', x: -224, bg: isRose ? '#3B0764' : (isGold ? '#451A03' : '#131C39'), border: isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#38BDF8'), col: '#E9D5FF' },
+      { id: 'energy', title: '时 空 蓄 能', sub: '满血 (10/10)', icon: '⚡', x: 0, bg: isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#0B1026'), border: isRose ? '#C4B5FD' : (isGold ? '#FBBF24' : '#00D4FF'), col: '#A5F3FC' },
+      { id: 'theme', title: '主 题 定 制', sub: '点击一键换色', icon: '🎨', x: 224, bg: isRose ? '#581C87' : (isGold ? '#9A3412' : '#1E2A4F'), border: isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#F472B6'), col: '#FBCFE8' }
     ];
 
-    pills.forEach((p, idx) => {
-      const node = this.createNode(`Pill_${idx}`, new Vec3(0, p.y, 0), pillsRoot);
-      this.ensureTransform(node, 560, 52);
+    items.forEach((p, idx) => {
+      const node = this.createNode(`FeatureMini_${idx}`, new Vec3(p.x, 0, 0), pillsRoot);
+      this.ensureTransform(node, 208, 88); // 提升至 208x88
       const g = node.addComponent(Graphics);
       g.fillColor = this.hex(p.bg);
-      g.roundRect(-280, -26, 560, 52, 26);
+      ((g.fillColor) as any).a = 210;
+      g.roundRect(-104, -44, 208, 88, 26); // 88高度，26圆角
       g.fill();
-      g.strokeColor = this.hex(p.border);
-      g.lineWidth = 2.4;
+      const bCol = this.hex(p.border);
+      bCol.a = 110;
+      g.strokeColor = bCol;
+      g.lineWidth = 1.6;
       g.stroke();
 
-      this.createLabel(node, 'Text', new Vec3(0, 1, 0), p.text, 18, p.col, 520, 36);
+      this.createLabel(node, 'Icon', new Vec3(-70, 0, 0), p.icon, 26, '#FFFFFF', 44, 44); // 字体 26
+      this.createLabel(node, 'Title', new Vec3(20, 15, 0), p.title, 21, '#FFFFFF', 120, 26); // 字体 21
+      this.createLabel(node, 'Sub', new Vec3(20, -15, 0), p.sub, 16, p.col, 120, 22); // 字体 16
 
       this.addClick(node, () => {
-        console.log(`[HomeRoot] Clicked feature pill: ${p.text}`);
+        console.log(`[HomeRoot] Clicked mini feature: ${p.title}`);
         if (idx === 2) {
           if (this.onOpenSettingsCallback) this.onOpenSettingsCallback();
         } else if (idx === 0) {
@@ -455,15 +607,15 @@ export class HomeRoot extends Component {
             '🎴  当前手牌容量:  4 张卡槽 —— [ 已达到标准容量 ]',
             '📺  观看激励视频广告:  解锁第 5 张永久手牌槽位！',
             '⚡  开局预置水晶:  每局自动携带 1 颗拐角水晶',
-            '🛡️  护盾加持:  抵消一次太空浮岛坠落惩罚',
+            '🛡  护盾加持:  抵消一次太空浮岛坠落惩罚', // 去除变体选择符
             '💎  使用 300 钻石:  立即兑换 3 次强化道具'
           ], '📺   看 广 告 永 久 +1 卡 槽', '#A78BFA', '#312E81');
         } else if (idx === 1) {
-          this.showPopup('⏱️   时 空 蓄 能 池 状 态', [
+          this.showPopup('⏱   时 空 蓄 能 池 状 态', [ // 去除变体选择符
             '⚡  当前能量值:  8 / 10  (精力充沛 ⚡)',
-            '⏱️  恢复速度:  每 10 分钟自动恢复 1 点时空能量',
+            '⏱  恢复速度:  每 10 分钟自动恢复 1 点时空能量', // 去除变体选择符
             '💡  消耗提示:  每次挑战旅途模式关卡消耗 1 点能量',
-            '♾️  无尽模式:  不消耗任何能量，随时畅快开玩！',
+            '♾  无尽模式:  不消耗任何能量，随时畅快开玩！', // 去除变体选择符
             '💎  能量补给包:  消耗 50 钻石即可瞬间回满 10 点！'
           ], '⚡   消 耗 50 💎 瞬 间 回 满', '#00F0FF', '#004D61');
         }

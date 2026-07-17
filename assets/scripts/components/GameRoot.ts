@@ -11,6 +11,7 @@ import {
   Vec3,
   director,
   tween,
+  view,
 } from 'cc';
 import { CardSystem } from '../core/CardSystem';
 import { GridManager } from '../core/GridManager';
@@ -183,32 +184,34 @@ export class GameRoot extends Component {
   public clearPlacedTiles(): void {
     console.log('[FloatFlow] Clear Placed Tiles');
     WeChatService.vibrateShort('light');
-    if (this.moveHistory.length === 0 && this.usedMoves === 0) {
-      this.setStatus('当前棋盘已经很干净啦，无需擦除。');
-      return;
-    }
     if (this.eraseRemaining <= 0) {
       WeChatService.showModal({
-        title: '擦除次数已用完 (0/1)',
-        content: '本关卡免费擦除次数已用完！是否观看 30 秒激励广告立刻重置 1 次擦除机会？',
-        confirmText: '📺 观看广告',
+        title: '免费清盘已耗尽',
+        content: '本关卡免费清盘(擦除)次数(1次)已用完！是否观看一段短视频广告立刻获取补给并为你清空重置手牌？',
+        confirmText: '观看广告',
         cancelText: '暂不需要',
         success: (res) => {
           if (res.confirm) {
             console.log('[FloatFlow] Watch Ad for Erase Reset');
-            this.eraseRemaining = 1;
-            WeChatService.showToast('🎉 广告观看成功，已重置 1 次擦除机会！', 'success');
-            this.setStatus('🎉 已重置 1 次擦除机会！');
-            this.clearPlacedTiles();
+            WeChatService.showVideoAd(() => {
+              this.eraseRemaining = 1;
+              WeChatService.showToast('★ 广告观看成功，已重置清盘机会！', 'success');
+              this.setStatus('★ 已补给 1 次清盘机会并自动为您重置棋盘！');
+              this.clearPlacedTiles();
+            });
           }
         },
       });
       return;
     }
+    if (this.moveHistory.length === 0 && this.usedMoves === 0) {
+      this.setStatus('当前棋盘已经很干净啦，无需擦除。');
+      return;
+    }
 
     this.eraseRemaining--;
     this.restartLevel(true);
-    this.setStatus(`已擦除放置地砖，手牌已重置（本关剩余擦除：${this.eraseRemaining}/1 次）`);
+    this.setStatus(`已擦除放置地砖，手牌已重置（本关剩余清盘：${this.eraseRemaining}/1 次）`);
   }
 
   public undoLastMove(): void {
@@ -217,26 +220,32 @@ export class GameRoot extends Component {
     if (!this.grid || !this.cardSystem || this.runner?.state === 'RUNNING') {
       return;
     }
-    if (this.moveHistory.length === 0) {
-      this.setStatus('当前没有任何可撤回的放置操作！');
-      return;
-    }
     if (this.undoRemaining <= 0) {
       WeChatService.showModal({
-        title: '撤回次数已用完 (0/1)',
-        content: '本关卡免费撤回上一步次数已用完！是否观看 30 秒激励广告立刻重置 1 次撤回机会？',
-        confirmText: '📺 观看广告',
+        title: '免费撤回已耗尽',
+        content: '本关卡免费撤回次数(1次)已用完！是否观看一段短视频广告立刻获得 1 次撤回机会？',
+        confirmText: '观看广告',
         cancelText: '暂不需要',
         success: (res) => {
           if (res.confirm) {
             console.log('[FloatFlow] Watch Ad for Undo Reset');
-            this.undoRemaining = 1;
-            WeChatService.showToast('🎉 广告观看成功，已重置 1 次撤回机会！', 'success');
-            this.setStatus('🎉 已重置 1 次撤回机会！');
-            this.undoLastMove();
+            WeChatService.showVideoAd(() => {
+              this.undoRemaining = 1;
+              WeChatService.showToast('★ 广告观看成功，已获得 1 次撤回机会！', 'success');
+              this.setStatus('★ 补给成功！已获得 1 次撤回机会！');
+              if (this.moveHistory.length > 0) {
+                this.undoLastMove();
+              } else {
+                WeChatService.showToast('现在去放置地砖，走错时随时可使用撤回哦~', 'none');
+              }
+            });
           }
         },
       });
+      return;
+    }
+    if (this.moveHistory.length === 0) {
+      this.setStatus('当前没有任何可撤回的放置操作！');
       return;
     }
 
@@ -317,10 +326,11 @@ export class GameRoot extends Component {
 
   private ensureRoots(): void {
     this.node.layer = Layers.Enum.UI_2D;
-    this.boardRoot = this.boardRoot ?? this.createRoot('BoardRoot', new Vec3(0, 160, 0));
-    this.previewRoot = this.previewRoot ?? this.createRoot('PreviewRoot', new Vec3(0, 160, 0));
-    this.runnerRoot = this.runnerRoot ?? this.createRoot('RunnerRoot', new Vec3(0, 160, 0));
-    this.cardRoot = this.cardRoot ?? this.createRoot('CardRoot', new Vec3(0, -340, 0));
+    const halfH = view.getVisibleSize().height / 2;
+    this.boardRoot = this.boardRoot ?? this.createRoot('BoardRoot', new Vec3(0, 174, 0));
+    this.previewRoot = this.previewRoot ?? this.createRoot('PreviewRoot', new Vec3(0, 174, 0));
+    this.runnerRoot = this.runnerRoot ?? this.createRoot('RunnerRoot', new Vec3(0, 174, 0));
+    this.cardRoot = this.cardRoot ?? this.createRoot('CardRoot', new Vec3(0, -halfH + 260, 0));
   }
 
   private createRoot(name: string, pos: Vec3): Node {
@@ -360,35 +370,17 @@ export class GameRoot extends Component {
     this.tileNodes.clear();
     this.cardNodes = [];
 
-    const maxDim = Math.max(this.grid.rows, this.grid.cols);
-    let scale = 1.95;
-    let offsetY = 320;
-    if (maxDim <= 4) {
-      scale = 1.95;
-      offsetY = 320;
-    } else if (maxDim <= 6) {
-      scale = 1.70;
-      offsetY = 320;
-    } else if (maxDim <= 7) {
-      scale = 1.45;
-      offsetY = 320;
-    } else {
-      // 8x8 or 9x9 or larger grids
-      scale = 1.25;
-      offsetY = 320;
-    }
-    const scale3f = new Vec3(scale, scale, 1);
+    // 动态计算在顶部导航条与底部操作区（Y = -halfH + 495）之间的可用垂直空间，求出其中心坐标
+    const offsetY = 174;
     const pos3f = new Vec3(0, offsetY, 0);
+
     if (this.boardRoot) {
-      this.boardRoot.setScale(scale3f);
       this.boardRoot.setPosition(pos3f);
     }
     if (this.previewRoot) {
-      this.previewRoot.setScale(scale3f);
       this.previewRoot.setPosition(pos3f);
     }
     if (this.runnerRoot) {
-      this.runnerRoot.setScale(scale3f);
       this.runnerRoot.setPosition(pos3f);
     }
 
@@ -415,10 +407,14 @@ export class GameRoot extends Component {
     const step = this.tileWidth + (this.tileGap || 10);
     const rawWidth = this.grid.cols * step;
     const rawHeight = this.grid.rows * step;
-    let sW = 530 / rawWidth;
-    let sH = 610 / rawHeight;
+    // 优化：右侧竖排功能键移除并转为下方横排后，水平空间释放至 670px！棋盘整体放大 1.25~1.3 倍，大幅改善手指误触痛点！
+    const size = view.getVisibleSize();
+    // 扣除顶部导航条与底部提示条安全区后的最大高度，防止重叠
+    const maxBoardHeight = size.height - 726;
+    let sW = 656 / rawWidth; // 656 符合左右 32px 安全页边距
+    let sH = maxBoardHeight / rawHeight;
     let s = Math.min(sW, sH);
-    if (s > 1.18) s = 1.18;
+    if (s > 1.45) s = 1.45;
     if (this.boardRoot) this.boardRoot.setScale(new Vec3(s, s, 1));
     if (this.previewRoot) this.previewRoot.setScale(new Vec3(s, s, 1));
     if (this.runnerRoot) this.runnerRoot.setScale(new Vec3(s, s, 1));
@@ -1398,15 +1394,19 @@ export class GameRoot extends Component {
     const g = this.bulletTimeGraphics;
     g.clear();
 
-    // Track
-    g.fillColor = this.hex('#0B132B');
-    g.roundRect(-4, -40, 8, 80, 4);
-    g.fill();
-
-    // Active Liquid Fill
+    // 优化：改为横排精致子弹时间能量胶囊条 (对应下方操作栏 ActionRow 横排设计)
     const ratio = Math.max(0, Math.min(1, this.currentBulletTime / this.maxBulletTime));
-    const barH = 80 * ratio;
-    if (barH > 1) {
+    g.fillColor = this.hex('#0B132B');
+    ((g.fillColor) as any).a = 230;
+    g.roundRect(-68, -26, 136, 52, 22);
+    g.fill();
+    g.strokeColor = this.hex('#3B82F6');
+    g.lineWidth = 2.2;
+    g.stroke();
+
+    // Active Liquid Fill Bar
+    const barW = 124 * ratio;
+    if (barW > 2) {
       if (ratio > 0.5) {
         g.fillColor = this.hex('#00F0FF');
       } else if (ratio > 0.25) {
@@ -1414,15 +1414,16 @@ export class GameRoot extends Component {
       } else {
         g.fillColor = this.hex('#FF3B30');
       }
-      g.roundRect(-4, -40, 8, barH, 4);
+      ((g.fillColor) as any).a = 210;
+      g.roundRect(-62, -20, barW, 40, 18);
       g.fill();
     }
 
-    this.bulletTimeValueLabel.string = `${this.currentBulletTime.toFixed(1)}s`;
+    this.bulletTimeValueLabel.string = `⏱ ${this.currentBulletTime.toFixed(1)}s`;
     if (ratio <= 0.25) {
       this.bulletTimeValueLabel.color = this.hex('#FF3B30');
     } else {
-      this.bulletTimeValueLabel.color = this.hex('#00F0FF');
+      this.bulletTimeValueLabel.color = this.hex('#FFFFFF');
     }
   }
 
