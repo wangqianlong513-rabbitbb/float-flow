@@ -1,6 +1,10 @@
+import { js, Node } from 'cc';
+
 declare const wx: any;
 
 export class WeChatService {
+  public static adUnitId: string = 'adunit-demo-id'; // 默认测试 ID，可通过 WeChatService.adUnitId = '...' 动态赋值
+
   static isWeChatMiniGame(): boolean {
     return typeof wx !== 'undefined';
   }
@@ -50,7 +54,7 @@ export class WeChatService {
       try {
         let videoAd: any = (WeChatService as any)._videoAd;
         if (!videoAd) {
-          videoAd = wx.createRewardedVideoAd({ adUnitId: 'adunit-demo-id' });
+          videoAd = wx.createRewardedVideoAd({ adUnitId: WeChatService.adUnitId });
           (WeChatService as any)._videoAd = videoAd;
         }
         videoAd.offClose();
@@ -65,17 +69,25 @@ export class WeChatService {
         videoAd.offError();
         videoAd.onError((err: any) => {
           console.log('[VideoAd Error]', err);
-          // 调试及未配置广告位ID时自动发放奖励
-          onSuccess();
+          // 调试及未配置广告位ID时自动发放奖励（模拟测试时注释掉此行）
+          // onSuccess();
+          WeChatService.showToast(`广告拉取失败: ${err.errMsg || err.errCode}`, 'none');
+          if (onFail) onFail();
         });
-        videoAd.show().catch(() => {
-          videoAd.load().then(() => videoAd.show()).catch(() => {
-            onSuccess();
+        videoAd.show().catch((err: any) => {
+          videoAd.load().then(() => videoAd.show()).catch((loadErr: any) => {
+            // 调试及未配置广告位ID时自动发放奖励（模拟测试时注释掉此行）
+            // onSuccess();
+            WeChatService.showToast('广告加载异常，请稍后再试', 'none');
+            if (onFail) onFail();
           });
         });
         return;
       } catch (e) {
-        onSuccess();
+        // 调试及未配置广告位ID时自动发放奖励（模拟测试时注释掉此行）
+        // onSuccess();
+        WeChatService.showToast('广告组件拉起异常', 'none');
+        if (onFail) onFail();
         return;
       }
     }
@@ -149,6 +161,78 @@ export class WeChatService {
         if (res && res.query) {
           handleQuery(res.query);
         }
+      });
+    }
+  }
+
+  static uploadUserScore(levelIndex: number, score: number): void {
+    if (typeof wx === 'undefined' || !wx.setUserCloudStorage) {
+      console.log('[WeChat Mock] Upload score:', { levelIndex, score });
+      return;
+    }
+
+    wx.setUserCloudStorage({
+      KVDataList: [
+        {
+          key: 'user_max_score',
+          value: JSON.stringify({
+            wxgame: {
+              score: score,
+              level: levelIndex,
+              update_time: Date.now()
+            }
+          })
+        }
+      ],
+      success: () => {
+        console.log('[WeChat] Score upload success:', { levelIndex, score });
+      },
+      fail: (err: any) => {
+        console.error('[WeChat] Score upload fail:', err);
+      }
+    });
+  }
+
+  static showFriendLeaderboard(containerNode: Node): void {
+    if (typeof wx === 'undefined') {
+      console.log('[WeChat Mock] Open Friend Leaderboard inside:', containerNode.name);
+      return;
+    }
+
+    const SubContextViewClass = js.getClassByName('cc.SubContextView');
+    if (SubContextViewClass) {
+      let subView = containerNode.getComponent(SubContextViewClass as any);
+      if (!subView) {
+        subView = containerNode.addComponent(SubContextViewClass as any);
+      }
+      if (subView) {
+        (subView as any).enabled = true;
+      }
+    }
+
+    if (wx.getOpenDataContext) {
+      wx.getOpenDataContext().postMessage({
+        action: 'showLeaderboard'
+      });
+    }
+  }
+
+  static hideFriendLeaderboard(containerNode: Node): void {
+    if (typeof wx === 'undefined') {
+      return;
+    }
+
+    const SubContextViewClass = js.getClassByName('cc.SubContextView');
+    if (SubContextViewClass) {
+      const subView = containerNode.getComponent(SubContextViewClass as any);
+      if (subView) {
+        (subView as any).enabled = false;
+      }
+    }
+
+    if (wx.getOpenDataContext) {
+      wx.getOpenDataContext().postMessage({
+        action: 'clear'
       });
     }
   }

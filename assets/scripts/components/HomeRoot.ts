@@ -1,4 +1,6 @@
 import { _decorator, Button, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UITransform, Vec3, view } from 'cc';
+import { WeChatService } from '../wx/WeChatService';
+import { ProfileManager } from '../core/ProfileManager';
 
 const { ccclass } = _decorator;
 
@@ -11,6 +13,7 @@ export class HomeRoot extends Component {
   private heroIslandNode: Node | null = null;
   private popupRoot: Node | null = null;
   private currentTheme = 0; // 0: 极光冰原, 1: 暮色罗兰, 2: 落日余晖
+  private subContextContainer: Node | null = null;
 
   protected onLoad(): void {
     console.log('[FloatFlow] HomeRoot onLoad');
@@ -106,11 +109,12 @@ export class HomeRoot extends Component {
       if (this.onOpenSettingsCallback) this.onOpenSettingsCallback();
     });
 
+    const profile = ProfileManager.getProfile();
     // 2. 晶核资源胶囊 (X = -102, 宽度 180, 高度 56, 间距 16px)
-    this.createResourcePill(topBar, 'DiamondPill', new Vec3(-102, 0, 0), '💎 1260 +', dBorder, dBg, 180);
+    this.createResourcePill(topBar, 'DiamondPill', new Vec3(-102, 0, 0), `💎 ${profile.diamonds} +`, dBorder, dBg, 180);
 
     // 3. 能量资源胶囊 (X = 94, 宽度 180, 高度 56, 间距 16px, 最右侧边缘到 +184)
-    this.createResourcePill(topBar, 'EnergyPill', new Vec3(94, 0, 0), '⚡ 8/10 +', eBorder, eBg, 180);
+    this.createResourcePill(topBar, 'EnergyPill', new Vec3(94, 0, 0), `⚡ ${profile.energy}/10 +`, eBorder, eBg, 180);
   }
 
   private createResourcePill(parent: Node, name: string, pos: Vec3, text: string, borderHex: string, bgHex: string, width: number): void {
@@ -233,18 +237,7 @@ export class HomeRoot extends Component {
   }
 
   private createSidebarIcons(halfW: number, halfH: number): void {
-    // 优化：侧边栏对齐左侧 32px 边界安全区 (X = -halfW + 74)，按钮尺寸从 84 放大到 96 更加易点
-    const sidebar = this.createNode('Sidebar', new Vec3(-halfW + 74, halfH * 0.22, 0), this.node);
-    this.ensureTransform(sidebar, 96, 360);
-
-    const spacing = halfH * 0.18;
-    const items = [
-      { id: 'daily', name: '签 到', symbol: '🎁', y: spacing, border: '#FDE047', bg: '#7C2D12' },
-      { id: 'rank', name: '排 行', symbol: '🏆', y: 0, border: '#00F0FF', bg: '#1E3A8A' },
-      { id: 'achieve', name: '成 就', symbol: '🎖️', y: -spacing, border: '#C084FC', bg: '#4C1D95' }
-    ];
-
-    items.forEach((item) => {
+    // 优化：侧边栏对齐左侧 32px 边界安全�    items.forEach((item) => {
       const btn = this.createNode(`Btn_${item.id}`, new Vec3(0, item.y, 0), sidebar);
       this.ensureTransform(btn, 96, 96); // 放大至 96 x 96
       const g = btn.addComponent(Graphics);
@@ -275,14 +268,24 @@ export class HomeRoot extends Component {
       this.addClick(btn, () => {
         console.log(`[HomeRoot] Clicked sidebar item: ${item.name}`);
         if (item.id === 'daily') {
-          this.showPopup('🎁   每 日 签 到 奖 励', [
-            '💎  第 1 天:  50 钻石  ——  [ 已领取 ✔ ]',
-            '💎  第 2 天:  100 钻石  ——  [ 今日可领 ⭐ ]',
-            '💎  第 3 天:  200 钻石  ——  [ 明日解锁 🔒 ]',
-            '⚡  第 4 天:  满管时空能量  ——  [ 待解锁 🔒 ]',
-            '🎁  第 7 天:  500 钻石大礼包  ——  [ 待解锁 🔒 ]'
-          ], '✨   立 即 领 取 今 日 100 💎', '#FDE047', '#991B1B');
+          this.openDailySigninPopup();
         } else if (item.id === 'rank') {
+          const profile = ProfileManager.getProfile();
+          const currentLevel = profile.levelProgress + 1;
+          const stars = currentLevel * 3 - 2; // Approximate stars count
+          this.showPopup('🏆   微 信 好 友 排 行 榜', [
+            `🥇  1. 微信好友·星辰大师 —— 通关 88 关 (260 ⭐)`,
+            `🥈  2. 你 (流光开拓者) —— 通关 ${currentLevel} 关 (${stars} ⭐)`,
+            '🥉  3. 微信好友·阳光微风 —— 通关 42 关 (120 ⭐)',
+            '🏅  4. 微信好友·极光旅人 —— 通关 35 关 (98 ⭐)',
+            '🏅  5. 微信好友·暗夜流星 —— 通关 19 关 (50 ⭐)'
+          ], '💬   邀 请 微 信 好 友 冲 榜', '#60A5FA', '#065F46');
+        } else if (item.id === 'achieve') {
+          this.openAchievementsPopup();
+        }
+      });
+    });
+  }) {
           this.showPopup('🏆   微 信 好 友 排 行 榜', [
             '🥇  1. 微信好友·星辰大师 —— 通关 88 关 (260 ⭐)',
             '🥈  2. 你 (流光开拓者) —— 通关 56 关 (168 ⭐)',
@@ -303,11 +306,18 @@ export class HomeRoot extends Component {
     });
   }
 
-  private showPopup(title: string, lines: string[], btnText: string, borderHex: string, btnBgHex: string): void {
+  private showPopup(title: string, lines: string[], btnText: string, borderHex: string, btnBgHex: string, onActionClick?: () => void): void {
     if (!this.popupRoot) return;
     this.popupRoot.active = true;
     this.popupRoot.setSiblingIndex(this.node.children.length - 1);
     this.popupRoot.destroyAllChildren();
+
+    const isRose = this.currentTheme === 1;
+    const isGold = this.currentTheme === 2;
+    const isCheckin = title.indexOf('签到') >= 0;
+    const isLeaderboard = title.indexOf('排行') >= 0;
+    const isReinforce = title.indexOf('强化') >= 0;
+    const isAchievement = title.indexOf('成就') >= 0;
 
     // 1. Backdrop overlay
     const overlay = this.createNode('Overlay', new Vec3(0, 0, 0), this.popupRoot);
@@ -318,14 +328,11 @@ export class HomeRoot extends Component {
     og.fill();
     this.addClick(overlay, () => {
       this.popupRoot!.active = false;
+      if (this.subContextContainer) {
+        WeChatService.hideFriendLeaderboard(this.subContextContainer);
+        this.subContextContainer = null;
+      }
     });
-
-    const isRose = this.currentTheme === 1;
-    const isGold = this.currentTheme === 2;
-    const isCheckin = title.indexOf('签到') >= 0;
-    const isLeaderboard = title.indexOf('排行') >= 0;
-    const isReinforce = title.indexOf('强化') >= 0;
-    const isAchievement = title.indexOf('成就') >= 0;
 
     const dialogHeight = 500;
     const halfDialogH = dialogHeight / 2;
@@ -360,102 +367,113 @@ export class HomeRoot extends Component {
     this.createLabel(closeBtn, 'Icon', new Vec3(0, 1, 0), '✖', 16, '#FFFFFF', 32, 32);
     this.addClick(closeBtn, () => {
       this.popupRoot!.active = false;
+      if (this.subContextContainer) {
+        WeChatService.hideFriendLeaderboard(this.subContextContainer);
+        this.subContextContainer = null;
+      }
     });
 
     // 4. Custom List Items Rendering Engine (宽度 556，左右留距 32px 边距安全区)
-    lines.forEach((line, idx) => {
-      let itemBg = '#1E293B';
-      let itemBgAlpha = 210;
-      let itemBorder = '#334155';
-      let borderWidth = 1.2;
-      let textColor = '#E2E8F0';
-      let rowHeight = 46;
-      let yOffset = (halfDialogH - 115) - idx * 60; // 默认垂直排版
-      let fontSize = 17;
+    if (isLeaderboard && WeChatService.isWeChatMiniGame()) {
+      const container = this.createNode('SubContextContainer', new Vec3(0, -10, 0), dialog);
+      this.ensureTransform(container, 556, 300);
+      this.subContextContainer = container;
+      WeChatService.showFriendLeaderboard(container);
+    } else {
+      lines.forEach((line, idx) => {
+        let itemBg = '#1E293B';
+        let itemBgAlpha = 210;
+        let itemBorder = '#334155';
+        let borderWidth = 1.2;
+        let textColor = '#E2E8F0';
+        let rowHeight = 46;
+        let yOffset = (halfDialogH - 115) - idx * 60; // 默认垂直排版
+        let fontSize = 17;
 
-      if (isCheckin) {
-        rowHeight = 48;
-        yOffset = (halfDialogH - 110) - idx * 62;
-        if (line.indexOf('今日可领') >= 0) {
-          itemBg = isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#1E3A8A');
-          itemBgAlpha = 250;
-          itemBorder = borderHex; 
-          borderWidth = 2.4;
-          textColor = '#FFFBEB';
-          fontSize = 18;
-        } else if (line.indexOf('已领取') >= 0) {
-          itemBg = '#0F172A';
-          itemBgAlpha = 110;
-          textColor = '#64748B';
-          itemBorder = '#1E293B';
-          borderWidth = 1.0;
-        } else {
-          itemBg = '#0F172A';
-          itemBgAlpha = 140;
-          textColor = '#475569';
-          itemBorder = '#1E293B';
-          borderWidth = 1.0;
+        if (isCheckin) {
+          rowHeight = 48;
+          yOffset = (halfDialogH - 110) - idx * 62;
+          if (line.indexOf('今日可领') >= 0) {
+            itemBg = isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#1E3A8A');
+            itemBgAlpha = 250;
+            itemBorder = borderHex; 
+            borderWidth = 2.4;
+            textColor = '#FFFBEB';
+            fontSize = 18;
+          } else if (line.indexOf('已领取') >= 0) {
+            itemBg = '#0F172A';
+            itemBgAlpha = 110;
+            textColor = '#64748B';
+            itemBorder = '#1E293B';
+            borderWidth = 1.0;
+          } else {
+            itemBg = '#0F172A';
+            itemBgAlpha = 140;
+            textColor = '#475569';
+            itemBorder = '#1E293B';
+            borderWidth = 1.0;
+          }
+        } else if (isLeaderboard) {
+          rowHeight = 48;
+          yOffset = (halfDialogH - 110) - idx * 62;
+          if (idx === 0) {
+            itemBg = '#451A03';
+            itemBgAlpha = 245;
+            itemBorder = '#F59E0B';
+            borderWidth = 2.2;
+            textColor = '#FDE047';
+            fontSize = 18;
+          } else if (idx === 1) {
+            itemBg = '#1E293B';
+            itemBgAlpha = 240;
+            itemBorder = '#94A3B8';
+            borderWidth = 1.8;
+            textColor = '#F8FAFC';
+          } else if (idx === 2) {
+            itemBg = '#3B2314';
+            itemBgAlpha = 220;
+            itemBorder = '#B45309';
+            borderWidth = 1.4;
+            textColor = '#FFF7ED';
+          }
+        } else if (isReinforce) {
+          rowHeight = 50;
+          yOffset = (halfDialogH - 110) - idx * 64; 
+          if (line.indexOf('激励视频广告') >= 0) {
+            itemBg = '#311062';
+            itemBgAlpha = 245;
+            itemBorder = '#C084FC';
+            borderWidth = 2.2;
+            textColor = '#FAF5FF';
+            fontSize = 18;
+          }
+        } else if (isAchievement) {
+          rowHeight = 50;
+          yOffset = (halfDialogH - 110) - idx * 64;
+          if (line.indexOf('领取') >= 0 && line.indexOf('已达成') < 0) {
+            itemBg = '#1E3A8A';
+            itemBgAlpha = 240;
+            itemBorder = '#60A5FA';
+            borderWidth = 2.2;
+            textColor = '#EFF6FF';
+            fontSize = 18;
+          }
         }
-      } else if (isLeaderboard) {
-        rowHeight = 48;
-        yOffset = (halfDialogH - 110) - idx * 62;
-        if (idx === 0) {
-          itemBg = '#451A03';
-          itemBgAlpha = 245;
-          itemBorder = '#F59E0B';
-          borderWidth = 2.2;
-          textColor = '#FDE047';
-          fontSize = 18;
-        } else if (idx === 1) {
-          itemBg = '#1E293B';
-          itemBgAlpha = 240;
-          itemBorder = '#94A3B8';
-          borderWidth = 1.8;
-          textColor = '#F8FAFC';
-        } else if (idx === 2) {
-          itemBg = '#3B2314';
-          itemBgAlpha = 220;
-          itemBorder = '#B45309';
-          borderWidth = 1.4;
-          textColor = '#FFF7ED';
-        }
-      } else if (isReinforce) {
-        rowHeight = 50;
-        yOffset = (halfDialogH - 110) - idx * 64; 
-        if (line.indexOf('激励视频广告') >= 0) {
-          itemBg = '#311062';
-          itemBgAlpha = 245;
-          itemBorder = '#C084FC';
-          borderWidth = 2.2;
-          textColor = '#FAF5FF';
-          fontSize = 18;
-        }
-      } else if (isAchievement) {
-        rowHeight = 50;
-        yOffset = (halfDialogH - 110) - idx * 64;
-        if (line.indexOf('领取') >= 0 && line.indexOf('已达成') < 0) {
-          itemBg = '#1E3A8A';
-          itemBgAlpha = 240;
-          itemBorder = '#60A5FA';
-          borderWidth = 2.2;
-          textColor = '#EFF6FF';
-          fontSize = 18;
-        }
-      }
 
-      const itemNode = this.createNode(`Item_${idx}`, new Vec3(0, yOffset, 0), dialog);
-      this.ensureTransform(itemNode, 556, rowHeight); // 宽度 556
-      const ig = itemNode.addComponent(Graphics);
-      ig.fillColor = this.hex(itemBg);
-      ((ig.fillColor) as any).a = itemBgAlpha;
-      ig.roundRect(-278, -rowHeight / 2, 556, rowHeight, 16); // 278符合一半宽度
-      ig.fill();
-      ig.strokeColor = this.hex(itemBorder);
-      ig.lineWidth = borderWidth;
-      ig.stroke();
+        const itemNode = this.createNode(`Item_${idx}`, new Vec3(0, yOffset, 0), dialog);
+        this.ensureTransform(itemNode, 556, rowHeight); // 宽度 556
+        const ig = itemNode.addComponent(Graphics);
+        ig.fillColor = this.hex(itemBg);
+        ((ig.fillColor) as any).a = itemBgAlpha;
+        ig.roundRect(-278, -rowHeight / 2, 556, rowHeight, 16); // 278符合一半宽度
+        ig.fill();
+        ig.strokeColor = this.hex(itemBorder);
+        ig.lineWidth = borderWidth;
+        ig.stroke();
 
-      this.createLabel(itemNode, 'Text', new Vec3(-10, 0, 0), line, fontSize, textColor, 510, rowHeight - 6);
-    });
+        this.createLabel(itemNode, 'Text', new Vec3(-10, 0, 0), line, fontSize, textColor, 510, rowHeight - 6);
+      });
+    }
 
     // 5. Bottom Hero Action Button (符合 Primary CTA 规范：高度 72, 圆角 36)
     const heroBtn = this.createNode('HeroBtn', new Vec3(0, -halfDialogH + 60, 0), dialog);
@@ -472,6 +490,19 @@ export class HomeRoot extends Component {
     this.addClick(heroBtn, () => {
       console.log(`[HomeRoot] Popup action clicked: ${btnText}`);
       this.popupRoot!.active = false;
+      if (this.subContextContainer) {
+        WeChatService.hideFriendLeaderboard(this.subContextContainer);
+        this.subContextContainer = null;
+      }
+      if (onActionClick) {
+        onActionClick();
+      }
+      declare const wx: any;
+      if (isLeaderboard && typeof wx !== 'undefined' && wx.shareAppMessage) {
+        wx.shareAppMessage({
+          title: '我在《浮岛流光》向你发起好友冲榜挑战，敢来比比谁通关更多吗？'
+        });
+      }
     });
   }
 
@@ -518,8 +549,10 @@ export class HomeRoot extends Component {
     jg.lineWidth = 1.6;
     jg.stroke();
 
+    const profile = ProfileManager.getProfile();
+    const currentLevel = profile.levelProgress + 1;
     this.createLabel(journeyCard, 'Title', new Vec3(-70, 2, 0), '▶   继 续 冒 险', 32, '#FFFFFF', 300, 48); // 字体 32
-    this.createLabel(journeyCard, 'Sub', new Vec3(195, 2, 0), '第 56 / 120 关', 19, jBorder, 136, 32);  // 字体 19
+    this.createLabel(journeyCard, 'Sub', new Vec3(195, 2, 0), `第 ${currentLevel} / 120 关`, 19, jBorder, 136, 32);  // 字体 19
 
     this.addClick(journeyCard, () => {
       console.log('[HomeRoot] Clicked Primary CTA: Journey Mode!');

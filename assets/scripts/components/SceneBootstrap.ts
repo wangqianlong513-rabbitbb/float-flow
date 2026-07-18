@@ -348,6 +348,9 @@ export class SceneBootstrap extends Component {
       console.log(`[SceneBootstrap] Show Victory Poster for ${levelName}!`);
       victoryPosterRoot.active = true;
       victoryPoster.showVictory(levelName, stars, moves);
+      // 对接：自动同步通关层级和分数至微信关系链排行榜云存储
+      const score = (game.getLevelIndex() + 1) * 10 + stars;
+      WeChatService.uploadUserScore(game.getLevelIndex(), score);
     };
 
     // Connect Home Page to Game Page, Level Select & Settings!

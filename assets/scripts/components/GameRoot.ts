@@ -151,6 +151,10 @@ export class GameRoot extends Component {
     }
   }
 
+  public getLevelIndex(): number {
+    return this.levelIndex;
+  }
+
   public loadNextLevel(): void {
     WeChatService.vibrateShort('light');
     const next = (this.levelIndex + 1) % this.levels.length;
