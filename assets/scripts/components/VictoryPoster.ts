@@ -1,6 +1,8 @@
 import { _decorator, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UITransform, Vec3 } from 'cc';
 import { WeChatService } from '../wx/WeChatService';
 import { ShareService } from '../wx/ShareService';
+import { ProfileManager } from '../core/ProfileManager';
+import { AdService } from '../wx/AdService';
 
 const { ccclass } = _decorator;
 
@@ -13,6 +15,9 @@ export class VictoryPoster extends Component {
   private routeGlowNode: Node | null = null;
   private levelNameLabel: Label | null = null;
   private starBannerLabel: Label | null = null;
+  private doubleRewardBtn: Node | null = null;
+  private doubleRewardTextLabel: Label | null = null;
+  private hasClaimedDouble = false;
 
   protected onLoad(): void {
     console.log('[FloatFlow] VictoryPoster onLoad');
@@ -82,6 +87,24 @@ export class VictoryPoster extends Component {
     this.currentMoves = moves;
     this.node.active = true;
     WeChatService.vibrateShort('medium');
+
+    this.hasClaimedDouble = false;
+    const baseReward = levelName.indexOf('无尽') !== -1 ? stars * 15 : stars * 20;
+    if (this.doubleRewardTextLabel) {
+      this.doubleRewardTextLabel.string = `🎬 双倍领 💎 +${baseReward}`;
+      this.doubleRewardTextLabel.color = this.hex('#FFFFFF');
+    }
+    if (this.doubleRewardBtn) {
+      const dg = this.doubleRewardBtn.getComponent(Graphics);
+      if (dg) {
+        dg.clear();
+        dg.fillColor = this.hex('#F59E0B');
+        dg.roundRect(-140, -25, 280, 50, 16);
+        dg.fill();
+        dg.strokeColor = this.hex('#FDE047');
+        dg.stroke();
+      }
+    }
 
     if (this.levelNameLabel) {
       this.levelNameLabel.string = levelName;
@@ -305,6 +328,48 @@ export class VictoryPoster extends Component {
         `${this.currentStars}星完美光路(${this.currentMoves}步)`
       );
       WeChatService.showToast('正在调起微信分享...', 'success');
+    });
+
+    // Center Button: [ 🎬 双倍领 💎 ] at X = 0, Y = -180
+    const doubleBtn = this.createNode('DoubleRewardBtn', new Vec3(0, -180, 0), parent);
+    this.ensureTransform(doubleBtn, 280, 50);
+    const dg = doubleBtn.addComponent(Graphics);
+    dg.fillColor = this.hex('#F59E0B'); // Orange/Gold
+    dg.roundRect(-140, -25, 280, 50, 16);
+    dg.fill();
+    dg.strokeColor = this.hex('#FDE047');
+    dg.lineWidth = 2;
+    dg.stroke();
+    this.doubleRewardTextLabel = this.createLabel(doubleBtn, 'Text', new Vec3(0, 1, 0), '🎬 观看广告领双倍 💎', 17, '#FFFFFF', 260, 34);
+    this.doubleRewardBtn = doubleBtn;
+
+    doubleBtn.on(Node.EventType.TOUCH_END, () => {
+      if (this.hasClaimedDouble) return;
+      console.log('[VictoryPoster] Clicked Double Reward');
+      WeChatService.vibrateShort('light');
+      const baseReward = this.currentLevelName.indexOf('无尽') !== -1 ? this.currentStars * 15 : this.currentStars * 20;
+
+      AdService.showRewarded('reward_multiplier').then((res) => {
+        if (res.completed) {
+          ProfileManager.addDiamonds(baseReward);
+          this.hasClaimedDouble = true;
+          WeChatService.showToast(`双倍领奖成功！晶核 +${baseReward} 💎`, 'success');
+          if (this.doubleRewardTextLabel) {
+            this.doubleRewardTextLabel.string = '已领双倍晶核 💎';
+            this.doubleRewardTextLabel.color = this.hex('#94A3B8');
+          }
+          if (dg) {
+            dg.clear();
+            dg.fillColor = this.hex('#1E293B');
+            dg.roundRect(-140, -25, 280, 50, 16);
+            dg.fill();
+            dg.strokeColor = this.hex('#475569');
+            dg.stroke();
+          }
+        } else {
+          WeChatService.showToast('广告观看未完成，无法翻倍！', 'none');
+        }
+      });
     });
 
     // Right Button: [ ⏭ 继续挑战下一关 ] at X = 115, Y = -260

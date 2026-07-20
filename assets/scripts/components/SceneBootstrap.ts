@@ -468,23 +468,23 @@ export class SceneBootstrap extends Component {
     graphics.lineWidth = 2.0;
     graphics.stroke();
 
-    // Level Title Label inside TopNav (shifted slightly left to fit within the narrower pill)
-    const levelLabel = this.createLabel(node, 'LevelLabel', new Vec3(-75, 0, 0), '旅途模式 · 5-12', 24, '#FFFFFF', 210, 40);
+    // Level Title Label inside TopNav (shifted left and width adjusted to fit within the narrower pill)
+    const levelLabel = this.createLabel(node, 'LevelLabel', new Vec3(-114, 0, 0), '旅途模式 · 5-12', 24, '#FFFFFF', 170, 40);
 
     // Clickable Pause / Return to Home button!
     const homeReturnBtn = new Node('HomeReturnBtn');
     homeReturnBtn.layer = Layers.Enum.UI_2D;
     homeReturnBtn.setParent(node);
-    homeReturnBtn.setPosition(new Vec3(-262, 0, 0));
-    this.ensureTransform(homeReturnBtn, 116, 50);
+    homeReturnBtn.setPosition(new Vec3(-272, 0, 0));
+    this.ensureTransform(homeReturnBtn, 106, 50);
     const hBg = homeReturnBtn.addComponent(Graphics);
     hBg.fillColor = this.hex('#1E293B');
-    hBg.roundRect(-58, -25, 116, 50, 16);
+    hBg.roundRect(-53, -25, 106, 50, 16);
     hBg.fill();
     hBg.strokeColor = this.hex('#60A5FA');
     hBg.lineWidth = 2.4;
     hBg.stroke();
-    this.createLabel(homeReturnBtn, 'Text', new Vec3(0, 1, 0), '|| 主页', 22, '#FFFFFF', 106, 38);
+    this.createLabel(homeReturnBtn, 'Text', new Vec3(0, 1, 0), '|| 主页', 21, '#FFFFFF', 100, 38);
 
     this.addClick(homeReturnBtn, () => {
       console.log('[SceneBootstrap] Clicked Home/Pause -> Return to LevelSelect or HomePage!');
@@ -499,20 +499,42 @@ export class SceneBootstrap extends Component {
       }
     });
 
+    // Clickable Hint button (opt-in Rewarded Video Ad)
+    const hintBtn = new Node('HintBtn');
+    hintBtn.layer = Layers.Enum.UI_2D;
+    hintBtn.setParent(node);
+    hintBtn.setPosition(new Vec3(28, 0, 0));
+    this.ensureTransform(hintBtn, 92, 50);
+    const hg = hintBtn.addComponent(Graphics);
+    hg.fillColor = this.hex('#1E3A8A');
+    hg.roundRect(-46, -25, 92, 50, 16);
+    hg.fill();
+    hg.strokeColor = this.hex('#60A5FA');
+    hg.lineWidth = 2.4;
+    hg.stroke();
+    this.createLabel(hintBtn, 'HintText', new Vec3(0, 1, 0), '💡 提示', 21, '#FFFFFF', 86, 38);
+    this.addClick(hintBtn, () => {
+      console.log('[SceneBootstrap] Clicked Hint button!');
+      if (this.gamePageRoot && this.gamePageRoot.active) {
+        const game = this.gamePageRoot.getComponent(GameRoot);
+        if (game) game.showGameplayHint();
+      }
+    });
+
     // Clickable Share / Ask for Help button (shifted left to clear WeChat Capsule zone)
     const shareBtn = new Node('ShareHelpBtn');
     shareBtn.layer = Layers.Enum.UI_2D;
     shareBtn.setParent(node);
-    shareBtn.setPosition(new Vec3(105, 0, 0));
-    this.ensureTransform(shareBtn, 110, 50);
+    shareBtn.setPosition(new Vec3(124, 0, 0));
+    this.ensureTransform(shareBtn, 92, 50);
     const sg = shareBtn.addComponent(Graphics);
     sg.fillColor = this.hex('#1D4ED8');
-    sg.roundRect(-55, -25, 110, 50, 18);
+    sg.roundRect(-46, -25, 92, 50, 16);
     sg.fill();
     sg.strokeColor = this.hex('#60A5FA');
     sg.lineWidth = 2.4;
     sg.stroke();
-    this.createLabel(shareBtn, 'ShareText', new Vec3(0, 1, 0), '★ 求助', 22, '#FFFFFF', 100, 38);
+    this.createLabel(shareBtn, 'ShareText', new Vec3(0, 1, 0), '★ 求助', 21, '#FFFFFF', 86, 38);
     this.addClick(shareBtn, () => {
       console.log('[SceneBootstrap] Clicked Share/Help button!');
       if (this.gamePageRoot && this.gamePageRoot.active) {

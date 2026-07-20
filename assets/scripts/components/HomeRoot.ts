@@ -415,16 +415,43 @@ export class HomeRoot extends Component {
       this.addClick(btn, () => {
         console.log(`[HomeRoot] Clicked sidebar item: ${item.name}`);
         if (item.id === 'daily') {
-          this.showPopup('🎁   每 日 签 到 奖 励', [
-            '💎  第 1 天:  50 钻石  ——  [ 已领取 ✔ ]',
-            '💎  第 2 天:  100 钻石  ——  [ 今日可领 ⭐ ]',
-            '💎  第 3 天:  200 钻石  ——  [ 明日解锁 🔒 ]',
-            '⚡  第 4 天:  满管时空能量  ——  [ 待解锁 🔒 ]',
-            '🎁  第 7 天:  500 钻石大礼包  ——  [ 待解锁 🔒 ]'
-          ], '✨   立 即 领 取 今 日 100 💎', '#FDE047', '#991B1B', () => {
-            ProfileManager.addDiamonds(100);
+          const profile = ProfileManager.getProfile();
+          const signedInToday = ProfileManager.isTodaySignedin();
+          const claimedDays = profile.claimedSignins || [0];
+          const nextDayIndex = claimedDays.length;
+
+          const daysConfig = [
+            { day: 1, reward: 50, label: '50 钻石', icon: '💎' },
+            { day: 2, reward: 100, label: '100 钻石', icon: '💎' },
+            { day: 3, reward: 200, label: '200 钻石', icon: '💎' },
+            { day: 4, reward: 0, label: '满管时空能量', icon: '⚡' },
+            { day: 7, reward: 500, label: '500 钻石大礼包', icon: '🎁' },
+          ];
+
+          const lines = daysConfig.map((d, idx) => {
+            const isClaimed = claimedDays.includes(idx);
+            let status = '待解锁 🔒';
+            if (isClaimed) {
+              status = '已领取 ✔';
+            } else if (idx === nextDayIndex) {
+              status = signedInToday ? '明日解锁 🔒' : '今日可领 ⭐';
+            }
+            return `${d.icon}  第 ${d.day} 天:  ${d.label}  ——  [ ${status} ]`;
+          });
+
+          const currentTodayReward = daysConfig[nextDayIndex % daysConfig.length]?.reward || 100;
+          const btnText = signedInToday ? '✨   今 日 已 签 到  (明 日 再 来)' : `✨   立 即 领 取 今 日 ${currentTodayReward} 💎`;
+          const btnBgHex = signedInToday ? '#334155' : '#991B1B';
+          const borderHex = signedInToday ? '#64748B' : '#FDE047';
+
+          this.showPopup('🎁   每 日 签 到 奖 励', lines, btnText, borderHex, btnBgHex, () => {
+            if (ProfileManager.isTodaySignedin()) {
+              WeChatService.showToast('今天已经签到过了，明天再来哦！', 'none');
+              return;
+            }
+            ProfileManager.claimDailySignin(nextDayIndex, currentTodayReward);
             this.rebuildUI();
-            WeChatService.showToast('签到成功 +100 💎', 'success');
+            WeChatService.showToast(`签到成功 +${currentTodayReward} 💎`, 'success');
           });
         } else if (item.id === 'rank') {
           const profile = ProfileManager.getProfile();
@@ -438,16 +465,43 @@ export class HomeRoot extends Component {
             '🏅  5. 微信好友·暗夜流星 —— 通关 19 关 (50 ⭐)'
           ], '💬   邀 请 微 信 好 友 冲 榜', '#60A5FA', '#065F46');
         } else if (item.id === 'achieve') {
-          this.showPopup('⭐   荣 誉 勋 章 与 成 就', [
-            '🏅  [初次启航] 完成第 1 关 —— [ 已达成 ✔ ]',
-            '🏅  [子弹时间大师] 触发极限减速 50 次 —— [ 进度 38/50 ]',
-            '🏅  [高分王者] 累计获得 100 颗星 —— [ 领取 200 💎 ]',
-            '🏅  [流光无尽] 无尽模式突破 2000m —— [ 已达成 ✔ ]',
-            '🏅  [全图鉴收藏] 解锁 3 种太空流光主题 —— [ 进度 1/3 ]'
-          ], '🏆   一 键 领 取 所 有 奖 励', '#C084FC', '#4C1D95', () => {
-            ProfileManager.addDiamonds(200);
+          const profile = ProfileManager.getProfile();
+          const achievements = [
+            { id: 'first_start', name: '[初次启航] 完成第 1 关', reward: 50, isUnlocked: profile.levelProgress >= 1, progressText: profile.levelProgress >= 1 ? '已达成 ✔' : '进度 0/1' },
+            { id: 'bullet_master', name: '[子弹时间大师] 触发极限减速 50 次', reward: 100, isUnlocked: false, progressText: '进度 38/50' },
+            { id: 'high_star', name: '[高分王者] 累计获得 100 颗星', reward: 200, isUnlocked: profile.levelProgress >= 30, progressText: profile.levelProgress >= 30 ? '已达成 ✔' : `进度 ${Math.min(100, (profile.levelProgress + 1) * 3)}/100` },
+            { id: 'endless', name: '[流光无尽] 无尽模式突破 2000m', reward: 150, isUnlocked: true, progressText: '已达成 ✔' },
+            { id: 'theme_collector', name: '[全图鉴收藏] 解锁 3 种太空流光主题', reward: 300, isUnlocked: false, progressText: '进度 1/3' },
+          ];
+
+          const claimableItems: { id: string; reward: number }[] = [];
+          const lines: string[] = [];
+
+          achievements.forEach((ach) => {
+            const isClaimed = ProfileManager.isAchievementClaimed(ach.id);
+            if (isClaimed) {
+              lines.push(`🏅  ${ach.name} —— [ 已领取 ✔ ]`);
+            } else if (ach.isUnlocked) {
+              claimableItems.push({ id: ach.id, reward: ach.reward });
+              lines.push(`🏅  ${ach.name} —— [ 领取 ${ach.reward} 💎 ]`);
+            } else {
+              lines.push(`🏅  ${ach.name} —— [ ${ach.progressText} ]`);
+            }
+          });
+
+          const totalUnclaimed = claimableItems.reduce((sum, i) => sum + i.reward, 0);
+          const btnText = totalUnclaimed > 0 ? `🏆   一 键 领 取 (${totalUnclaimed} 💎)` : '🏆   所 有 成 就 已 领 取';
+          const btnBgHex = totalUnclaimed > 0 ? '#4C1D95' : '#1E293B';
+          const borderHex = totalUnclaimed > 0 ? '#C084FC' : '#475569';
+
+          this.showPopup('⭐   荣 誉 勋 章 与 成 就', lines, btnText, borderHex, btnBgHex, () => {
+            if (totalUnclaimed <= 0) {
+              WeChatService.showToast('暂无未领取的成就奖励！', 'none');
+              return;
+            }
+            const claimedAmount = ProfileManager.claimAchievements(claimableItems);
             this.rebuildUI();
-            WeChatService.showToast('领取成功 +200 💎', 'success');
+            WeChatService.showToast(`成功领取成就奖励 +${claimedAmount} 💎`, 'success');
           });
         }
       });
@@ -598,7 +652,7 @@ export class HomeRoot extends Component {
         } else if (isAchievement) {
           rowHeight = 50;
           yOffset = (halfDialogH - 110) - idx * 64;
-          if (line.indexOf('领取') >= 0 && line.indexOf('已达成') < 0) {
+          if ((line.indexOf('领取') >= 0 || line.indexOf('可领') >= 0) && line.indexOf('已达成') < 0 && line.indexOf('已领取') < 0) {
             itemBg = '#1E3A8A';
             itemBgAlpha = 240;
             itemBorder = '#60A5FA';

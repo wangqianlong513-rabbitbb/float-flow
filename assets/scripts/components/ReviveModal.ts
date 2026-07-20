@@ -1,6 +1,7 @@
 import { _decorator, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UITransform, Vec3 } from 'cc';
 import { WeChatService } from '../wx/WeChatService';
 import { ShareService } from '../wx/ShareService';
+import { AdService } from '../wx/AdService';
 
 const { ccclass } = _decorator;
 
@@ -59,8 +60,8 @@ export class ReviveModal extends Component {
     // 5. Miniature Crash Site Simulation (Y = 30)
     this.createCrashSitePreview(dialog);
 
-    // 6. WeChat Green Share Hero Button (Y = -120)
-    this.createWeChatShareButton(dialog);
+    // 6. Primary & Secondary Revive Action Buttons (Y = -75, -150)
+    this.createActionButtons(dialog);
 
     // 7. Give Up Button & Footer Tip (Y = -205, -260)
     this.createFooter(dialog);
@@ -201,44 +202,73 @@ export class ReviveModal extends Component {
       .start();
   }
 
-  private createWeChatShareButton(parent: Node): void {
-    const shareBtn = this.createNode('WeChatShareBtn', new Vec3(0, -120, 0), parent);
-    this.ensureTransform(shareBtn, 380, 68);
+  private createActionButtons(parent: Node): void {
+    // 1. Primary Button: [ 🎬 视频广告免费复活 ] at Y = -75
+    const adReviveBtn = this.createNode('AdReviveBtn', new Vec3(0, -75, 0), parent);
+    this.ensureTransform(adReviveBtn, 380, 64);
+    const ag = adReviveBtn.addComponent(Graphics);
+    // Vibrant Neon Cyan/Blue Hero Button
+    ag.fillColor = this.hex('#00E5FF');
+    ((ag.fillColor) as any).a = 245;
+    ag.roundRect(-190, -32, 380, 64, 20);
+    ag.fill();
+    ag.strokeColor = this.hex('#FFFFFF');
+    ag.lineWidth = 2.5;
+    ag.stroke();
 
-    const g = shareBtn.addComponent(Graphics);
-    // Vibrant WeChat Green Background (#10B981 / #07C160)
-    g.fillColor = this.hex('#10B981');
-    ((g.fillColor) as ((any)) as any).a = 245;
-    g.roundRect(-190, -34, 380, 68, 20);
-    g.fill();
-    // Glowing green/white border
-    g.strokeColor = this.hex('#6EE7B7');
-    g.lineWidth = 2.5;
-    g.stroke();
+    this.createLabel(adReviveBtn, 'Icon', new Vec3(-120, 2, 0), '🎬', 24, '#131C39', 50, 50);
+    this.createLabel(adReviveBtn, 'Text', new Vec3(15, 0, 0), '视频广告免费复活', 20, '#131C39', 240, 36);
 
-    // Icon & Text layout
-    this.createLabel(shareBtn, 'Icon', new Vec3(-120, 2, 0), '💬', 28, '#FFFFFF', 50, 50);
-    this.createLabel(shareBtn, 'MainText', new Vec3(15, 10, 0), '分享给微信好友', 22, '#FFFFFF', 220, 30);
-    this.createLabel(shareBtn, 'SubText', new Vec3(15, -14, 0), '帮我续一卡', 14, '#D1FAE5', 220, 22);
+    adReviveBtn.on(Node.EventType.TOUCH_END, () => {
+      console.log('[ReviveModal] Clicked Ad Revive');
+      WeChatService.vibrateShort('light');
+      AdService.showRewarded('near_miss_rescue').then((res) => {
+        if (res.completed) {
+          WeChatService.showToast('复活成功！已重置棋盘', 'success');
+          this.triggerReviveTransition();
+        } else {
+          WeChatService.showToast('观看广告未完成，无法复活！', 'none');
+        }
+      });
+    });
+
+    // 2. Secondary Button: [ 💬 分享给微信好友求助 ] at Y = -150
+    const shareBtn = this.createNode('WeChatShareBtn', new Vec3(0, -150, 0), parent);
+    this.ensureTransform(shareBtn, 380, 54);
+    const sg = shareBtn.addComponent(Graphics);
+    sg.fillColor = this.hex('#10B981');
+    ((sg.fillColor) as any).a = 230;
+    sg.roundRect(-190, -27, 380, 54, 18);
+    sg.fill();
+    sg.strokeColor = this.hex('#6EE7B7');
+    sg.lineWidth = 2;
+    sg.stroke();
+
+    this.createLabel(shareBtn, 'Icon', new Vec3(-120, 1, 0), '💬', 22, '#FFFFFF', 40, 40);
+    this.createLabel(shareBtn, 'Text', new Vec3(15, 0, 0), '微信群好友求助救场', 18, '#FFFFFF', 240, 30);
 
     shareBtn.on(Node.EventType.TOUCH_END, () => {
       console.log('[ReviveModal] Clicked WeChat Share -> Trigger Revive!');
       WeChatService.vibrateShort('light');
       ShareService.sharePoster({ id: 1, name: '好友求助续光' } as any, '紧急救场请求接力');
       WeChatService.showToast('正在邀请微信好友续命...', 'success');
-      if (this.dialogNode) {
-        tween(this.dialogNode)
-          .to(0.2, { scale: new Vec3(0.7, 0.7, 1) }, { easing: 'backIn' })
-          .call(() => {
-            this.node.active = false;
-            if (this.onReviveCallback) this.onReviveCallback();
-          })
-          .start();
-      } else {
-        this.node.active = false;
-        if (this.onReviveCallback) this.onReviveCallback();
-      }
+      this.triggerReviveTransition();
     });
+  }
+
+  private triggerReviveTransition(): void {
+    if (this.dialogNode) {
+      tween(this.dialogNode)
+        .to(0.2, { scale: new Vec3(0.7, 0.7, 1) }, { easing: 'backIn' })
+        .call(() => {
+          this.node.active = false;
+          if (this.onReviveCallback) this.onReviveCallback();
+        })
+        .start();
+    } else {
+      this.node.active = false;
+      if (this.onReviveCallback) this.onReviveCallback();
+    }
   }
 
   private createFooter(parent: Node): void {

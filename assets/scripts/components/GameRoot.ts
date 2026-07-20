@@ -118,6 +118,7 @@ export class GameRoot extends Component {
   private selectedCardIndex = -1;
   private hasMovedDuringDrag = false;
   private bonusCell: GridPos | null = null;
+  private hintHighlightNode: Node | null = null;
   private bonusCollected = false;
   private bonusNode: Node | null = null;
   private activeParticles: ConfettiParticle[] = [];
@@ -445,6 +446,10 @@ export class GameRoot extends Component {
   }
 
   public loadLevel(index: number, preserveChances = false, isEndless = false): void {
+    if (this.hintHighlightNode) {
+      this.hintHighlightNode.destroy();
+      this.hintHighlightNode = null;
+    }
     if (!preserveChances || this.levelIndex !== index) {
       this.undoRemaining = 1;
       this.eraseRemaining = 1;
@@ -982,6 +987,10 @@ export class GameRoot extends Component {
     const pos = event.getUILocation();
     const cell = this.uiToGrid(pos.x, pos.y);
     if (cell && this.canPlace(cell)) {
+      if (this.hintHighlightNode) {
+        this.hintHighlightNode.destroy();
+        this.hintHighlightNode = null;
+      }
       WeChatService.vibrateShort('light');
       this.grid.setTile(cell, this.dragTile);
       this.renderTile(cell, this.dragTile);
@@ -1009,6 +1018,10 @@ export class GameRoot extends Component {
   private onPlacedTileTouch(pos: GridPos): void {
     if (!this.grid || !this.runner) {
       return;
+    }
+    if (this.hintHighlightNode) {
+      this.hintHighlightNode.destroy();
+      this.hintHighlightNode = null;
     }
 
     if (pos.row === this.runner.row && pos.col === this.runner.col) {
@@ -1922,5 +1935,131 @@ export class GameRoot extends Component {
       return;
     }
     node.destroyAllChildren();
+  }
+
+  private findSolution(): { row: number; col: number; type: TileType; rotation: number }[] | null {
+    if (!this.grid || !this.level || !this.runner) return null;
+
+    const emptyCells: GridPos[] = [];
+    for (let r = 0; r < this.grid.rows; r++) {
+      for (let c = 0; c < this.grid.cols; c++) {
+        const cell = { row: r, col: c };
+        if (!this.grid.getTile(cell) && !this.grid.isObstacle(cell)) {
+          const isStart = r === this.level.start.row && c === this.level.start.col;
+          const isGoal = this.level.goals.some(g => g.row === r && g.col === c);
+          if (!isStart && !isGoal) {
+            emptyCells.push(cell);
+          }
+        }
+      }
+    }
+
+    const tilesToPlace = [...this.hand];
+    if (tilesToPlace.length === 0) return null;
+
+    const solution: { row: number; col: number; type: TileType; rotation: number }[] = [];
+
+    const dfs = (tileIdx: number): boolean => {
+      const earlyRes = RouteSimulator.simulate(this.grid!, this.runner!, this.level!.goals);
+      if (earlyRes.success) {
+        return true;
+      }
+
+      if (tileIdx >= tilesToPlace.length) {
+        return false;
+      }
+
+      const tileType = tilesToPlace[tileIdx];
+
+      for (let i = 0; i < emptyCells.length; i++) {
+        const cell = emptyCells[i];
+        const occupied = solution.some(s => s.row === cell.row && s.col === cell.col);
+        if (occupied) continue;
+
+        for (let rot = 0; rot < 4; rot++) {
+          const candidate = { type: tileType, rotation: rot };
+          this.grid!.setTile(cell, candidate);
+          solution.push({ row: cell.row, col: cell.col, type: tileType, rotation: rot });
+
+          if (dfs(tileIdx + 1)) {
+            this.grid!.setTile(cell, null);
+            return true;
+          }
+
+          solution.pop();
+          this.grid!.setTile(cell, null);
+        }
+      }
+
+      return false;
+    };
+
+    if (dfs(0)) {
+      return solution;
+    }
+
+    return null;
+  }
+
+  public showGameplayHint(): void {
+    WeChatService.showVideoAd(() => {
+      const sol = this.findSolution();
+      if (!sol || sol.length === 0) {
+        WeChatService.showToast('当前状态已可以连通，或未找到解法！', 'none');
+        return;
+      }
+
+      const firstStep = sol[0];
+      const displayName = getTileDisplayName(firstStep.type);
+      const rotText = firstStep.rotation === 0 ? '默认方向' : `顺时针旋转 ${firstStep.rotation * 90}°`;
+      
+      this.setStatus(`提示：第 ${firstStep.row + 1} 行，第 ${firstStep.col + 1} 列，放入【${displayName}】并【${rotText}】`);
+      WeChatService.showToast('获得时空导引导航！', 'success');
+
+      if (this.hintHighlightNode) {
+        this.hintHighlightNode.destroy();
+      }
+
+      if (!this.boardRoot) return;
+
+      const highlight = new Node('HintHighlight');
+      highlight.layer = Layers.Enum.UI_2D;
+      highlight.setParent(this.boardRoot);
+      highlight.setPosition(this.gridToLocal(firstStep).add3f(0, 0, 3));
+      highlight.addComponent(UITransform).setContentSize(this.tileWidth, this.tileHeight);
+      const g = highlight.addComponent(Graphics);
+      
+      g.strokeColor = this.hex('#00F0FF');
+      g.lineWidth = 4.5;
+      
+      const hw = this.tileWidth / 2 + 6;
+      const hh = this.tileHeight / 2 + 6;
+      g.moveTo(0, hh);
+      g.lineTo(hw, 0);
+      g.lineTo(0, -hh);
+      g.lineTo(-hw, 0);
+      g.close();
+      g.stroke();
+
+      highlight.setScale(new Vec3(1, 1, 1));
+      tween(highlight)
+        .to(0.5, { scale: new Vec3(1.12, 1.12, 1) }, { easing: 'sineInOut' })
+        .to(0.5, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'sineInOut' })
+        .union()
+        .repeatForever()
+        .start();
+
+      this.hintHighlightNode = highlight;
+
+      this.scheduleOnce(() => {
+        if (this.hintHighlightNode === highlight) {
+          highlight.destroy();
+          this.hintHighlightNode = null;
+        }
+      }, 8.0);
+
+    }, () => {
+      console.log('[GameRoot] Ad failed to load or closed.');
+    });
   }
 }

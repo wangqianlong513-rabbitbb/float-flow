@@ -93,4 +93,50 @@ export class ProfileManager {
       this.saveProfile(profile);
     }
   }
+
+  public static isTodaySignedin(): boolean {
+    const profile = this.getProfile();
+    if (!profile.lastSigninTimestamp) return false;
+    const lastDate = new Date(profile.lastSigninTimestamp).toDateString();
+    const todayDate = new Date().toDateString();
+    return lastDate === todayDate;
+  }
+
+  public static claimDailySignin(dayIndex: number, diamondReward: number): boolean {
+    if (this.isTodaySignedin()) {
+      return false;
+    }
+    const profile = this.getProfile();
+    profile.lastSigninTimestamp = Date.now();
+    if (!profile.claimedSignins.includes(dayIndex)) {
+      profile.claimedSignins.push(dayIndex);
+    }
+    profile.diamonds += diamondReward;
+    this.saveProfile(profile);
+    return true;
+  }
+
+  public static isAchievementClaimed(achievementId: string): boolean {
+    const profile = this.getProfile();
+    return (profile.unlockedAchievements || []).includes(achievementId);
+  }
+
+  public static claimAchievements(achievementItems: { id: string; reward: number }[]): number {
+    const profile = this.getProfile();
+    profile.unlockedAchievements = profile.unlockedAchievements || [];
+
+    let totalClaimed = 0;
+    for (const item of achievementItems) {
+      if (!profile.unlockedAchievements.includes(item.id)) {
+        profile.unlockedAchievements.push(item.id);
+        totalClaimed += item.reward;
+      }
+    }
+
+    if (totalClaimed > 0) {
+      profile.diamonds += totalClaimed;
+      this.saveProfile(profile);
+    }
+    return totalClaimed;
+  }
 }
