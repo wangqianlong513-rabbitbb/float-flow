@@ -629,14 +629,14 @@ export class GameRoot extends Component {
     const isGold = this.currentTheme === 2;
 
     // Aurora field under the island
-    shadowG.fillColor = this.hex(isRose ? '#2D1F35' : (isGold ? '#352520' : '#1F2D3D'));
-    ((shadowG.fillColor) as ((any)) as any).a = 75;
-    shadowG.ellipse(0, 0, 240, 110);
+    shadowG.fillColor = this.hex(isRose ? '#3B0764' : (isGold ? '#451A03' : '#0284C7'));
+    ((shadowG.fillColor) as ((any)) as any).a = 110;
+    shadowG.ellipse(0, 0, 260, 120);
     shadowG.fill();
     // Core glow
-    shadowG.fillColor = this.hex(isRose ? '#2D1A3C' : (isGold ? '#3C1A10' : '#1D2D44'));
-    ((shadowG.fillColor) as ((any)) as any).a = 90;
-    shadowG.ellipse(0, 0, 160, 70);
+    shadowG.fillColor = this.hex(isRose ? '#A855F7' : (isGold ? '#EA580C' : '#38BDF8'));
+    ((shadowG.fillColor) as ((any)) as any).a = 140;
+    shadowG.ellipse(0, 0, 180, 80);
     shadowG.fill();
 
     this.grid.forEachCell((pos, _tile, obstacle) => {
@@ -650,18 +650,18 @@ export class GameRoot extends Component {
         this.drawTopDownTile(graphics, this.hex('#3B1428'), this.hex('#FF3B30'), 2.5, this.tileWidth, this.tileHeight, 0, 0, 6);
       } else {
         const isEven = (pos.row + pos.col) % 2 === 0;
-        let topCol = isEven ? this.hex('#152A4A') : this.hex('#24477A');
-        let strokeCol = isEven ? this.hex('#3897F5') : this.hex('#6BB5FF');
+        let topCol = isEven ? this.hex('#1E3A8A') : this.hex('#2563EB');
+        let strokeCol = isEven ? this.hex('#38BDF8') : this.hex('#60A5FA');
 
         if (isRose) {
-          topCol = isEven ? this.hex('#3E1F5C') : this.hex('#532E7E');
-          strokeCol = isEven ? this.hex('#B388FF') : this.hex('#E040FB');
+          topCol = isEven ? this.hex('#581C87') : this.hex('#7E22CE');
+          strokeCol = isEven ? this.hex('#C084FC') : this.hex('#E879F9');
         } else if (isGold) {
-          topCol = isEven ? this.hex('#662E1C') : this.hex('#8C3F26');
-          strokeCol = isEven ? this.hex('#FF6D00') : this.hex('#FFAB40');
+          topCol = isEven ? this.hex('#7C2D12') : this.hex('#C2410C');
+          strokeCol = isEven ? this.hex('#FDE047') : this.hex('#FFAB40');
         }
 
-        this.drawTopDownTile(graphics, topCol, strokeCol, 2, this.tileWidth, this.tileHeight, 0, 0, 6);
+        this.drawTopDownTile(graphics, topCol, strokeCol, 2.2, this.tileWidth, this.tileHeight, 0, 0, 6);
 
         node.on(Node.EventType.TOUCH_END, () => {
           this.onCellTouch(pos);
