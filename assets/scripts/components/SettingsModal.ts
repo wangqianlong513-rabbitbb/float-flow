@@ -125,7 +125,7 @@ export class SettingsModal extends Component {
     if (!this.tabsRoot) return;
     this.tabsRoot.destroyAllChildren();
 
-    const tabs = ['🎨 主 题', '🎮 玩 法', 'ℹ 关 于'];
+    const tabs = ['主 题', '玩 法', '关 于'];
     const tabXs = [-200, 0, 200];
 
     const isRose = this.selectedTheme === 1;
@@ -248,7 +248,7 @@ export class SettingsModal extends Component {
     btG.lineWidth = 1.2;
     btG.stroke();
 
-    this.createLabel(btRow, 'SliderLabel', new Vec3(-185, 0, 0), '⏱ 子弹时间速率', 18, '#93C5FD', 160, 28);
+    this.createLabel(btRow, 'SliderLabel', new Vec3(-185, 0, 0), '子弹时间速率', 18, '#93C5FD', 160, 28);
     const speeds = ['慢速 (25%)', '适中 (50%)', '极速 (100%)'];
     const speedXs = [-40, 95, 230];
     speeds.forEach((sp, i) => {
@@ -281,7 +281,7 @@ export class SettingsModal extends Component {
     qG.lineWidth = 1.2;
     qG.stroke();
 
-    this.createLabel(qRow, 'QualityLabel', new Vec3(-185, 0, 0), '✨ 视网膜渲染画质', 18, '#93C5FD', 160, 28);
+    this.createLabel(qRow, 'QualityLabel', new Vec3(-185, 0, 0), '视网膜渲染画质', 18, '#93C5FD', 160, 28);
     const qualities = ['流畅 (60fps)', '均衡 (HD)', '极清 (Retina)'];
     qualities.forEach((q, i) => {
       const isSel = this.selectedQuality === i;
@@ -314,13 +314,13 @@ export class SettingsModal extends Component {
     g.lineWidth = 2.0;
     g.stroke();
 
-    this.createLabel(rulesBox, 'Title', new Vec3(0, 140, 0), '⚡ 浮岛浮光 · 玩法与进阶技巧', 25, '#FDE047', 540, 40);
+    this.createLabel(rulesBox, 'Title', new Vec3(0, 140, 0), '浮岛浮光 · 玩法与进阶技巧', 25, '#FDE047', 540, 40);
 
     const rules = [
-      '🔷  放置与接通：拖拽下方卡牌堆的水晶地砖，放置在上方棋盘对应方格，接通从起点至终点的光轨通道。',
-      '⏱  子弹时间：当小球行进到拐角或通路中断处时，系统自动触发极限减速，为你争取宝贵的反应时间！',
-      '🔄  预测与擦除：点击右侧 [预览] 可预测光轨走向；放置失误或卡死时，可点击 [擦除] 重置当前手牌。',
-      '🎁  救场与无敌：若小球不幸坠落，可通过微信好友助力瞬间复活，并获得 3 秒无敌光环冲过难关！'
+      '• 放置与接通：拖拽或点击手牌中的水晶地砖，放置在棋盘对应方格，接通起点至终点的光轨通道。',
+      '• 子弹时间：当流光行进到拐角或通路中断时，自动触发子弹时间减速，为你争取规划路线的宝贵时机！',
+      '• 撤销与擦除：利用底部的 [撤销] 按钮退回上一步；遇到死局时，可通过点击 [擦除] 重新获得手牌。',
+      '• 能量与蓄能：挑战关卡需要消耗 1 点能量，如果能量耗尽，可以在主页点击“时空蓄能”进行快速恢复。'
     ];
 
     rules.forEach((r, idx) => {
@@ -348,11 +348,11 @@ export class SettingsModal extends Component {
     g.lineWidth = 2;
     g.stroke();
 
-    this.createLabel(aboutBox, 'Emblem', new Vec3(0, 75, 0), '✨  浮 岛 浮 光   (Flow Land Light)  ✨', 28, '#00F0FF', 500, 40);
-    this.createLabel(aboutBox, 'Sub', new Vec3(0, 35, 0), 'Cocos Creator 微信小游戏 · 纯代码程序化视网膜渲染引擎', 18, '#93C5FD', 520, 30);
-    this.createLabel(aboutBox, 'Ver', new Vec3(0, -10, 0), '当前版本: v1.0.0 (Retina 纯程序化版)  |  引擎: Cocos Creator', 16, '#CBD5E1', 500, 26);
-    this.createLabel(aboutBox, 'Team', new Vec3(0, -45, 0), '核心特色: 零外部图片资源依赖 · 视网膜级锐利画质 · 极速加载', 16, '#FDE047', 520, 26);
-    this.createLabel(aboutBox, 'Copy', new Vec3(0, -80, 0), '© 2026 Antigravity AI Team. All Rights Reserved.', 15, '#64748B', 400, 22);
+    this.createLabel(aboutBox, 'Emblem', new Vec3(0, 75, 0), '浮 岛 浮 光 (Float & Flow)', 28, '#00F0FF', 500, 40);
+    this.createLabel(aboutBox, 'Sub', new Vec3(0, 35, 0), '创意等距浮岛路线规划与流光引导解谜游戏', 18, '#93C5FD', 520, 30);
+    this.createLabel(aboutBox, 'Ver', new Vec3(0, -10, 0), '当前版本: v1.0.0  |  Cocos 引擎开发', 16, '#CBD5E1', 500, 26);
+    this.createLabel(aboutBox, 'Team', new Vec3(0, -45, 0), '核心特色: 唯美几何调色板 · 动态光路规划 · 极限子弹救场', 16, '#FDE047', 520, 26);
+    this.createLabel(aboutBox, 'Copy', new Vec3(0, -80, 0), '© 2026 浮岛浮光 制作组. All Rights Reserved.', 15, '#64748B', 400, 22);
 
     // Reset Progress Button (Y = -145, 尺寸 320x60)
     const resetBtn = this.createNode('ResetBtn', new Vec3(0, -145, 0), parent);
@@ -364,7 +364,7 @@ export class SettingsModal extends Component {
     rg.strokeColor = this.hex('#F87171');
     rg.lineWidth = 2.4;
     rg.stroke();
-    this.createLabel(resetBtn, 'Text', new Vec3(0, 1, 0), '★  重置所有关卡进度', 23, '#FFFFFF', 280, 40);
+    this.createLabel(resetBtn, 'Text', new Vec3(0, 1, 0), '重置所有关卡进度', 23, '#FFFFFF', 280, 40);
 
     this.addClick(resetBtn, () => {
       console.log('[SettingsModal] Clicked Reset Progress!');

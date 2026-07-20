@@ -87,8 +87,12 @@ export class VictoryPoster extends Component {
       this.levelNameLabel.string = levelName;
     }
     if (this.starBannerLabel) {
-      const starStr = '⭐ '.repeat(stars) + '☆ '.repeat(3 - stars);
-      this.starBannerLabel.string = `${starStr}  完美通关 · 步数: ${moves} 步`;
+      if (levelName.indexOf('无尽') !== -1) {
+        this.starBannerLabel.string = `🏆 突破: ${stars} 阶段  |  总得分: ${moves} 分`;
+      } else {
+        const starStr = '⭐ '.repeat(stars) + '☆ '.repeat(3 - stars);
+        this.starBannerLabel.string = `${starStr}  完美通关 · 步数: ${moves} 步`;
+      }
     }
 
     if (this.posterNode) {

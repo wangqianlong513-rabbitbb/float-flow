@@ -37,6 +37,11 @@ export class CardSystem {
     return this.getHand();
   }
 
+  unlockFourthSlot(): TileType[] {
+    this.hand.push(this.drawOne());
+    return this.getHand();
+  }
+
   returnTileToHand(index: number, tileType: TileType): TileType[] {
     if (this.cursor > 0 && this.cursor <= this.fixedHands.length) {
       this.cursor--;

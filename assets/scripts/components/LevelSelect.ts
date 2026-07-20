@@ -1,5 +1,8 @@
 import { _decorator, Button, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UITransform, Vec3, view } from 'cc';
 import { WeChatService } from '../wx/WeChatService';
+import { ProfileManager } from '../core/ProfileManager';
+
+declare const wx: any;
 
 const { ccclass } = _decorator;
 
@@ -159,17 +162,17 @@ export class LevelSelect extends Component {
         const globalIdx = startIdx + localIdx;
         const levelNum = globalIdx + 1;
 
+        const profile = ProfileManager.getProfile();
         let status: 'COMPLETED' | 'ACTIVE' | 'LOCKED' = 'LOCKED';
         let stars = 0;
-        if (chapter === 0) {
-          if (levelNum <= 8) {
-            status = 'COMPLETED';
-            stars = levelNum % 3 === 0 ? 3 : (levelNum % 2 === 0 ? 2 : 3);
-          } else if (levelNum === 9) {
-            status = 'ACTIVE';
-          } else {
-            status = 'LOCKED';
-          }
+
+        if (globalIdx < profile.levelProgress) {
+          status = 'COMPLETED';
+          stars = 3;
+        } else if (globalIdx === profile.levelProgress) {
+          status = 'ACTIVE';
+        } else {
+          status = 'LOCKED';
         }
 
         const card = this.createNode(`LevelCard_${levelNum}`, new Vec3(colXs[c], rowYs[r], 0), this.gridRoot!);
@@ -276,8 +279,24 @@ export class LevelSelect extends Component {
   }
 
   private createTopNav(halfH: number): void {
-    const navRoot = this.createNode('TopNav', new Vec3(0, halfH - 135, 0), this.node);
-    this.ensureTransform(navRoot, 1280, 68);
+    let capsuleYOffset = 135;
+    if (typeof wx !== 'undefined' && wx.getMenuButtonBoundingClientRect) {
+      try {
+        const rect = wx.getMenuButtonBoundingClientRect();
+        const systemInfo = wx.getSystemInfoSync();
+        const screenHeight = systemInfo.screenHeight || systemInfo.windowHeight;
+        if (screenHeight > 0) {
+          const ratio = view.getVisibleSize().height / screenHeight;
+          const capsuleCenterYFromTop = (rect.top + rect.height / 2) * ratio;
+          capsuleYOffset = capsuleCenterYFromTop;
+        }
+      } catch (e) {
+        console.warn('[LevelSelect] Failed to compute WeChat capsule bounding rect, using fallback:', e);
+      }
+    }
+
+    const navRoot = this.createNode('TopNav', new Vec3(0, halfH - capsuleYOffset, 0), this.node);
+    this.ensureTransform(navRoot, 510, 68);
     const g = navRoot.addComponent(Graphics);
 
     const isRose = this.currentTheme === 1;
@@ -286,7 +305,7 @@ export class LevelSelect extends Component {
 
     g.fillColor = this.hex('#0D162C');
     ((g.fillColor) as any).a = 230;
-    g.roundRect(-350, -34, 700, 68, 26);
+    g.roundRect(-335, -34, 510, 68, 26);
     g.fill();
     g.strokeColor = this.hex(borderCol);
     g.lineWidth = 2.5;

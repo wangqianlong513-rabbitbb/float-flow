@@ -1231,6 +1231,432 @@
         },
         "time": "7-18-2026 16:23:26",
         "dirty": false
+      },
+      "1784387246158": {
+        "type": "build",
+        "id": "1784387246158",
+        "progress": 1,
+        "state": "success",
+        "stage": "build",
+        "message": "2026-7-18 23:07:31 build success in 5 s!",
+        "detailMessage": "// ---- build task wechatgame：onBeforeCopyBuildTemplate ----\r",
+        "options": {
+          "name": "flow-land-light",
+          "server": "",
+          "engineModulesConfigKey": "defaultConfig",
+          "platform": "wechatgame",
+          "buildPath": "project://build",
+          "debug": false,
+          "buildMode": "normal",
+          "mangleProperties": false,
+          "md5Cache": false,
+          "skipCompressTexture": false,
+          "sourceMaps": false,
+          "overwriteProjectSettings": {
+            "macroConfig": {
+              "cleanupImageCache": "on"
+            },
+            "includeModules": {
+              "physics": "inherit-project-setting",
+              "physics-2d": "inherit-project-setting",
+              "gfx-webgl2": "off"
+            }
+          },
+          "nativeCodeBundleMode": "wasm",
+          "polyfills": {
+            "asyncFunctions": false
+          },
+          "experimentalEraseModules": false,
+          "startSceneAssetBundle": false,
+          "bundleConfigs": [],
+          "inlineEnum": true,
+          "useBuiltinServer": false,
+          "md5CacheOptions": {
+            "excludes": [],
+            "includes": [],
+            "replaceOnly": [],
+            "handleTemplateMd5Link": true
+          },
+          "mainBundleIsRemote": false,
+          "mainBundleCompressionType": "merge_dep",
+          "useSplashScreen": true,
+          "bundleCommonChunk": false,
+          "packAutoAtlas": true,
+          "startScene": "aa97c3d5-63c3-4251-a3e2-a196ee4de21c",
+          "outputName": "wechatgame-021",
+          "taskName": "wechatgame-021",
+          "scenes": [
+            {
+              "url": "db://assets/scene.scene",
+              "uuid": "aa97c3d5-63c3-4251-a3e2-a196ee4de21c"
+            }
+          ],
+          "wasmCompressionMode": false,
+          "binGroupConfig": {
+            "threshold": 16,
+            "enable": false
+          },
+          "packages": {},
+          "__version__": "1.3.9",
+          "logDest": "project://temp/builder/log/wechatgame7-18-2026 23-07.log"
+        },
+        "time": "7-18-2026 23:07:26",
+        "dirty": false
+      },
+      "1784389189019": {
+        "type": "build",
+        "id": "1784389189019",
+        "progress": 1,
+        "state": "success",
+        "stage": "build",
+        "message": "2026-7-18 23:39:54 build success in 5 s!",
+        "detailMessage": "// ---- build task wechatgame：onBeforeCompressSettings ----\r",
+        "options": {
+          "name": "flow-land-light",
+          "server": "",
+          "engineModulesConfigKey": "defaultConfig",
+          "platform": "wechatgame",
+          "buildPath": "project://build",
+          "debug": false,
+          "buildMode": "normal",
+          "mangleProperties": false,
+          "md5Cache": false,
+          "skipCompressTexture": false,
+          "sourceMaps": false,
+          "overwriteProjectSettings": {
+            "macroConfig": {
+              "cleanupImageCache": "on"
+            },
+            "includeModules": {
+              "physics": "inherit-project-setting",
+              "physics-2d": "inherit-project-setting",
+              "gfx-webgl2": "off"
+            }
+          },
+          "nativeCodeBundleMode": "wasm",
+          "polyfills": {
+            "asyncFunctions": false
+          },
+          "experimentalEraseModules": false,
+          "startSceneAssetBundle": false,
+          "bundleConfigs": [],
+          "inlineEnum": true,
+          "useBuiltinServer": false,
+          "md5CacheOptions": {
+            "excludes": [],
+            "includes": [],
+            "replaceOnly": [],
+            "handleTemplateMd5Link": true
+          },
+          "mainBundleIsRemote": false,
+          "mainBundleCompressionType": "merge_dep",
+          "useSplashScreen": true,
+          "bundleCommonChunk": false,
+          "packAutoAtlas": true,
+          "startScene": "aa97c3d5-63c3-4251-a3e2-a196ee4de21c",
+          "outputName": "wechatgame-022",
+          "taskName": "wechatgame-022",
+          "scenes": [
+            {
+              "url": "db://assets/scene.scene",
+              "uuid": "aa97c3d5-63c3-4251-a3e2-a196ee4de21c"
+            }
+          ],
+          "wasmCompressionMode": false,
+          "binGroupConfig": {
+            "threshold": 16,
+            "enable": false
+          },
+          "packages": {},
+          "__version__": "1.3.9",
+          "logDest": "project://temp/builder/log/wechatgame7-18-2026 23-39.log"
+        },
+        "time": "7-18-2026 23:39:49",
+        "dirty": false
+      },
+      "1784389887290": {
+        "type": "build",
+        "id": "1784389887290",
+        "progress": 1,
+        "state": "success",
+        "stage": "build",
+        "message": "2026-7-18 23:51:32 build success in 5 s!",
+        "detailMessage": "// ---- build task wechatgame：onAfterBuild ----\r",
+        "options": {
+          "name": "flow-land-light",
+          "server": "",
+          "engineModulesConfigKey": "defaultConfig",
+          "platform": "wechatgame",
+          "buildPath": "project://build",
+          "debug": false,
+          "buildMode": "normal",
+          "mangleProperties": false,
+          "md5Cache": false,
+          "skipCompressTexture": false,
+          "sourceMaps": false,
+          "overwriteProjectSettings": {
+            "macroConfig": {
+              "cleanupImageCache": "on"
+            },
+            "includeModules": {
+              "physics": "inherit-project-setting",
+              "physics-2d": "inherit-project-setting",
+              "gfx-webgl2": "off"
+            }
+          },
+          "nativeCodeBundleMode": "wasm",
+          "polyfills": {
+            "asyncFunctions": false
+          },
+          "experimentalEraseModules": false,
+          "startSceneAssetBundle": false,
+          "bundleConfigs": [],
+          "inlineEnum": true,
+          "useBuiltinServer": false,
+          "md5CacheOptions": {
+            "excludes": [],
+            "includes": [],
+            "replaceOnly": [],
+            "handleTemplateMd5Link": true
+          },
+          "mainBundleIsRemote": false,
+          "mainBundleCompressionType": "merge_dep",
+          "useSplashScreen": true,
+          "bundleCommonChunk": false,
+          "packAutoAtlas": true,
+          "startScene": "aa97c3d5-63c3-4251-a3e2-a196ee4de21c",
+          "outputName": "wechatgame-023",
+          "taskName": "wechatgame-023",
+          "scenes": [
+            {
+              "url": "db://assets/scene.scene",
+              "uuid": "aa97c3d5-63c3-4251-a3e2-a196ee4de21c"
+            }
+          ],
+          "wasmCompressionMode": false,
+          "binGroupConfig": {
+            "threshold": 16,
+            "enable": false
+          },
+          "packages": {},
+          "__version__": "1.3.9",
+          "logDest": "project://temp/builder/log/wechatgame7-18-2026 23-51.log"
+        },
+        "time": "7-18-2026 23:51:27",
+        "dirty": false
+      },
+      "1784390936129": {
+        "type": "build",
+        "id": "1784390936129",
+        "progress": 1,
+        "state": "success",
+        "stage": "build",
+        "message": "2026-7-19 00:09:01 build success in 5 s!",
+        "detailMessage": "Asset DB is resume!\r",
+        "options": {
+          "name": "flow-land-light",
+          "server": "",
+          "engineModulesConfigKey": "defaultConfig",
+          "platform": "wechatgame",
+          "buildPath": "project://build",
+          "debug": false,
+          "buildMode": "normal",
+          "mangleProperties": false,
+          "md5Cache": false,
+          "skipCompressTexture": false,
+          "sourceMaps": false,
+          "overwriteProjectSettings": {
+            "macroConfig": {
+              "cleanupImageCache": "on"
+            },
+            "includeModules": {
+              "physics": "inherit-project-setting",
+              "physics-2d": "inherit-project-setting",
+              "gfx-webgl2": "off"
+            }
+          },
+          "nativeCodeBundleMode": "wasm",
+          "polyfills": {
+            "asyncFunctions": false
+          },
+          "experimentalEraseModules": false,
+          "startSceneAssetBundle": false,
+          "bundleConfigs": [],
+          "inlineEnum": true,
+          "useBuiltinServer": false,
+          "md5CacheOptions": {
+            "excludes": [],
+            "includes": [],
+            "replaceOnly": [],
+            "handleTemplateMd5Link": true
+          },
+          "mainBundleIsRemote": false,
+          "mainBundleCompressionType": "merge_dep",
+          "useSplashScreen": true,
+          "bundleCommonChunk": false,
+          "packAutoAtlas": true,
+          "startScene": "aa97c3d5-63c3-4251-a3e2-a196ee4de21c",
+          "outputName": "wechatgame",
+          "taskName": "wechatgame",
+          "scenes": [
+            {
+              "url": "db://assets/scene.scene",
+              "uuid": "aa97c3d5-63c3-4251-a3e2-a196ee4de21c"
+            }
+          ],
+          "wasmCompressionMode": false,
+          "binGroupConfig": {
+            "threshold": 16,
+            "enable": false
+          },
+          "packages": {},
+          "__version__": "1.3.9",
+          "logDest": "project://temp/builder/log/wechatgame7-19-2026 00-08.log"
+        },
+        "time": "7-19-2026 00:08:56",
+        "dirty": false
+      },
+      "1784390978893": {
+        "type": "build",
+        "id": "1784390978893",
+        "progress": 1,
+        "state": "success",
+        "stage": "build",
+        "message": "2026-7-19 00:09:43 build success in 4 s!",
+        "detailMessage": "// ---- build task Sort build template ----\r",
+        "options": {
+          "name": "flow-land-light",
+          "server": "",
+          "engineModulesConfigKey": "defaultConfig",
+          "platform": "wechatgame",
+          "buildPath": "project://build",
+          "debug": false,
+          "buildMode": "normal",
+          "mangleProperties": false,
+          "md5Cache": false,
+          "skipCompressTexture": false,
+          "sourceMaps": false,
+          "overwriteProjectSettings": {
+            "macroConfig": {
+              "cleanupImageCache": "on"
+            },
+            "includeModules": {
+              "physics": "inherit-project-setting",
+              "physics-2d": "inherit-project-setting",
+              "gfx-webgl2": "off"
+            }
+          },
+          "nativeCodeBundleMode": "wasm",
+          "polyfills": {
+            "asyncFunctions": false
+          },
+          "experimentalEraseModules": false,
+          "startSceneAssetBundle": false,
+          "bundleConfigs": [],
+          "inlineEnum": true,
+          "useBuiltinServer": false,
+          "md5CacheOptions": {
+            "excludes": [],
+            "includes": [],
+            "replaceOnly": [],
+            "handleTemplateMd5Link": true
+          },
+          "mainBundleIsRemote": false,
+          "mainBundleCompressionType": "merge_dep",
+          "useSplashScreen": true,
+          "bundleCommonChunk": false,
+          "packAutoAtlas": true,
+          "startScene": "aa97c3d5-63c3-4251-a3e2-a196ee4de21c",
+          "outputName": "wechatgame-001",
+          "taskName": "wechatgame-001",
+          "scenes": [
+            {
+              "url": "db://assets/scene.scene",
+              "uuid": "aa97c3d5-63c3-4251-a3e2-a196ee4de21c"
+            }
+          ],
+          "wasmCompressionMode": false,
+          "binGroupConfig": {
+            "threshold": 16,
+            "enable": false
+          },
+          "packages": {},
+          "__version__": "1.3.9",
+          "logDest": "project://temp/builder/log/wechatgame7-19-2026 00-09.log"
+        },
+        "time": "7-19-2026 00:09:38",
+        "dirty": false
+      },
+      "1784435676700": {
+        "type": "build",
+        "id": "1784435676700",
+        "progress": 1,
+        "state": "success",
+        "stage": "build",
+        "message": "2026-7-19 12:34:42 build success in 6 s!",
+        "detailMessage": "// ---- build task wechatgame：onAfterBuild ----\r",
+        "options": {
+          "name": "flow-land-light",
+          "server": "",
+          "engineModulesConfigKey": "defaultConfig",
+          "platform": "wechatgame",
+          "buildPath": "project://build",
+          "debug": false,
+          "buildMode": "normal",
+          "mangleProperties": false,
+          "md5Cache": false,
+          "skipCompressTexture": false,
+          "sourceMaps": false,
+          "overwriteProjectSettings": {
+            "macroConfig": {
+              "cleanupImageCache": "on"
+            },
+            "includeModules": {
+              "physics": "inherit-project-setting",
+              "physics-2d": "inherit-project-setting",
+              "gfx-webgl2": "off"
+            }
+          },
+          "nativeCodeBundleMode": "wasm",
+          "polyfills": {
+            "asyncFunctions": false
+          },
+          "experimentalEraseModules": false,
+          "startSceneAssetBundle": false,
+          "bundleConfigs": [],
+          "inlineEnum": true,
+          "useBuiltinServer": false,
+          "md5CacheOptions": {
+            "excludes": [],
+            "includes": [],
+            "replaceOnly": [],
+            "handleTemplateMd5Link": true
+          },
+          "mainBundleIsRemote": false,
+          "mainBundleCompressionType": "merge_dep",
+          "useSplashScreen": true,
+          "bundleCommonChunk": false,
+          "packAutoAtlas": true,
+          "startScene": "aa97c3d5-63c3-4251-a3e2-a196ee4de21c",
+          "outputName": "wechatgame-002",
+          "taskName": "wechatgame-002",
+          "scenes": [
+            {
+              "url": "db://assets/scene.scene",
+              "uuid": "aa97c3d5-63c3-4251-a3e2-a196ee4de21c"
+            }
+          ],
+          "wasmCompressionMode": false,
+          "binGroupConfig": {
+            "threshold": 16,
+            "enable": false
+          },
+          "packages": {},
+          "__version__": "1.3.9",
+          "logDest": "project://temp/builder/log/wechatgame7-19-2026 12-34.log"
+        },
+        "time": "7-19-2026 12:34:36",
+        "dirty": false
       }
     }
   }

@@ -6,6 +6,9 @@ import { ReviveModal } from './ReviveModal';
 import { SettingsModal } from './SettingsModal';
 import { VictoryPoster } from './VictoryPoster';
 import { WeChatService } from '../wx/WeChatService';
+import { ProfileManager } from '../core/ProfileManager';
+
+declare const wx: any;
 
 const { ccclass } = _decorator;
 
@@ -238,7 +241,22 @@ export class SceneBootstrap extends Component {
     const uiRoot = this.createRoot('UI', new Vec3(0, 0, 0), gamePage);
 
     // 1. Top Navigation Bar with embedded Level Label (never overlaps iOS notch or WeChat top capsule!)
-    const levelLabel = this.createTopNav(uiRoot, new Vec3(0, halfH - 135, 0));
+    let capsuleYOffset = 135;
+    if (typeof wx !== 'undefined' && wx.getMenuButtonBoundingClientRect) {
+      try {
+        const rect = wx.getMenuButtonBoundingClientRect();
+        const systemInfo = wx.getSystemInfoSync();
+        const screenHeight = systemInfo.screenHeight || systemInfo.windowHeight;
+        if (screenHeight > 0) {
+          const ratio = view.getVisibleSize().height / screenHeight;
+          const capsuleCenterYFromTop = (rect.top + rect.height / 2) * ratio;
+          capsuleYOffset = capsuleCenterYFromTop;
+        }
+      } catch (e) {
+        console.warn('[SceneBootstrap] Failed to compute WeChat capsule bounding rect, using fallback:', e);
+      }
+    }
+    const levelLabel = this.createTopNav(uiRoot, new Vec3(0, halfH - capsuleYOffset, 0));
 
     // 2. Bottom Card Deck Background tightly matching CardRoot at Y = -halfH + 260
     this.createBottomDeck(uiRoot, new Vec3(0, -halfH + 260, 0));
@@ -308,6 +326,24 @@ export class SceneBootstrap extends Component {
     this.levelSelectRootNode = levelSelectRoot;
     const levelSelect = levelSelectRoot.addComponent(LevelSelect);
     levelSelect.onSelectLevelCallback = (idx: number) => {
+      const profile = ProfileManager.getProfile();
+      if (profile.energy <= 0) {
+        WeChatService.showModal({
+          title: '时空能量耗尽',
+          content: '挑战旅途关卡需要消耗 1 点能量，当前能量不足！请在主页点击“时空蓄能”进行快速恢复。',
+          confirmText: '我知道了'
+        });
+        return;
+      }
+      ProfileManager.addEnergy(-1);
+
+      // Auto apply themed scene color based on level index
+      if (idx >= 10 && idx < 20) {
+        this.applyTheme(1); // Theme 1: Violet Dusk
+      } else {
+        this.applyTheme(0); // Theme 0: Icefield
+      }
+
       console.log(`[SceneBootstrap] LevelSelect -> Start Level Index ${idx}!`);
       this.closeAllModals();
       levelSelectRoot.active = false;
@@ -325,7 +361,7 @@ export class SceneBootstrap extends Component {
       this.closeAllModals();
       levelSelectRoot.active = false;
       gamePage.active = true;
-      game.restartLevel();
+      game.loadLevel(0, false, true);
     };
 
     // 8. Victory Poster Root (Hidden by default!)
@@ -369,7 +405,7 @@ export class SceneBootstrap extends Component {
       this.closeAllModals();
       homePage.active = false;
       gamePage.active = true;
-      game.restartLevel();
+      game.loadLevel(0, false, true);
     };
 
     WeChatService.checkLaunchQuery(
@@ -420,74 +456,20 @@ export class SceneBootstrap extends Component {
     node.layer = Layers.Enum.UI_2D;
     node.setParent(parent);
     node.setPosition(position);
-    this.ensureTransform(node, 700, 80);
+    this.ensureTransform(node, 510, 80);
     const graphics = node.addComponent(Graphics);
 
-    // Glassmorphic top navigation panel
+    // Glassmorphic top navigation panel (leaving right side clear for WeChat Capsule)
     graphics.fillColor = this.hex('#0D162C');
     ((graphics.fillColor) as ((any)) as any).a = 220;
-    graphics.roundRect(-350, -40, 700, 80, 26);
+    graphics.roundRect(-335, -40, 510, 80, 26);
     graphics.fill();
     graphics.strokeColor = this.hex('#00F0FF');
     graphics.lineWidth = 2.0;
     graphics.stroke();
 
-    // Left Pause Icon Button [ || ]
-    graphics.fillColor = this.hex('#1E293B');
-    graphics.roundRect(-335, -22, 44, 44, 12);
-    graphics.fill();
-    graphics.strokeColor = this.hex('#00F0FF');
-    graphics.lineWidth = 2.5;
-    graphics.moveTo(-317, -10);
-    graphics.lineTo(-317, 10);
-    graphics.moveTo(-309, -10);
-    graphics.lineTo(-309, 10);
-    graphics.stroke();
-
-    // Far-Right Energy Pill (⚡ 3/3 +)
-    graphics.fillColor = this.hex('#1E1B4B');
-    graphics.roundRect(260, -20, 80, 40, 20);
-    graphics.fill();
-    graphics.strokeColor = this.hex('#A78BFA');
-    graphics.lineWidth = 1.5;
-    graphics.stroke();
-    this.createLabel(node, 'EnergyText', new Vec3(300, 0, 0), '⚡ 3/3 +', 15, '#FDE047', 75, 30);
-
-    // Level Title Label inside TopNav
-    const levelLabel = this.createLabel(node, 'LevelLabel', new Vec3(-60, 15, 0), '旅途模式 · 5-12', 24, '#FFFFFF', 210, 40);
-
-    // Level Progress Dots Line (O——●——O——O  到达终点)
-    graphics.strokeColor = this.hex('#00F0FF');
-    graphics.lineWidth = 2;
-    graphics.moveTo(-150, -18);
-    graphics.lineTo(30, -18);
-    graphics.stroke();
-
-    const dotXs = [-150, -90, -30, 30];
-    dotXs.forEach((dx, idx) => {
-      if (idx === 0) {
-        graphics.fillColor = this.hex('#00F0FF');
-        graphics.circle(dx, -18, 5);
-        graphics.fill();
-      } else if (idx === 1) {
-        graphics.fillColor = this.hex('#FFFFFF');
-        graphics.circle(dx, -18, 6);
-        graphics.fill();
-        graphics.strokeColor = this.hex('#00F0FF');
-        graphics.lineWidth = 2.5;
-        graphics.circle(dx, -18, 7);
-        graphics.stroke();
-      } else {
-        graphics.fillColor = this.hex('#1E3A8A');
-        graphics.circle(dx, -18, 6);
-        graphics.fill();
-        graphics.strokeColor = this.hex('#60A5FA');
-        graphics.lineWidth = 1.5;
-        graphics.circle(dx, -18, 6);
-        graphics.stroke();
-      }
-    });
-    this.createLabel(node, 'ProgressSub', new Vec3(-60, -32, 0), '到 达 终 点', 12, '#93C5FD', 100, 18);
+    // Level Title Label inside TopNav (shifted slightly left to fit within the narrower pill)
+    const levelLabel = this.createLabel(node, 'LevelLabel', new Vec3(-75, 0, 0), '旅途模式 · 5-12', 24, '#FFFFFF', 210, 40);
 
     // Clickable Pause / Return to Home button!
     const homeReturnBtn = new Node('HomeReturnBtn');
@@ -517,11 +499,11 @@ export class SceneBootstrap extends Component {
       }
     });
 
-    // Clickable Share / Ask for Help button
+    // Clickable Share / Ask for Help button (shifted left to clear WeChat Capsule zone)
     const shareBtn = new Node('ShareHelpBtn');
     shareBtn.layer = Layers.Enum.UI_2D;
     shareBtn.setParent(node);
-    shareBtn.setPosition(new Vec3(145, 0, 0));
+    shareBtn.setPosition(new Vec3(105, 0, 0));
     this.ensureTransform(shareBtn, 110, 50);
     const sg = shareBtn.addComponent(Graphics);
     sg.fillColor = this.hex('#1D4ED8');

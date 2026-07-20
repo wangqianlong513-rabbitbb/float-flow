@@ -22,6 +22,18 @@ import { createTile, getTileDisplayName, resolveTileConfig, rotateTile } from '.
 import { BUILTIN_LEVELS } from '../level/BuiltinLevels';
 import { WeChatService } from '../wx/WeChatService';
 import { ShareService } from '../wx/ShareService';
+import { ProfileManager } from '../core/ProfileManager';
+
+interface ConfettiParticle {
+  node: Node;
+  graphics: Graphics;
+  vx: number;
+  vy: number;
+  rotationSpeed: number;
+  color: Color;
+  age: number;
+  maxAge: number;
+}
 
 const { ccclass, property } = _decorator;
 
@@ -99,6 +111,17 @@ export class GameRoot extends Component {
   private currentBulletTime = 3.0;
   private isResolving = false;
   private currentTheme = 0; // 0: Icefield, 1: Violet Dusk, 2: Sunset Glow
+  private isEndlessMode = false;
+  private endlessStageIndex = 0;
+  private endlessScore = 0;
+  private fourthSlotUnlocked = false;
+  private selectedCardIndex = -1;
+  private hasMovedDuringDrag = false;
+  private bonusCell: GridPos | null = null;
+  private bonusCollected = false;
+  private bonusNode: Node | null = null;
+  private activeParticles: ConfettiParticle[] = [];
+
 
   public applyTheme(themeIdx: number): void {
     console.log(`[GameRoot] Apply Theme Index ${themeIdx}`);
@@ -118,6 +141,8 @@ export class GameRoot extends Component {
   }
 
   protected update(deltaTime: number): void {
+    this.updateConfettiParticles(deltaTime);
+
     if (!this.level || !this.grid || !this.runner || this.isResolving) {
       return;
     }
@@ -346,22 +371,188 @@ export class GameRoot extends Component {
     return root;
   }
 
-  public loadLevel(index: number, preserveChances = false): void {
+  private generateEndlessLevel(stage: number): LevelConfig {
+    const size = Math.min(9, 7 + Math.floor(stage / 3));
+    const gridSize: [number, number] = [size, size];
+    const startRow = Math.floor(size / 2);
+    const start: RunnerState = {
+      row: startRow,
+      col: 0,
+      direction: 'right',
+      color: 'none',
+      speed: 1,
+      state: 'IDLE'
+    };
+
+    const offsets = [-1, 0, 1];
+    const goalRow = Math.min(size - 2, Math.max(1, startRow + offsets[Math.floor(Math.random() * offsets.length)]));
+    const goals: GoalConfig[] = [{
+      row: goalRow,
+      col: size - 1,
+      color: 'none'
+    }];
+
+    const stepSeconds = Math.max(0.16, 0.28 - stage * 0.015);
+    const tilePool: TileType[] = ['straight', 'curve'];
+    if (stage >= 1) tilePool.push('cross');
+    if (stage >= 2) tilePool.push('collapse');
+    if (stage >= 4) tilePool.push('boost');
+    if (stage >= 6) {
+      tilePool.push('paint_red');
+      tilePool.push('gate_red');
+      if (Math.random() > 0.4) {
+        goals[0].color = 'red';
+      }
+    }
+    if (stage >= 8) {
+      tilePool.push('paint_blue');
+      tilePool.push('gate_blue');
+      if (Math.random() > 0.5) {
+        goals[0].color = 'blue';
+      }
+    }
+
+    const obstacles: Array<[number, number]> = [];
+    const obstacleCount = Math.min(6, 2 + Math.floor(stage / 2));
+    const isReserved = (r: number, c: number) => {
+      if (r === startRow && c <= 1) return true;
+      if (r === goalRow && c >= size - 2) return true;
+      return false;
+    };
+
+    for (let i = 0; i < 20 && obstacles.length < obstacleCount; i++) {
+      const r = Math.floor(Math.random() * (size - 2)) + 1;
+      const c = Math.floor(Math.random() * (size - 2)) + 1;
+      if (!isReserved(r, c) && !obstacles.some(o => o[0] === r && o[1] === c)) {
+        obstacles.push([r, c]);
+      }
+    }
+
+    return {
+      id: 9999 + stage,
+      name: `无尽跃迁 · 阶段 ${stage + 1}`,
+      gridSize,
+      start,
+      goals,
+      handSize: 3,
+      bulletTimeEnergy: 3,
+      runnerStepSeconds: stepSeconds,
+      autoStart: false,
+      obstacles,
+      tilePool,
+      recommendedMoves: 5 + stage,
+    };
+  }
+
+  public loadLevel(index: number, preserveChances = false, isEndless = false): void {
     if (!preserveChances || this.levelIndex !== index) {
       this.undoRemaining = 1;
       this.eraseRemaining = 1;
     }
     this.moveHistory = [];
     this.levelIndex = index;
-    this.level = this.levels[index];
+
+    if (isEndless) {
+      this.isEndlessMode = true;
+      if (index === 0) {
+        this.endlessStageIndex = 0;
+        this.endlessScore = 0;
+      }
+      this.fourthSlotUnlocked = false;
+      this.level = this.generateEndlessLevel(this.endlessStageIndex);
+    } else if (index === -1 && this.isEndlessMode) {
+      this.fourthSlotUnlocked = false;
+      this.level = this.generateEndlessLevel(this.endlessStageIndex);
+    } else {
+      this.isEndlessMode = false;
+      this.fourthSlotUnlocked = false;
+      const baseLevel = this.levels[index % this.levels.length];
+      if (index >= 10) {
+        // Deep copy the base level configuration to avoid mutation
+        const copied = JSON.parse(JSON.stringify(baseLevel)) as LevelConfig;
+        const cols = copied.gridSize[1];
+
+        // Mirror start position and flip direction
+        if (copied.start) {
+          copied.start.col = cols - 1 - copied.start.col;
+          if (copied.start.direction === 'right') copied.start.direction = 'left';
+          else if (copied.start.direction === 'left') copied.start.direction = 'right';
+        }
+
+        // Mirror goals positions
+        if (copied.goals) {
+          copied.goals.forEach((g) => {
+            g.col = cols - 1 - g.col;
+          });
+        }
+
+        // Mirror obstacles positions
+        if (copied.obstacles) {
+          copied.obstacles = copied.obstacles.map(([r, c]) => [r, cols - 1 - c]);
+        }
+
+        // Mirror pre-placed initial tiles
+        if (copied.initialTiles) {
+          copied.initialTiles.forEach((it) => {
+            it.col = cols - 1 - it.col;
+          });
+        }
+
+        this.level = copied;
+        this.applyTheme(1); // Auto Theme 1 (Violet Dusk) for Chapter 2
+      } else {
+        this.level = baseLevel;
+        this.applyTheme(0); // Auto Theme 0 (Icefield) for Chapter 1
+      }
+    }
+
     this.grid = GridManager.fromLevel(this.level);
-    this.runner = { ...this.level.start, state: this.level.autoStart ? 'RUNNING' : 'IDLE' };
+
+    this.bonusCell = null;
+    this.bonusCollected = false;
+    this.bonusNode = null;
+
+    if (!isEndless && index >= 10 && this.level) {
+      const candidates: GridPos[] = [];
+      const rows = this.level.gridSize[0];
+      const cols = this.level.gridSize[1];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const pos = { row: r, col: c };
+          if (this.level.start && this.level.start.row === r && this.level.start.col === c) {
+            continue;
+          }
+          const isGoal = this.level.goals.some((g) => g.row === r && g.col === c);
+          if (isGoal) {
+            continue;
+          }
+          const isObstacle = this.level.obstacles.some(([or, oc]) => or === r && oc === c);
+          if (isObstacle) {
+            continue;
+          }
+          const isInitial = this.level.initialTiles?.some((it) => it.row === r && it.col === c);
+          if (isInitial) {
+            continue;
+          }
+          candidates.push(pos);
+        }
+      }
+      if (candidates.length > 0) {
+        const randIdx = Math.floor(Math.random() * candidates.length);
+        this.bonusCell = candidates[randIdx];
+      }
+    }
+
+    this.runner = { ...this.level!.start, state: this.level!.autoStart ? 'RUNNING' : 'IDLE' };
     this.cardSystem = new CardSystem(this.level.tilePool, this.level.handSize, this.level.fixedHands ?? []);
     this.hand = this.cardSystem.drawInitial();
     this.usedMoves = 0;
     this.flowEnergy = this.level.bulletTimeEnergy ?? 3;
     this.runnerTimer = 0;
     this.isResolving = false;
+
+    this.activeParticles.forEach((p) => p.node.destroy());
+    this.activeParticles = [];
 
     this.clearNode(this.boardRoot);
     this.clearNode(this.previewRoot);
@@ -433,12 +624,12 @@ export class GameRoot extends Component {
     const isGold = this.currentTheme === 2;
 
     // Aurora field under the island
-    shadowG.fillColor = this.hex(isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#4C1D95'));
+    shadowG.fillColor = this.hex(isRose ? '#2D1F35' : (isGold ? '#352520' : '#1F2D3D'));
     ((shadowG.fillColor) as ((any)) as any).a = 75;
     shadowG.ellipse(0, 0, 240, 110);
     shadowG.fill();
     // Core glow
-    shadowG.fillColor = this.hex(isRose ? '#831843' : (isGold ? '#B45309' : '#0083B0'));
+    shadowG.fillColor = this.hex(isRose ? '#2D1A3C' : (isGold ? '#3C1A10' : '#1D2D44'));
     ((shadowG.fillColor) as ((any)) as any).a = 90;
     shadowG.ellipse(0, 0, 160, 70);
     shadowG.fill();
@@ -454,18 +645,22 @@ export class GameRoot extends Component {
         this.drawTopDownTile(graphics, this.hex('#3B1428'), this.hex('#FF3B30'), 2.5, this.tileWidth, this.tileHeight, 0, 0, 6);
       } else {
         const isEven = (pos.row + pos.col) % 2 === 0;
-        let topCol = isEven ? this.hex('#1E3A8A') : this.hex('#2563EB');
-        let strokeCol = isEven ? this.hex('#3B82F6') : this.hex('#60A5FA');
+        let topCol = isEven ? this.hex('#152A4A') : this.hex('#24477A');
+        let strokeCol = isEven ? this.hex('#3897F5') : this.hex('#6BB5FF');
 
         if (isRose) {
-          topCol = isEven ? this.hex('#4C1D95') : this.hex('#6D28D9');
-          strokeCol = isEven ? this.hex('#7C3AED') : this.hex('#A78BFA');
+          topCol = isEven ? this.hex('#3E1F5C') : this.hex('#532E7E');
+          strokeCol = isEven ? this.hex('#B388FF') : this.hex('#E040FB');
         } else if (isGold) {
-          topCol = isEven ? this.hex('#7C2D12') : this.hex('#B45309');
-          strokeCol = isEven ? this.hex('#C2410C') : this.hex('#FBBF24');
+          topCol = isEven ? this.hex('#662E1C') : this.hex('#8C3F26');
+          strokeCol = isEven ? this.hex('#FF6D00') : this.hex('#FFAB40');
         }
 
         this.drawTopDownTile(graphics, topCol, strokeCol, 2, this.tileWidth, this.tileHeight, 0, 0, 6);
+
+        node.on(Node.EventType.TOUCH_END, () => {
+          this.onCellTouch(pos);
+        }, this);
       }
     });
 
@@ -493,6 +688,43 @@ export class GameRoot extends Component {
 
     for (const goal of this.level.goals) {
       this.drawGoal(goal);
+    }
+
+    if (this.bonusCell && !this.bonusCollected) {
+      const bonusNode = new Node('BonusCrystal');
+      bonusNode.layer = Layers.Enum.UI_2D;
+      bonusNode.setParent(this.boardRoot!);
+      bonusNode.setPosition(this.gridToLocal(this.bonusCell).add3f(0, 0, 3));
+      let t = bonusNode.getComponent(UITransform);
+      if (!t) t = bonusNode.addComponent(UITransform);
+      t.setContentSize(64, 64);
+      const bg = bonusNode.addComponent(Graphics);
+      bg.fillColor = this.hex('#FDE047');
+      bg.strokeColor = this.hex('#FFFFFF');
+      bg.lineWidth = 1.8;
+      bg.moveTo(0, 16);
+      bg.lineTo(12, 0);
+      bg.lineTo(0, -16);
+      bg.lineTo(-12, 0);
+      bg.close();
+      bg.fill();
+      bg.stroke();
+
+      const labelNode = new Node('Text');
+      labelNode.layer = Layers.Enum.UI_2D;
+      labelNode.setParent(bonusNode);
+      labelNode.setPosition(new Vec3(0, 0, 0));
+      let lt = labelNode.getComponent(UITransform);
+      if (!lt) lt = labelNode.addComponent(UITransform);
+      lt.setContentSize(40, 40);
+      const label = labelNode.addComponent(Label);
+      label.string = '💎';
+      label.fontSize = 20;
+      label.color = new Color(255, 255, 255, 255);
+      label.horizontalAlign = Label.HorizontalAlign.CENTER;
+      label.verticalAlign = Label.VerticalAlign.CENTER;
+
+      this.bonusNode = bonusNode;
     }
   }
 
@@ -581,7 +813,8 @@ export class GameRoot extends Component {
 
     this.clearNode(this.cardRoot);
     this.cardNodes = [];
-    const totalSlots = Math.max(1, this.hand.length + 1); // Include + button slot
+    const showPlusSlot = !this.fourthSlotUnlocked;
+    const totalSlots = this.hand.length + (showPlusSlot ? 1 : 0);
 
     // Responsive compact sizing guaranteeing 100% fits inside sapphire glass tray (-346 to +346) with 0 overflow!
     if (totalSlots <= 3) {
@@ -601,13 +834,17 @@ export class GameRoot extends Component {
     const startX = -((totalSlots - 1) * spacing) / 2;
 
     this.hand.forEach((type, index) => {
+      const isSelected = this.selectedCardIndex === index;
       const card = new Node(`Card_${index}_${type}`);
       card.layer = Layers.Enum.UI_2D;
       card.setParent(this.cardRoot!);
       card.setPosition(new Vec3(startX + index * spacing, 0, 0));
+      if (isSelected) {
+        card.setScale(new Vec3(1.12, 1.12, 1));
+      }
       card.addComponent(UITransform).setContentSize(this.cardWidth, this.cardHeight);
       const graphics = card.addComponent(Graphics);
-      this.drawCard(graphics, type);
+      this.drawCard(graphics, type, isSelected);
       const arrowScale = (this.cardWidth / 196) * 0.9;
       this.drawTileArrow(graphics, { type, rotation: 0 }, 14 * (this.cardHeight / 160), arrowScale, 0, 24);
 
@@ -628,30 +865,59 @@ export class GameRoot extends Component {
       this.cardNodes.push(card);
     });
 
-    // Plus expansion slot at far right
-    const plusSlot = new Node('PlusSlot');
-    plusSlot.layer = Layers.Enum.UI_2D;
-    plusSlot.setParent(this.cardRoot!);
-    plusSlot.setPosition(new Vec3(startX + this.hand.length * spacing, 0, 0));
-    plusSlot.addComponent(UITransform).setContentSize(this.cardWidth, this.cardHeight);
-    const pg = plusSlot.addComponent(Graphics);
-    pg.fillColor = new Color(30, 58, 138, 200);
-    pg.roundRect(-this.cardWidth / 2, -this.cardHeight / 2, this.cardWidth, this.cardHeight, 18);
-    pg.fill();
-    pg.strokeColor = new Color(96, 165, 250, 230);
-    pg.lineWidth = 2.5;
-    pg.stroke();
-    pg.strokeColor = this.hex('#FFFFFF');
-    pg.lineWidth = 4.0;
-    const plusArm = Math.min(20, Math.floor(this.cardWidth * 0.15));
-    pg.moveTo(-plusArm, 0);
-    pg.lineTo(plusArm, 0);
-    pg.moveTo(0, -plusArm);
-    pg.lineTo(0, plusArm);
-    pg.stroke();
+    if (showPlusSlot) {
+      const plusSlot = new Node('PlusSlot');
+      plusSlot.layer = Layers.Enum.UI_2D;
+      plusSlot.setParent(this.cardRoot!);
+      plusSlot.setPosition(new Vec3(startX + this.hand.length * spacing, 0, 0));
+      plusSlot.addComponent(UITransform).setContentSize(this.cardWidth, this.cardHeight);
+      const pg = plusSlot.addComponent(Graphics);
+      pg.fillColor = new Color(30, 58, 138, 200);
+      pg.roundRect(-this.cardWidth / 2, -this.cardHeight / 2, this.cardWidth, this.cardHeight, 18);
+      pg.fill();
+      pg.strokeColor = new Color(96, 165, 250, 230);
+      pg.lineWidth = 2.5;
+      pg.stroke();
+      pg.strokeColor = this.hex('#FFFFFF');
+      pg.lineWidth = 4.0;
+      const plusArm = Math.min(20, Math.floor(this.cardWidth * 0.15));
+      pg.moveTo(-plusArm, 0);
+      pg.lineTo(plusArm, 0);
+      pg.moveTo(0, -plusArm);
+      pg.lineTo(0, plusArm);
+      pg.stroke();
+
+      plusSlot.on(Node.EventType.TOUCH_END, () => {
+        this.onPlusSlotClick();
+      }, this);
+    }
+  }
+
+  private onPlusSlotClick(): void {
+    WeChatService.vibrateShort('light');
+    WeChatService.showModal({
+      title: '解锁第 4 个手牌槽位',
+      content: '观看一段短视频广告，即可立刻解锁本局第四个手牌水晶备用槽！让你在连通光轨时拥有更多路线选择，极大避免卡手风险。',
+      confirmText: '解锁槽位',
+      cancelText: '不需要',
+      success: (res) => {
+        if (res.confirm) {
+          WeChatService.showVideoAd(() => {
+            if (this.cardSystem) {
+              this.fourthSlotUnlocked = true;
+              this.hand = this.cardSystem.unlockFourthSlot();
+              this.renderCards();
+              WeChatService.showToast('成功解锁第四手牌槽位！', 'success');
+              this.setStatus('★ 已看视频成功，本局已解锁第四手牌槽位，极大地降低卡手概率！');
+            }
+          });
+        }
+      }
+    });
   }
 
   private onCardTouchStart(event: EventTouch, index: number): void {
+    this.hasMovedDuringDrag = false;
     const type = this.hand[index];
     this.dragCardIndex = index;
     this.dragTile = createTile(type);
@@ -681,6 +947,7 @@ export class GameRoot extends Component {
     if (!this.dragTile) {
       return;
     }
+    this.hasMovedDuringDrag = true;
 
     const pos = event.getUILocation();
     if (this.dragNode) {
@@ -702,6 +969,12 @@ export class GameRoot extends Component {
 
   private handleCardDrop(event: EventTouch): void {
     if (!this.dragTile || !this.grid || !this.level || !this.cardSystem) {
+      this.endDrag();
+      return;
+    }
+
+    if (!this.hasMovedDuringDrag) {
+      this.selectCard(this.dragCardIndex);
       this.endDrag();
       return;
     }
@@ -763,6 +1036,53 @@ export class GameRoot extends Component {
     this.redrawBulletTimeMeter();
     this.setStatus('水晶已旋转，补充 0.6s 子弹时间，继续观察光路。');
     this.updateRoutePreviewLine();
+  }
+
+  private selectCard(index: number): void {
+    if (this.selectedCardIndex === index) {
+      this.selectedCardIndex = -1;
+      this.setStatus('已取消选择手牌。');
+    } else {
+      this.selectedCardIndex = index;
+      const type = this.hand[index];
+      this.setStatus(`已选中：${getTileDisplayName(type)}。点击地图上空白单元格可直接放置！`);
+    }
+    this.renderCards();
+  }
+
+  private onCellTouch(pos: GridPos): void {
+    if (!this.grid || !this.runner || !this.cardSystem) {
+      return;
+    }
+
+    if (this.selectedCardIndex !== -1) {
+      const type = this.hand[this.selectedCardIndex];
+      const tile = createTile(type);
+      if (this.canPlace(pos)) {
+        WeChatService.vibrateShort('light');
+        this.grid.setTile(pos, tile);
+        this.renderTile(pos, tile);
+        this.moveHistory.push({
+          pos: { ...pos },
+          cardIndex: this.selectedCardIndex,
+          tileType: tile.type,
+        });
+        this.usedMoves++;
+        this.hand = this.cardSystem.consume(this.selectedCardIndex);
+        this.selectedCardIndex = -1; // Clear selection
+        this.renderCards();
+        this.currentBulletTime = Math.min(this.maxBulletTime, this.currentBulletTime + 1.2);
+        this.redrawBulletTimeMeter();
+        this.setStatus('放置成功！已补充 1.2s 子弹时间。可继续铺路或启动流光。');
+        this.updateLabels();
+        this.updateRoutePreviewLine();
+      } else {
+        WeChatService.vibrateShort('heavy');
+        this.setStatus('这里不能放置');
+      }
+    } else {
+      this.setStatus('先点击下方手牌，再点击空白格子即可快捷放置水晶！');
+    }
   }
 
   private endDrag(): void {
@@ -895,6 +1215,18 @@ export class GameRoot extends Component {
     this.runner.row = next.row;
     this.runner.col = next.col;
     this.runner.direction = out;
+
+    if (this.bonusCell && next.row === this.bonusCell.row && next.col === this.bonusCell.col && !this.bonusCollected) {
+      this.bonusCollected = true;
+      WeChatService.vibrateShort('medium');
+      WeChatService.showToast('收集额外晶核 +30 💎!', 'success');
+      ProfileManager.addDiamonds(30);
+      if (this.bonusNode) {
+        this.bonusNode.destroy();
+        this.bonusNode = null;
+      }
+    }
+
     if (config.colorPaint && config.colorPaint !== 'none') {
       this.runner.color = config.colorPaint;
       this.redrawRunnerColor();
@@ -989,11 +1321,133 @@ export class GameRoot extends Component {
     }
     this.runner.state = 'SUCCESS';
     WeChatService.vibrateShort('medium');
+
+    // Trigger visual celebration
+    this.triggerScreenFlash();
+    this.spawnConfettiExplosion(this.gridToLocal(this.runner));
+
+    if (this.isEndlessMode) {
+      this.endlessStageIndex++;
+      const stageScore = 100 + Math.max(0, (this.level.recommendedMoves - this.usedMoves) * 15);
+      this.endlessScore += stageScore;
+      this.setStatus(`第 ${this.endlessStageIndex} 阶段连通成功！光能评分 +${stageScore}`);
+      this.updateLabels();
+      WeChatService.showToast(`阶段 ${this.endlessStageIndex} 完成，跃迁下一星域！`, 'success');
+      this.scheduleOnce(() => {
+        this.loadLevel(-1, false, true);
+      }, 1.0);
+      return;
+    }
+
     const stars = this.calculateStars();
-    this.setStatus(`通关！${stars} 星，光能 +${stars * 20}`);
+    const reward = stars * 20;
+    ProfileManager.addDiamonds(reward);
+    ProfileManager.setLevelProgress(this.levelIndex + 1);
+
+    this.setStatus(`通关！${stars} 星，晶核 +${reward} 💎`);
     this.updateLabels();
     if (this.onShowVictoryPosterCallback) {
       this.onShowVictoryPosterCallback(this.level.name, stars, this.usedMoves);
+    }
+  }
+
+  private triggerScreenFlash(): void {
+    const flashNode = new Node('ScreenFlash');
+    flashNode.layer = Layers.Enum.UI_2D;
+    flashNode.setParent(this.node);
+    const transform = flashNode.addComponent(UITransform);
+    const size = view.getVisibleSize();
+    transform.setContentSize(size.width, size.height);
+    const g = flashNode.addComponent(Graphics);
+    g.fillColor = new Color(255, 255, 255, 140);
+    g.rect(-size.width / 2, -size.height / 2, size.width, size.height);
+    g.fill();
+
+    tween(g.fillColor)
+      .to(0.22, { a: 0 }, {
+        onUpdate: (target: any) => {
+          g.fillColor = target;
+          g.clear();
+          g.rect(-size.width / 2, -size.height / 2, size.width, size.height);
+          g.fill();
+        }
+      })
+      .call(() => flashNode.destroy())
+      .start();
+  }
+
+  private spawnConfettiExplosion(localPos: Vec3): void {
+    if (!this.boardRoot) return;
+
+    const colors = [
+      new Color(252, 224, 71), // Gold
+      new Color(56, 189, 248),  // Cyan
+      new Color(244, 114, 182), // Pink
+      new Color(74, 222, 128),  // Green
+      new Color(251, 146, 60),  // Orange
+      new Color(192, 132, 252)  // Purple
+    ];
+
+    for (let i = 0; i < 25; i++) {
+      const pNode = new Node(`Confetti_${i}`);
+      pNode.layer = Layers.Enum.UI_2D;
+      pNode.setParent(this.boardRoot);
+      pNode.setPosition(localPos.clone().add3f(0, 0, 10));
+
+      const transform = pNode.addComponent(UITransform);
+      transform.setContentSize(12, 12);
+
+      const graphics = pNode.addComponent(Graphics);
+      const color = colors[Math.floor(Math.random() * colors.length)];
+      graphics.fillColor = color;
+      graphics.fillRect(-6, -6, 12, 12);
+      graphics.fill();
+
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 200 + Math.random() * 250;
+      
+      this.activeParticles.push({
+        node: pNode,
+        graphics: graphics,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed + 120,
+        rotationSpeed: (Math.random() - 0.5) * 600,
+        color: color,
+        age: 0,
+        maxAge: 1.2 + Math.random() * 0.6
+      });
+    }
+  }
+
+  private updateConfettiParticles(dt: number): void {
+    if (this.activeParticles.length === 0) return;
+
+    const gravity = -600;
+
+    for (let i = this.activeParticles.length - 1; i >= 0; i--) {
+      const p = this.activeParticles[i];
+      p.age += dt;
+      if (p.age >= p.maxAge) {
+        p.node.destroy();
+        this.activeParticles.splice(i, 1);
+        continue;
+      }
+
+      p.vy += gravity * dt;
+      const pos = p.node.getPosition();
+      const nextX = pos.x + p.vx * dt;
+      const nextY = pos.y + p.vy * dt;
+      p.node.setPosition(new Vec3(nextX, nextY, pos.z));
+
+      const currentEuler = p.node.eulerAngles;
+      p.node.eulerAngles = new Vec3(0, 0, currentEuler.z + p.rotationSpeed * dt);
+
+      const alpha = Math.max(0, 255 * (1.0 - p.age / p.maxAge));
+      const col = p.color;
+      p.graphics.clear();
+      p.graphics.fillColor = new Color(col.r, col.g, col.b, alpha);
+      p.graphics.fillRect(-6, -6, 12, 12);
+      p.graphics.fill();
     }
   }
 
@@ -1022,6 +1476,15 @@ export class GameRoot extends Component {
     this.runner.state = 'DEAD';
     this.setStatus(`失败：${reason}。呼叫时空导师救我一命！`);
     this.updateLabels();
+
+    if (this.isEndlessMode) {
+      WeChatService.uploadUserScore(this.endlessStageIndex, this.endlessScore);
+      if (this.onShowVictoryPosterCallback) {
+        this.onShowVictoryPosterCallback(`无尽挑战 · 最终战绩`, this.endlessStageIndex, this.endlessScore);
+      }
+      return;
+    }
+
     if (this.onShowReviveModalCallback) {
       this.onShowReviveModalCallback();
     }
@@ -1287,14 +1750,14 @@ export class GameRoot extends Component {
     }
   }
 
-  private drawCard(graphics: Graphics, type: TileType): void {
+  private drawCard(graphics: Graphics, type: TileType, selected = false): void {
     graphics.clear();
     // Glassmorphic card base plate (vibrant royal blue / sapphire plate, NO GREY!)
     graphics.fillColor = new Color(37, 99, 235, 235);
     graphics.roundRect(-this.cardWidth / 2, -this.cardHeight / 2, this.cardWidth, this.cardHeight, 18);
     graphics.fill();
-    graphics.strokeColor = this.hex('#00F0FF');
-    graphics.lineWidth = 2.5;
+    graphics.strokeColor = this.hex(selected ? '#FDE047' : '#00F0FF');
+    graphics.lineWidth = selected ? 4.8 : 2.5;
     graphics.stroke();
 
     // Royal indigo label pill strip at bottom (NO GREY!)
@@ -1433,10 +1896,18 @@ export class GameRoot extends Component {
 
   private updateLabels(): void {
     if (this.levelLabel && this.level) {
-      this.levelLabel.string = `第 ${this.level.id} 关  ${this.level.name}`;
+      if (this.isEndlessMode) {
+        this.levelLabel.string = `🏆 无尽挑战 · 阶段 ${this.endlessStageIndex + 1}`;
+      } else {
+        this.levelLabel.string = `第 ${this.levelIndex + 1} 关  ${this.level.name}`;
+      }
     }
     if (this.tipLabel && this.level) {
-      this.tipLabel.string = `手数 ${this.usedMoves}/${this.level.recommendedMoves}   救场能量 ${this.flowEnergy}`;
+      if (this.isEndlessMode) {
+        this.tipLabel.string = `已得光能 ${this.endlessScore}   救场能量 ${this.flowEnergy}`;
+      } else {
+        this.tipLabel.string = `手数 ${this.usedMoves}/${this.level.recommendedMoves}   救场能量 ${this.flowEnergy}`;
+      }
     }
   }
 
