@@ -22,6 +22,11 @@ export class CardSystem {
     return [...this.hand];
   }
 
+  setHand(hand: TileType[]): TileType[] {
+    this.hand = [...hand];
+    return this.getHand();
+  }
+
   consume(index: number): TileType[] {
     if (index < 0 || index >= this.hand.length) {
       return this.getHand();
@@ -39,6 +44,27 @@ export class CardSystem {
 
   unlockFourthSlot(): TileType[] {
     this.hand.push(this.drawOne());
+    return this.getHand();
+  }
+
+  drawRescueCard(): TileType[] {
+    const drawn = this.drawOne();
+    if (this.hand.length < 4) {
+      this.hand.push(drawn);
+    } else {
+      const index = Math.floor(Math.random() * this.hand.length);
+      this.hand[index] = drawn;
+    }
+    return this.getHand();
+  }
+
+  refreshRandomCard(): TileType[] {
+    if (this.hand.length === 0) {
+      this.hand.push(this.drawOne());
+      return this.getHand();
+    }
+    const index = Math.floor(Math.random() * this.hand.length);
+    this.hand[index] = this.drawOne();
     return this.getHand();
   }
 

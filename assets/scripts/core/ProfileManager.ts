@@ -20,6 +20,7 @@ export interface UserProfile {
   unlockedThemes?: number[];
   lastShareRewardDate?: string;
   shareRewardClaimCount?: number;
+  blessings?: Record<string, number>;
 }
 
 export interface ResidualHelpRecord {
@@ -55,7 +56,8 @@ export class ProfileManager {
       selectedTheme: 0,
       unlockedThemes: [0],
       lastShareRewardDate: '',
-      shareRewardClaimCount: 0
+      shareRewardClaimCount: 0,
+      blessings: {}
     };
   }
 
@@ -290,6 +292,19 @@ export class ProfileManager {
     return true;
   }
 
+  public static getBlessingLevel(blessingId: string): number {
+    const profile = this.getProfile();
+    return Math.max(0, Math.floor(profile.blessings?.[blessingId] || 0));
+  }
+
+  public static addBlessing(blessingId: string): number {
+    const profile = this.getProfile();
+    profile.blessings = profile.blessings || {};
+    profile.blessings[blessingId] = Math.max(0, Math.floor(profile.blessings[blessingId] || 0)) + 1;
+    this.saveProfile(profile);
+    return profile.blessings[blessingId];
+  }
+
   private static normalizeProfile(profile: UserProfile): UserProfile {
     // Reset the old prototype seed so a real first-time player starts from level 1.
     if (!profile.profileVersion && profile.levelProgress >= 50 && profile.diamonds >= 1000) {
@@ -316,6 +331,7 @@ export class ProfileManager {
     if (!profile.unlockedThemes.includes(0)) profile.unlockedThemes.push(0);
     profile.lastShareRewardDate = typeof profile.lastShareRewardDate === 'string' ? profile.lastShareRewardDate : '';
     profile.shareRewardClaimCount = Number.isFinite(profile.shareRewardClaimCount) ? profile.shareRewardClaimCount : 0;
+    profile.blessings = profile.blessings && typeof profile.blessings === 'object' ? profile.blessings : {};
     return profile;
   }
 

@@ -18,7 +18,9 @@ export type AnalyticsEventName =
   | 'ad_completed'
   | 'theme_unlock'
   | 'theme_apply'
-  | 'power_save_toggle';
+  | 'power_save_toggle'
+  | 'time_rewind'
+  | 'blessing_pick';
 
 export class AnalyticsService {
   static track(event: AnalyticsEventName, params: Record<string, unknown> = {}): void {

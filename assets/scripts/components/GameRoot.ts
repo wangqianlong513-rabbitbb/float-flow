@@ -46,6 +46,21 @@ interface ConfettiParticle {
   maxAge: number;
 }
 
+interface RewindSnapshot {
+  runner: RunnerState;
+  currentBulletTime: number;
+  flowEnergy: number;
+  hand: TileType[];
+  usedMoves: number;
+}
+
+interface BlessingOption {
+  id: string;
+  title: string;
+  desc: string;
+  color: string;
+}
+
 const { ccclass, property } = _decorator;
 
 @ccclass('GameRoot')
@@ -139,6 +154,13 @@ export class GameRoot extends Component {
   private tutorialOverlayNode: Node | null = null;
   private bonusCollected = false;
   private bonusNode: Node | null = null;
+  private starCoreNodes = new Map<string, Node>();
+  private triggeredSkillTiles = new Set<string>();
+  private rewindSnapshot: RewindSnapshot | null = null;
+  private timeRewindUsed = false;
+  private blessingOverlayNode: Node | null = null;
+  private pendingBonusDiamonds = 0;
+  private skillComboCount = 0;
   private activeParticles: ConfettiParticle[] = [];
   private statusToastSerial = 0;
 
@@ -219,6 +241,7 @@ export class GameRoot extends Component {
   public startRunner(): void {
     if (this.runner && this.runner.state === 'IDLE') {
       WeChatService.vibrateShort('light');
+      this.rewindSnapshot = this.createRewindSnapshot();
       this.runner.state = 'RUNNING';
       this.setStatus('流光已启动！观察光路与救场触发。');
     }
@@ -376,7 +399,7 @@ export class GameRoot extends Component {
         this.renderRunner();
       }
       if (payload.hand && Array.isArray(payload.hand)) {
-        this.hand = [...payload.hand];
+        this.hand = this.cardSystem ? this.cardSystem.setHand(payload.hand) : [...payload.hand];
         this.renderCards();
       }
       this.residualAssistId = payload.assistId || '';
@@ -395,6 +418,10 @@ export class GameRoot extends Component {
       this.tutorialOverlayNode.destroy();
       this.tutorialOverlayNode = null;
     }
+    if (this.blessingOverlayNode) {
+      this.blessingOverlayNode.destroy();
+      this.blessingOverlayNode = null;
+    }
 
     this.isEndlessMode = true;
     this.isDailyChallenge = true;
@@ -406,10 +433,15 @@ export class GameRoot extends Component {
     this.eraseRemaining = 1;
     this.moveHistory = [];
     this.residualAssistId = '';
+    this.triggeredSkillTiles.clear();
+    this.rewindSnapshot = null;
+    this.timeRewindUsed = false;
+    this.pendingBonusDiamonds = 0;
+    this.skillComboCount = 0;
     this.level = this.generateDailyChallengeLevel();
     this.grid = GridManager.fromLevel(this.level);
     this.runner = { ...this.level.start, state: 'IDLE' };
-    this.cardSystem = new CardSystem(this.level.tilePool, this.level.handSize, this.level.fixedHands ?? []);
+    this.cardSystem = new CardSystem(this.withSkillTiles(this.level.tilePool), this.level.handSize, this.level.fixedHands ?? []);
     this.hand = this.cardSystem.drawInitial();
     this.usedMoves = 0;
     this.flowEnergy = this.level.bulletTimeEnergy ?? 3;
@@ -418,6 +450,7 @@ export class GameRoot extends Component {
     this.bonusCell = null;
     this.bonusCollected = false;
     this.bonusNode = null;
+    this.starCoreNodes.clear();
 
     this.activeParticles.forEach((p) => p.node.destroy());
     this.activeParticles = [];
@@ -425,6 +458,7 @@ export class GameRoot extends Component {
     this.clearNode(this.previewRoot);
     this.clearNode(this.runnerRoot);
     this.clearNode(this.cardRoot);
+    this.starCoreNodes.clear();
     this.tileNodes.clear();
     this.cardNodes = [];
 
@@ -571,6 +605,31 @@ export class GameRoot extends Component {
     };
   }
 
+  private withSkillTiles(basePool: TileType[]): TileType[] {
+    const pool = [...basePool];
+    const pushMany = (type: TileType, count: number) => {
+      for (let i = 0; i < count; i++) {
+        pool.push(type);
+      }
+    };
+
+    const progress = this.isEndlessMode ? this.endlessStageIndex + 4 : this.levelIndex;
+    if (progress >= 3) {
+      pushMany('time_crystal', 1 + this.getBlessingEffectLevel('time_flow'));
+    }
+    if (progress >= 4) {
+      pushMany('star_crystal', 1 + this.getBlessingEffectLevel('star_reward'));
+    }
+    if (progress >= 5) {
+      pushMany('refresh_crystal', 1 + this.getBlessingEffectLevel('refresh_hand'));
+    }
+    return pool;
+  }
+
+  private getBlessingEffectLevel(blessingId: string): number {
+    return Math.min(3, ProfileManager.getBlessingLevel(blessingId));
+  }
+
   public loadLevel(index: number, preserveChances = false, isEndless = false): void {
     if (this.hintHighlightNode) {
       this.hintHighlightNode.destroy();
@@ -580,12 +639,21 @@ export class GameRoot extends Component {
       this.tutorialOverlayNode.destroy();
       this.tutorialOverlayNode = null;
     }
+    if (this.blessingOverlayNode) {
+      this.blessingOverlayNode.destroy();
+      this.blessingOverlayNode = null;
+    }
     if (!preserveChances || this.levelIndex !== index) {
       this.undoRemaining = 1;
       this.eraseRemaining = 1;
     }
     this.moveHistory = [];
     this.levelIndex = index;
+    this.triggeredSkillTiles.clear();
+    this.rewindSnapshot = null;
+    this.timeRewindUsed = false;
+    this.pendingBonusDiamonds = 0;
+    this.skillComboCount = 0;
 
     if (isEndless) {
       this.isEndlessMode = true;
@@ -653,8 +721,11 @@ export class GameRoot extends Component {
     this.bonusCell = null;
     this.bonusCollected = false;
     this.bonusNode = null;
+    this.starCoreNodes.clear();
 
-    if (!isEndless && this.levelIndex >= 10 && this.level) {
+    if (this.level?.starCores && this.level.starCores.length > 0) {
+      this.bonusCell = { ...this.level.starCores[0] };
+    } else if (!isEndless && this.levelIndex >= 5 && this.level) {
       const candidates: GridPos[] = [];
       const rows = this.level.gridSize[0];
       const cols = this.level.gridSize[1];
@@ -686,7 +757,7 @@ export class GameRoot extends Component {
     }
 
     this.runner = { ...this.level!.start, state: this.level!.autoStart ? 'RUNNING' : 'IDLE' };
-    this.cardSystem = new CardSystem(this.level.tilePool, this.level.handSize, this.level.fixedHands ?? []);
+    this.cardSystem = new CardSystem(this.withSkillTiles(this.level.tilePool), this.level.handSize, this.level.fixedHands ?? []);
     this.hand = this.cardSystem.drawInitial();
     this.usedMoves = 0;
     this.flowEnergy = this.level.bulletTimeEnergy ?? 3;
@@ -868,6 +939,7 @@ export class GameRoot extends Component {
       label.verticalAlign = Label.VerticalAlign.CENTER;
 
       this.bonusNode = bonusNode;
+      this.starCoreNodes.set(this.key(this.bonusCell), bonusNode);
     }
   }
 
@@ -899,6 +971,7 @@ export class GameRoot extends Component {
     const topCol = this.tileColor(tile.type);
     this.drawDiamond(graphics, topCol, this.hex('#FFFFFF'), 2.2);
     this.drawTileArrow(graphics, tile, 0, 0.86, 0, 44);
+    this.drawSkillBadge(graphics, tile.type, 0, 0);
     node.on(Node.EventType.TOUCH_END, () => this.onPlacedTileTouch(pos), this);
     this.tileNodes.set(key, node);
   }
@@ -991,6 +1064,7 @@ export class GameRoot extends Component {
       this.drawCard(graphics, type, isSelected);
       const arrowScale = (this.cardWidth / 196) * 0.9;
       this.drawTileArrow(graphics, { type, rotation: 0 }, 14 * (this.cardHeight / 160), arrowScale, 0, 24);
+      this.drawSkillBadge(graphics, type, 0, 14 * (this.cardHeight / 160));
 
       const labelNode = new Node('Name');
       labelNode.layer = Layers.Enum.UI_2D;
@@ -1362,6 +1436,7 @@ export class GameRoot extends Component {
       return;
     }
 
+    this.rewindSnapshot = this.createRewindSnapshot();
     const next = move(this.runner, this.runner.direction);
     const preview = RouteSimulator.simulate(this.grid, this.runner, this.level.goals);
     if (preview.path.length > 0 && preview.path[0].result === 'goal') {
@@ -1399,13 +1474,18 @@ export class GameRoot extends Component {
     if (this.bonusCell && next.row === this.bonusCell.row && next.col === this.bonusCell.col && !this.bonusCollected) {
       this.bonusCollected = true;
       WeChatService.vibrateShort('medium');
-      WeChatService.showToast('收集额外晶核 +30 💎!', 'success');
-      ProfileManager.addDiamonds(30);
+      const reward = 30 + this.getBlessingEffectLevel('star_reward') * 10;
+      this.pendingBonusDiamonds += reward;
+      WeChatService.showToast(`收集星核 +${reward} 💎，通关结算`, 'success');
       if (this.bonusNode) {
         this.bonusNode.destroy();
         this.bonusNode = null;
       }
+      this.starCoreNodes.delete(this.key(next));
+      this.updateLabels();
     }
+
+    this.applySkillTileEffect(tile, next);
 
     if (config.colorPaint && config.colorPaint !== 'none') {
       this.runner.color = config.colorPaint;
@@ -1426,6 +1506,69 @@ export class GameRoot extends Component {
         this.handleSuccess();
       }
     });
+  }
+
+  private createRewindSnapshot(): RewindSnapshot | null {
+    if (!this.runner) {
+      return null;
+    }
+    return {
+      runner: { ...this.runner },
+      currentBulletTime: this.currentBulletTime,
+      flowEnergy: this.flowEnergy,
+      hand: [...this.hand],
+      usedMoves: this.usedMoves,
+    };
+  }
+
+  private applySkillTileEffect(tile: TileInstance, pos: GridPos): void {
+    if (!this.cardSystem) {
+      return;
+    }
+    const config = resolveTileConfig(tile);
+    if (!config.skill) {
+      return;
+    }
+    const key = `${this.key(pos)}:${tile.type}`;
+    if (this.triggeredSkillTiles.has(key)) {
+      return;
+    }
+    this.triggeredSkillTiles.add(key);
+    if (config.skill === 'time') {
+      const bonus = 1.5 + this.getBlessingEffectLevel('time_flow') * 0.5;
+      this.currentBulletTime = Math.min(this.maxBulletTime + 2, this.currentBulletTime + bonus);
+      this.redrawBulletTimeMeter();
+      WeChatService.showToast(`时间水晶 +${bonus.toFixed(1)}s`, 'success');
+      this.setStatus(`时间水晶触发，缓冲补充 ${bonus.toFixed(1)}s。`);
+    } else if (config.skill === 'star') {
+      const reward = 10 + this.getBlessingEffectLevel('star_reward') * 5;
+      this.pendingBonusDiamonds += reward;
+      WeChatService.showToast(`星光水晶 +${reward} 💎，通关结算`, 'success');
+      this.setStatus(`星光水晶触发，暂存 ${reward} 晶核，通关后一起结算。`);
+    } else if (config.skill === 'refresh') {
+      this.hand = this.cardSystem.refreshRandomCard();
+      this.renderCards();
+      WeChatService.showToast('刷新水晶：换 1 张牌', 'success');
+      this.setStatus('刷新水晶触发，已替换一张手牌。');
+    }
+    this.triggerSkillComboFeedback();
+    this.updateLabels();
+  }
+
+  private triggerSkillComboFeedback(): void {
+    this.skillComboCount++;
+    if (this.skillComboCount <= 1) {
+      return;
+    }
+
+    const comboReward = Math.min(20, this.skillComboCount * 5);
+    this.pendingBonusDiamonds += comboReward;
+    if (this.skillComboCount >= 3) {
+      this.currentBulletTime = Math.min(this.maxBulletTime + 2, this.currentBulletTime + 0.8);
+      this.redrawBulletTimeMeter();
+    }
+    WeChatService.showToast(`流派连锁 x${this.skillComboCount}  +${comboReward} 💎`, 'success');
+    this.setStatus(`流派连锁 x${this.skillComboCount}！特殊水晶组合越多，通关结算越香。`);
   }
 
   private moveRunnerVisual(pos: GridPos, onDone: () => void): void {
@@ -1516,11 +1659,12 @@ export class GameRoot extends Component {
       const leaderboard = CloudGameService.submitDailyChallenge(dateKey, dailyScore, this.usedMoves);
       AnalyticsService.track('daily_success', { levelId: this.level.id, score: dailyScore, moves: this.usedMoves, beatPercent: leaderboard.beatPercent });
       const reward = this.usedMoves <= this.level.recommendedMoves ? 80 : 50;
-      ProfileManager.addDiamonds(reward);
+      const totalReward = reward + this.pendingBonusDiamonds;
+      ProfileManager.addDiamonds(totalReward);
       this.triggerVictoryShockwave();
-      this.setStatus(`今日挑战完成！${leaderboard.hintText}，晶核 +${reward} 💎`);
+      this.setStatus(`今日挑战完成！${leaderboard.hintText}，晶核 +${totalReward} 💎`);
       this.updateLabels();
-      WeChatService.showToast(`今日挑战通关 +${reward} 💎`, 'success');
+      WeChatService.showToast(`今日挑战通关 +${totalReward} 💎`, 'success');
       if (this.onShowVictoryPosterCallback) {
         this.onShowVictoryPosterCallback(this.level.id, this.level.name, Math.min(3, this.calculateStars()), this.usedMoves);
       }
@@ -1531,7 +1675,10 @@ export class GameRoot extends Component {
       this.endlessStageIndex++;
       const stageScore = 100 + Math.max(0, (this.level.recommendedMoves - this.usedMoves) * 15);
       this.endlessScore += stageScore;
-      this.setStatus(`第 ${this.endlessStageIndex} 阶段连通成功！光能评分 +${stageScore}`);
+      if (this.pendingBonusDiamonds > 0) {
+        ProfileManager.addDiamonds(this.pendingBonusDiamonds);
+      }
+      this.setStatus(`第 ${this.endlessStageIndex} 阶段连通成功！光能 +${stageScore}，晶核 +${this.pendingBonusDiamonds}`);
       this.updateLabels();
       WeChatService.showToast(`阶段 ${this.endlessStageIndex} 完成，跃迁下一星域！`, 'success');
       this.scheduleOnce(() => {
@@ -1543,7 +1690,7 @@ export class GameRoot extends Component {
     const stars = this.calculateStars();
     AnalyticsService.track('level_success', { levelId: this.level.id, stars, moves: this.usedMoves, assist: !!this.residualAssistId });
     const reward = stars * 20;
-    ProfileManager.addDiamonds(reward);
+    ProfileManager.addDiamonds(reward + this.pendingBonusDiamonds);
     ProfileManager.setLevelProgress(this.levelIndex + 1);
 
     let assistBonus = 0;
@@ -1555,7 +1702,7 @@ export class GameRoot extends Component {
 
     this.triggerVictoryShockwave();
     const beatPercent = this.estimateFriendBeatPercent(stars, this.usedMoves);
-    this.setStatus(`通关！${stars} 星，晶核 +${reward + assistBonus} 💎，击败 ${beatPercent}% 好友！`);
+    this.setStatus(`通关！${stars} 星，晶核 +${reward + this.pendingBonusDiamonds + assistBonus} 💎，击败 ${beatPercent}% 好友！`);
     this.updateLabels();
     if (assistBonus > 0) {
       WeChatService.showToast('助攻成功！额外获得 80 💎', 'success');
@@ -1572,9 +1719,102 @@ export class GameRoot extends Component {
         }
       });
     }
-    if (this.onShowVictoryPosterCallback) {
-      this.onShowVictoryPosterCallback(this.level.id, this.level.name, stars, this.usedMoves);
+    const showPoster = () => {
+      if (this.onShowVictoryPosterCallback && this.level) {
+        this.onShowVictoryPosterCallback(this.level.id, this.level.name, stars, this.usedMoves);
+      }
+    };
+    this.showBlessingChoice(showPoster);
+  }
+
+  private showBlessingChoice(onDone: () => void): void {
+    if (this.blessingOverlayNode || this.isDailyChallenge || this.isEndlessMode) {
+      onDone();
+      return;
     }
+
+    const options: BlessingOption[] = [
+      {
+        id: 'time_flow',
+        title: '时间共鸣',
+        desc: '时间水晶补时 +0.5s，且更容易抽到。',
+        color: '#22D3EE',
+      },
+      {
+        id: 'star_reward',
+        title: '星核增幅',
+        desc: '星光水晶与星核奖励提升。',
+        color: '#FDE047',
+      },
+      {
+        id: 'refresh_hand',
+        title: '灵感换牌',
+        desc: '刷新水晶更容易出现，卡手更少。',
+        color: '#34D399',
+      },
+    ];
+
+    const size = view.getVisibleSize();
+    const halfW = size.width / 2;
+    const halfH = size.height / 2;
+    const overlay = new Node('BlessingOverlay');
+    overlay.layer = Layers.Enum.UI_2D;
+    overlay.setParent(this.node);
+    overlay.setPosition(new Vec3(0, 0, 140));
+    overlay.addComponent(UITransform).setContentSize(size.width, size.height);
+    this.blessingOverlayNode = overlay;
+    overlay.on(Node.EventType.TOUCH_END, (event: EventTouch) => {
+      event.propagationStopped = true;
+    }, this);
+
+    const g = overlay.addComponent(Graphics);
+    g.fillColor = new Color(5, 10, 25, 205);
+    g.rect(-halfW, -halfH, size.width, size.height);
+    g.fill();
+    g.fillColor = this.hex('#0B132B');
+    ((g.fillColor) as any).a = 248;
+    g.roundRect(-310, -245, 620, 490, 34);
+    g.fill();
+    g.strokeColor = this.hex('#FDE047');
+    g.lineWidth = 2.8;
+    g.stroke();
+
+    this.createOverlayLabel(overlay, 'BlessingTitle', new Vec3(0, 180, 141), '选择一个流光祝福', 28, '#FFFFFF', 520, 42);
+    this.createOverlayLabel(overlay, 'BlessingSub', new Vec3(0, 142, 141), '下一关开始生效，慢慢形成你的光路流派', 17, '#FDE68A', 560, 30);
+
+    options.forEach((option, idx) => {
+      const y = 74 - idx * 102;
+      const row = new Node(`Blessing_${option.id}`);
+      row.layer = Layers.Enum.UI_2D;
+      row.setParent(overlay);
+      row.setPosition(new Vec3(0, y, 141));
+      row.addComponent(UITransform).setContentSize(540, 82);
+      const rg = row.addComponent(Graphics);
+      rg.fillColor = this.hex('#111827');
+      ((rg.fillColor) as any).a = 242;
+      rg.roundRect(-270, -41, 540, 82, 22);
+      rg.fill();
+      rg.strokeColor = this.hex(option.color);
+      rg.lineWidth = 2.2;
+      rg.stroke();
+
+      const level = ProfileManager.getBlessingLevel(option.id);
+      this.createOverlayLabel(row, 'Title', new Vec3(-130, 14, 1), `${option.title}  Lv.${level + 1}`, 21, '#FFFFFF', 250, 30);
+      this.createOverlayLabel(row, 'Desc', new Vec3(-70, -18, 1), option.desc, 15, '#CBD5E1', 370, 24);
+      this.createOverlayLabel(row, 'Pick', new Vec3(205, 0, 1), '选择', 18, option.color, 90, 34);
+
+      row.on(Node.EventType.TOUCH_END, (event: EventTouch) => {
+        event.propagationStopped = true;
+        const newLevel = ProfileManager.addBlessing(option.id);
+        AnalyticsService.track('blessing_pick', { id: option.id, level: newLevel, levelId: this.level?.id ?? 0 });
+        WeChatService.showToast(`${option.title} 升至 Lv.${newLevel}`, 'success');
+        if (this.blessingOverlayNode) {
+          this.blessingOverlayNode.destroy();
+          this.blessingOverlayNode = null;
+        }
+        onDone();
+      }, this);
+    });
   }
 
   private estimateFriendBeatPercent(stars: number, moves: number): number {
@@ -1732,6 +1972,9 @@ export class GameRoot extends Component {
     if (!this.runner) {
       return;
     }
+    if (this.tryTimeRewind(reason)) {
+      return;
+    }
     WeChatService.vibrateShort('heavy');
     this.runner.state = 'DEAD';
     AnalyticsService.track('level_fail', { levelId: this.level?.id ?? 0, moves: this.usedMoves, reason, daily: this.isDailyChallenge, endless: this.isEndlessMode });
@@ -1756,6 +1999,59 @@ export class GameRoot extends Component {
         isNearGoal: this.isNearGoalFromCurrentRoute(),
       });
     }
+  }
+
+  private tryTimeRewind(reason: string): boolean {
+    if (this.timeRewindUsed || this.isEndlessMode || !this.rewindSnapshot || !this.cardSystem) {
+      return false;
+    }
+    this.timeRewindUsed = true;
+    this.isResolving = false;
+    this.runnerTimer = 0;
+    this.runner = { ...this.rewindSnapshot.runner, state: 'IDLE' };
+    this.currentBulletTime = Math.min(this.maxBulletTime + 2, this.rewindSnapshot.currentBulletTime + 1.5);
+    this.flowEnergy = this.rewindSnapshot.flowEnergy;
+    this.usedMoves = this.rewindSnapshot.usedMoves;
+    this.cardSystem.setHand(this.rewindSnapshot.hand);
+    this.hand = this.cardSystem.drawRescueCard();
+
+    this.clearNode(this.runnerRoot);
+    this.renderRunner();
+    this.renderCards();
+    this.redrawBulletTimeMeter();
+    this.updateLabels();
+    this.updateRoutePreviewLine();
+    this.showRewindFlash(`时光回溯：${reason}`);
+    WeChatService.vibrateShort('medium');
+    WeChatService.showToast('时光回溯，已补 1 张救场牌', 'success');
+    this.setStatus('时光回溯触发！流光倒回关键节点，额外补给 1 张救场牌。');
+    AnalyticsService.track('time_rewind', { levelId: this.level?.id ?? 0, reason, moves: this.usedMoves });
+    return true;
+  }
+
+  private showRewindFlash(text: string): void {
+    if (this.powerSaveMode) {
+      return;
+    }
+    const size = view.getVisibleSize();
+    const node = new Node('TimeRewindFlash');
+    node.layer = Layers.Enum.UI_2D;
+    node.setParent(this.node);
+    node.setPosition(new Vec3(0, 0, 130));
+    node.addComponent(UITransform).setContentSize(size.width, size.height);
+    const g = node.addComponent(Graphics);
+    g.fillColor = new Color(34, 211, 238, 44);
+    g.rect(-size.width / 2, -size.height / 2, size.width, size.height);
+    g.fill();
+    g.strokeColor = this.hex('#22D3EE');
+    g.lineWidth = 5;
+    g.circle(0, 20, 90);
+    g.stroke();
+    this.createOverlayLabel(node, 'RewindText', new Vec3(0, 20, 131), text, 24, '#ECFEFF', 520, 42);
+    tween(node)
+      .to(0.45, { scale: new Vec3(1.18, 1.18, 1) }, { easing: 'quadOut' })
+      .call(() => node.destroy())
+      .start();
   }
 
   private isNearGoalFromCurrentRoute(): boolean {
@@ -2027,6 +2323,51 @@ export class GameRoot extends Component {
     graphics.fill();
   }
 
+  private drawSkillBadge(graphics: Graphics, type: TileType, offsetX = 0, offsetY = 0): void {
+    const config = resolveTileConfig({ type, rotation: 0 });
+    if (!config.skill) {
+      return;
+    }
+    const badgeY = offsetY + 30;
+    const badgeColor = config.skill === 'time' ? this.hex('#22D3EE') : (config.skill === 'star' ? this.hex('#FDE047') : this.hex('#34D399'));
+    graphics.fillColor = new Color(badgeColor.r, badgeColor.g, badgeColor.b, 230);
+    graphics.circle(offsetX + 30, badgeY, 14);
+    graphics.fill();
+    graphics.strokeColor = this.hex('#FFFFFF');
+    graphics.lineWidth = 2;
+    graphics.circle(offsetX + 30, badgeY, 14);
+    graphics.stroke();
+
+    graphics.strokeColor = config.skill === 'time' ? this.hex('#0F172A') : this.hex('#111827');
+    graphics.lineWidth = 3;
+    if (config.skill === 'time') {
+      graphics.circle(offsetX + 30, badgeY, 6);
+      graphics.moveTo(offsetX + 30, badgeY);
+      graphics.lineTo(offsetX + 30, badgeY + 6);
+      graphics.moveTo(offsetX + 30, badgeY);
+      graphics.lineTo(offsetX + 35, badgeY);
+    } else if (config.skill === 'star') {
+      graphics.moveTo(offsetX + 30, badgeY + 8);
+      graphics.lineTo(offsetX + 33, badgeY + 1);
+      graphics.lineTo(offsetX + 40, badgeY);
+      graphics.lineTo(offsetX + 34, badgeY - 3);
+      graphics.lineTo(offsetX + 36, badgeY - 10);
+      graphics.lineTo(offsetX + 30, badgeY - 5);
+      graphics.lineTo(offsetX + 24, badgeY - 10);
+      graphics.lineTo(offsetX + 26, badgeY - 3);
+      graphics.lineTo(offsetX + 20, badgeY);
+      graphics.lineTo(offsetX + 27, badgeY + 1);
+      graphics.close();
+    } else {
+      graphics.moveTo(offsetX + 23, badgeY);
+      graphics.lineTo(offsetX + 37, badgeY);
+      graphics.moveTo(offsetX + 34, badgeY + 5);
+      graphics.lineTo(offsetX + 39, badgeY);
+      graphics.lineTo(offsetX + 34, badgeY - 5);
+    }
+    graphics.stroke();
+  }
+
   private directionPoint(direction: string, length: number): Vec3 {
     switch (direction) {
       case 'up':
@@ -2110,6 +2451,12 @@ export class GameRoot extends Component {
       case 'paint_blue':
       case 'gate_blue':
         return this.hex('#3B82F6');
+      case 'time_crystal':
+        return this.hex('#22D3EE');
+      case 'star_crystal':
+        return this.hex('#FDE047');
+      case 'refresh_crystal':
+        return this.hex('#34D399');
       case 'universal':
         return this.hex('#FDE68A');
       case 'straight':
@@ -2198,12 +2545,14 @@ export class GameRoot extends Component {
       }
     }
     if (this.tipLabel && this.level) {
+      const bonusText = this.pendingBonusDiamonds > 0 ? ` · 待结算 +${this.pendingBonusDiamonds}💎` : '';
+      const starText = this.bonusCell && !this.bonusCollected ? ' · 星核待收集' : '';
       if (this.isDailyChallenge) {
-        this.tipLabel.string = `今日 ${this.usedMoves}/${this.level.recommendedMoves} · 分享冲榜`;
+        this.tipLabel.string = `今日 ${this.usedMoves}/${this.level.recommendedMoves} · 分享冲榜${bonusText}`;
       } else if (this.isEndlessMode) {
-        this.tipLabel.string = `光能 ${this.endlessScore} · 救场 ${this.flowEnergy}`;
+        this.tipLabel.string = `光能 ${this.endlessScore} · 救场 ${this.flowEnergy}${bonusText}`;
       } else {
-        this.tipLabel.string = `手数 ${this.usedMoves}/${this.level.recommendedMoves} · 救场 ${this.flowEnergy}`;
+        this.tipLabel.string = `手数 ${this.usedMoves}/${this.level.recommendedMoves} · 救场 ${this.flowEnergy}${starText}${bonusText}`;
       }
     }
   }

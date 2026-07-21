@@ -11,6 +11,9 @@ export type TileType =
   | 'paint_blue'
   | 'gate_red'
   | 'gate_blue'
+  | 'time_crystal'
+  | 'star_crystal'
+  | 'refresh_crystal'
   | 'universal';
 
 export interface GridPos {
@@ -40,6 +43,7 @@ export interface TileConfig {
   colorPaint?: RunnerColor;
   speedModifier?: number;
   scoreModifier?: number;
+  skill?: 'time' | 'star' | 'refresh';
 }
 
 export interface TileInstance {
@@ -61,6 +65,7 @@ export interface LevelConfig {
   autoStart: boolean;
   obstacles: Array<[number, number]>;
   initialTiles?: Array<{ row: number; col: number; tile: TileInstance }>;
+  starCores?: GridPos[];
   tilePool: TileType[];
   fixedHands?: TileType[];
   recommendedMoves: number;
