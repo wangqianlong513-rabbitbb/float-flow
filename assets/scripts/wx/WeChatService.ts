@@ -5,6 +5,14 @@ declare const wx: any;
 export class WeChatService {
   public static adUnitId: string = 'adunit-demo-id'; // 默认测试 ID，可通过 WeChatService.adUnitId = '...' 动态赋值
 
+  private static safeDecodeQueryValue(value: string): string {
+    try {
+      return decodeURIComponent(value);
+    } catch (_error) {
+      return value;
+    }
+  }
+
   static isWeChatMiniGame(): boolean {
     return typeof wx !== 'undefined';
   }
@@ -50,7 +58,7 @@ export class WeChatService {
   }
 
   static showVideoAd(onSuccess: () => void, onFail?: () => void): void {
-    if (typeof wx !== 'undefined' && wx.createRewardedVideoAd) {
+    if (typeof wx !== 'undefined' && wx.createRewardedVideoAd && WeChatService.adUnitId && WeChatService.adUnitId.indexOf('demo') < 0) {
       try {
         let videoAd: any = (WeChatService as any)._videoAd;
         if (!videoAd) {
@@ -119,27 +127,32 @@ export class WeChatService {
 
     if (wx.onShareAppMessage) {
       wx.onShareAppMessage(() => ({
-        title: '我在《浮岛流光》深空光线解谜，快来挑战高阶立体光路偏转！',
-        imageUrl: '',
+        title: '3秒上手的光路解谜：来《浮岛流光》接上这束光！',
       }));
     }
 
     if (wx.onShareTimeline) {
       wx.onShareTimeline(() => ({
-        title: '《浮岛流光》休闲益智解谜小游戏，开启你的高光时刻！',
+        title: '《浮岛流光》休闲光路解谜，看看你能几步通关',
       }));
     }
   }
 
   static checkLaunchQuery(
     onOpenLevel?: (levelId: number) => void,
-    onOpenResidual?: (residualStr: string) => void
+    onOpenResidual?: (residualStr: string) => void,
+    onResidualDone?: (assistId: string) => void,
+    onOpenDaily?: () => void
   ): void {
     if (typeof wx === 'undefined') return;
 
     const handleQuery = (query: any) => {
       if (!query) return;
-      if (query.residual && typeof query.residual === 'string' && onOpenResidual) {
+      if (query.assistDone && typeof query.assistDone === 'string' && onResidualDone) {
+        onResidualDone(this.safeDecodeQueryValue(query.assistDone));
+      } else if (query.daily && onOpenDaily) {
+        onOpenDaily();
+      } else if (query.residual && typeof query.residual === 'string' && onOpenResidual) {
         onOpenResidual(query.residual);
       } else if (query.level && onOpenLevel) {
         const lvlId = parseInt(query.level as string, 10);
@@ -237,4 +250,3 @@ export class WeChatService {
     }
   }
 }
-

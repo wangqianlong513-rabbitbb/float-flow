@@ -1,7 +1,8 @@
 import { _decorator, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UITransform, Vec3 } from 'cc';
 import { WeChatService } from '../wx/WeChatService';
-import { ShareService } from '../wx/ShareService';
 import { AdService } from '../wx/AdService';
+import { ProfileManager } from '../core/ProfileManager';
+import type { FailureShareSummary } from './GameRoot';
 
 const { ccclass } = _decorator;
 
@@ -9,9 +10,14 @@ const { ccclass } = _decorator;
 export class ReviveModal extends Component {
   public onReviveCallback?: () => void;
   public onGiveUpCallback?: () => void;
+  public onShareHelpCallback?: () => void;
 
   private dialogNode: Node | null = null;
   private shockwaveNode: Node | null = null;
+  private titleLabel: Label | null = null;
+  private subLabel: Label | null = null;
+  private shareTextLabel: Label | null = null;
+  private footerTipLabel: Label | null = null;
 
   protected onLoad(): void {
     console.log('[FloatFlow] ReviveModal onLoad');
@@ -67,11 +73,19 @@ export class ReviveModal extends Component {
     this.createFooter(dialog);
   }
 
-  public show(): void {
+  public show(summary?: FailureShareSummary): void {
     console.log('[ReviveModal] show()');
     this.node.active = true;
+    if (summary) {
+      if (this.titleLabel) this.titleLabel.string = summary.isNearGoal ? '只差一步！' : '光路断开！';
+      if (this.subLabel) this.subLabel.string = `第 ${summary.levelId} 关 · 已走 ${summary.moves} 步 · 剩 ${summary.handCount} 张手牌`;
+      if (this.shareTextLabel) this.shareTextLabel.string = summary.isNearGoal ? '发好友帮我接上最后一束光' : '发好友帮我破解残局';
+      if (this.footerTipLabel) this.footerTipLabel.string = `好友打开就是当前残局，助攻成功你们都得晶核`;
+    }
     WeChatService.vibrateShort('heavy');
-    if (this.dialogNode) {
+    if (this.dialogNode && ProfileManager.isPowerSaveMode()) {
+      this.dialogNode.setScale(new Vec3(1, 1, 1));
+    } else if (this.dialogNode) {
       this.dialogNode.setScale(new Vec3(0.6, 0.6, 1));
       tween(this.dialogNode)
         .to(0.35, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
@@ -132,8 +146,8 @@ export class ReviveModal extends Component {
     ag.fill();
 
     // Title & Subtitle
-    this.createLabel(bannerRoot, 'Title', new Vec3(0, 25, 0), '即将坠落！', 32, '#FF4B3E', 360, 44);
-    this.createLabel(bannerRoot, 'Sub', new Vec3(0, -16, 0), '呼叫时空导师救我一命吧！', 16, '#A5F3FC', 380, 26);
+    this.titleLabel = this.createLabel(bannerRoot, 'Title', new Vec3(0, 25, 0), '只差一步！', 32, '#FF4B3E', 360, 44);
+    this.subLabel = this.createLabel(bannerRoot, 'Sub', new Vec3(0, -16, 0), '把残局发给好友，打开就能帮你接光', 16, '#A5F3FC', 380, 26);
   }
 
   private createCrashSitePreview(parent: Node): void {
@@ -193,31 +207,53 @@ export class ReviveModal extends Component {
     sg.circle(0, 0, 14);
     sg.stroke();
 
-    // Pulse animation
-    tween(shockRoot)
-      .to(0.6, { scale: new Vec3(1.2, 1.2, 1) }, { easing: 'sineInOut' })
-      .to(0.6, { scale: new Vec3(0.9, 0.9, 1) }, { easing: 'sineInOut' })
-      .union()
-      .repeatForever()
-      .start();
+    if (!ProfileManager.isPowerSaveMode()) {
+      tween(shockRoot)
+        .to(0.6, { scale: new Vec3(1.2, 1.2, 1) }, { easing: 'sineInOut' })
+        .to(0.6, { scale: new Vec3(0.9, 0.9, 1) }, { easing: 'sineInOut' })
+        .union()
+        .repeatForever()
+        .start();
+    }
   }
 
   private createActionButtons(parent: Node): void {
-    // 1. Primary Button: [ 🎬 视频广告免费复活 ] at Y = -75
-    const adReviveBtn = this.createNode('AdReviveBtn', new Vec3(0, -75, 0), parent);
-    this.ensureTransform(adReviveBtn, 380, 64);
+    const shareBtn = this.createNode('WeChatShareBtn', new Vec3(0, -75, 0), parent);
+    this.ensureTransform(shareBtn, 400, 66);
+    const sg = shareBtn.addComponent(Graphics);
+    sg.fillColor = this.hex('#10B981');
+    ((sg.fillColor) as any).a = 245;
+    sg.roundRect(-200, -33, 400, 66, 22);
+    sg.fill();
+    sg.strokeColor = this.hex('#FFFFFF');
+    sg.lineWidth = 2.6;
+    sg.stroke();
+
+    this.createLabel(shareBtn, 'Icon', new Vec3(-132, 1, 0), '💬', 24, '#FFFFFF', 44, 42);
+    this.shareTextLabel = this.createLabel(shareBtn, 'Text', new Vec3(18, 0, 0), '发好友帮我接上最后一束光', 19, '#FFFFFF', 270, 32);
+
+    shareBtn.on(Node.EventType.TOUCH_END, () => {
+      console.log('[ReviveModal] Clicked WeChat Share Help');
+      WeChatService.vibrateShort('light');
+      if (this.onShareHelpCallback) {
+        this.onShareHelpCallback();
+      }
+      WeChatService.showToast('已生成差一步求助海报，等好友接光！', 'success');
+    });
+
+    const adReviveBtn = this.createNode('AdReviveBtn', new Vec3(0, -150, 0), parent);
+    this.ensureTransform(adReviveBtn, 360, 52);
     const ag = adReviveBtn.addComponent(Graphics);
-    // Vibrant Neon Cyan/Blue Hero Button
     ag.fillColor = this.hex('#00E5FF');
-    ((ag.fillColor) as any).a = 245;
-    ag.roundRect(-190, -32, 380, 64, 20);
+    ((ag.fillColor) as any).a = 205;
+    ag.roundRect(-180, -26, 360, 52, 18);
     ag.fill();
-    ag.strokeColor = this.hex('#FFFFFF');
-    ag.lineWidth = 2.5;
+    ag.strokeColor = this.hex('#A5F3FC');
+    ag.lineWidth = 2.0;
     ag.stroke();
 
-    this.createLabel(adReviveBtn, 'Icon', new Vec3(-120, 2, 0), '🎬', 24, '#131C39', 50, 50);
-    this.createLabel(adReviveBtn, 'Text', new Vec3(15, 0, 0), '视频广告免费复活', 20, '#131C39', 240, 36);
+    this.createLabel(adReviveBtn, 'Icon', new Vec3(-112, 1, 0), '🎬', 21, '#131C39', 44, 38);
+    this.createLabel(adReviveBtn, 'Text', new Vec3(12, 0, 0), '看广告立即复活', 18, '#131C39', 230, 30);
 
     adReviveBtn.on(Node.EventType.TOUCH_END, () => {
       console.log('[ReviveModal] Clicked Ad Revive');
@@ -232,28 +268,14 @@ export class ReviveModal extends Component {
       });
     });
 
-    // 2. Secondary Button: [ 💬 分享给微信好友求助 ] at Y = -150
-    const shareBtn = this.createNode('WeChatShareBtn', new Vec3(0, -150, 0), parent);
-    this.ensureTransform(shareBtn, 380, 54);
-    const sg = shareBtn.addComponent(Graphics);
-    sg.fillColor = this.hex('#10B981');
-    ((sg.fillColor) as any).a = 230;
-    sg.roundRect(-190, -27, 380, 54, 18);
-    sg.fill();
-    sg.strokeColor = this.hex('#6EE7B7');
-    sg.lineWidth = 2;
-    sg.stroke();
-
-    this.createLabel(shareBtn, 'Icon', new Vec3(-120, 1, 0), '💬', 22, '#FFFFFF', 40, 40);
-    this.createLabel(shareBtn, 'Text', new Vec3(15, 0, 0), '微信群好友求助救场', 18, '#FFFFFF', 240, 30);
-
-    shareBtn.on(Node.EventType.TOUCH_END, () => {
-      console.log('[ReviveModal] Clicked WeChat Share -> Trigger Revive!');
-      WeChatService.vibrateShort('light');
-      ShareService.sharePoster({ id: 1, name: '好友求助续光' } as any, '紧急救场请求接力');
-      WeChatService.showToast('正在邀请微信好友续命...', 'success');
-      this.triggerReviveTransition();
-    });
+    if (!ProfileManager.isPowerSaveMode()) {
+      tween(shareBtn)
+        .to(0.75, { scale: new Vec3(1.04, 1.04, 1) }, { easing: 'sineInOut' })
+        .to(0.75, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' })
+        .union()
+        .repeatForever()
+        .start();
+    }
   }
 
   private triggerReviveTransition(): void {
@@ -290,7 +312,7 @@ export class ReviveModal extends Component {
     });
 
     // Footer tip text at Y = -260
-    this.createLabel(parent, 'FooterTip', new Vec3(0, -260, 0), '好友帮你不按套路出牌后可复活并获得无敌光环3秒', 13, '#64748B', 420, 24);
+    this.footerTipLabel = this.createLabel(parent, 'FooterTip', new Vec3(0, -260, 0), '好友帮你不按套路出牌后可复活并获得无敌光环3秒', 13, '#64748B', 420, 24);
   }
 
   private drawIsometricBlock(

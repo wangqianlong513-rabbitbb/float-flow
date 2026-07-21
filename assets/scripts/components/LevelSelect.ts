@@ -133,8 +133,7 @@ export class LevelSelect extends Component {
         } else {
           console.log(`[LevelSelect] Switch Chapter to ${tab.idx}`);
           this.currentChapter = tab.idx;
-          this.renderTabs();
-          this.renderGrid(this.currentChapter);
+          this.rebuildUI();
         }
       });
     });
@@ -206,12 +205,14 @@ export class LevelSelect extends Component {
           g.lineWidth = 4.5;
           g.stroke();
 
-          tween(card)
-            .to(1.4, { scale: new Vec3(1.038, 1.038, 1) }, { easing: 'sineInOut' })
-            .to(1.4, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'sineInOut' })
-            .union()
-            .repeatForever()
-            .start();
+          if (!ProfileManager.isPowerSaveMode()) {
+            tween(card)
+              .to(1.4, { scale: new Vec3(1.038, 1.038, 1) }, { easing: 'sineInOut' })
+              .to(1.4, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'sineInOut' })
+              .union()
+              .repeatForever()
+              .start();
+          }
         } else {
           g.fillColor = this.hex('#0D162C');
           ((g.fillColor) as any).a = 236;
@@ -257,21 +258,21 @@ export class LevelSelect extends Component {
           if (status === 'COMPLETED') {
             const starStr = stars === 3 ? '★ ★ ★' : (stars === 2 ? '★ ★ ☆' : '★ ☆ ☆');
             this.createLabel(card, 'Stars', new Vec3(0, -56, 0), starStr, 20, '#FDE047', 170, 34);
-            this.createLabel(card, 'BannerText', new Vec3(0, 82, 0), '✔ 已通过 · 3星', 14, '#93C5FD', 260, 24);
+            this.createLabel(card, 'BannerText', new Vec3(0, 82, 0), '3星达成', 14, '#93C5FD', 160, 24);
           } else {
             this.createLabel(card, 'ActiveText', new Vec3(0, -56, 0), '★ 正在挑战中 ★', 20, activeBorder, 170, 34);
-            this.createLabel(card, 'BannerText', new Vec3(0, 82, 0), '🔥 当前进度关卡 · CURRENT 🔥', 14, '#FFFFFF', 300, 24);
+            this.createLabel(card, 'BannerText', new Vec3(0, 82, 0), '当前挑战 · 接上这束光', 14, '#FFFFFF', 300, 24);
           }
         }
 
         this.addClick(card, () => {
           if (status === 'LOCKED') {
+            WeChatService.showToast('先通关前面的光路，再解锁这里！', 'none');
             return;
           }
           console.log(`[LevelSelect] Selected Level ${levelNum} (Index: ${globalIdx})`);
           if (this.onSelectLevelCallback) {
-            const targetIdx = globalIdx % 10;
-            this.onSelectLevelCallback(targetIdx);
+            this.onSelectLevelCallback(globalIdx);
           }
         });
       }
@@ -328,7 +329,8 @@ export class LevelSelect extends Component {
       if (this.onReturnHomeCallback) this.onReturnHomeCallback();
     });
 
-    this.createLabel(navRoot, 'Title', new Vec3(-80, 1, 0), '关卡选择 · 冰原章节', 22, '#FFFFFF', 210, 42);
+    const title = this.currentChapter === 0 ? '关卡选择 · 冰原章节' : '关卡选择 · 暮色章节';
+    this.createLabel(navRoot, 'Title', new Vec3(-80, 1, 0), title, 22, '#FFFFFF', 210, 42);
 
     const starPill = this.createNode('StarPill', new Vec3(95, 0, 0), navRoot);
     this.ensureTransform(starPill, 136, 50);
@@ -339,7 +341,10 @@ export class LevelSelect extends Component {
     sg.strokeColor = this.hex('#FDE047');
     sg.lineWidth = 2.4;
     sg.stroke();
-    this.createLabel(starPill, 'Text', new Vec3(0, 1, 0), '★ 22/30', 19, '#FDE047', 126, 38);
+    const profile = ProfileManager.getProfile();
+    const chapterStart = this.currentChapter * 10;
+    const completed = Math.max(0, Math.min(10, profile.levelProgress - chapterStart));
+    this.createLabel(starPill, 'Text', new Vec3(0, 1, 0), `★ ${completed * 3}/30`, 19, '#FDE047', 126, 38);
   }
 
   private createFooter(halfH: number): void {
@@ -360,7 +365,24 @@ export class LevelSelect extends Component {
     g.lineWidth = 2.2;
     g.stroke();
 
-    this.createLabel(footerRoot, 'ProgText', new Vec3(0, 1, 0), '🌟  章节探索进度:  8 / 10 关卡   |   累积获得星徽:  22 / 30 ★', 18, borderCol, 660, 40);
+    const profile = ProfileManager.getProfile();
+    const chapterStart = this.currentChapter * 10;
+    const completed = Math.max(0, Math.min(10, profile.levelProgress - chapterStart));
+    const progress = completed / 10;
+    const nextHint = completed >= 10
+      ? (this.currentChapter === 0 ? '暮色章节已开启，继续解锁新机制！' : '本章已全通，去无尽模式冲榜！')
+      : `再通 ${10 - completed} 关解锁本章满星奖励`;
+    this.createLabel(footerRoot, 'ProgText', new Vec3(0, 10, 0), `章节进度 ${completed}/10 · 星徽 ${completed * 3}/30 ★ · ${nextHint}`, 16, borderCol, 660, 28);
+
+    const barBg = this.createNode('ProgressBarBg', new Vec3(0, -16, 0), footerRoot);
+    this.ensureTransform(barBg, 560, 10);
+    const bg = barBg.addComponent(Graphics);
+    bg.fillColor = this.hex('#111827');
+    bg.roundRect(-280, -5, 560, 10, 5);
+    bg.fill();
+    bg.fillColor = this.hex(borderCol);
+    bg.roundRect(-280, -5, 560 * progress, 10, 5);
+    bg.fill();
   }
 
   private drawIsometricBlock(

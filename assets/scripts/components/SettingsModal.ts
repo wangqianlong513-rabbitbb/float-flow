@@ -1,4 +1,7 @@
 import { _decorator, Button, Color, Component, EventTouch, Graphics, Label, Layers, Node, UITransform, Vec3 } from 'cc';
+import { ProfileManager } from '../core/ProfileManager';
+import { WeChatService } from '../wx/WeChatService';
+import { AnalyticsService } from '../wx/AnalyticsService';
 
 const { ccclass } = _decorator;
 
@@ -6,11 +9,13 @@ const { ccclass } = _decorator;
 export class SettingsModal extends Component {
   public onCloseCallback?: () => void;
   public onThemeChangedCallback?: (themeIndex: number) => void;
+  public onPowerSaveChangedCallback?: (enabled: boolean) => void;
 
   private activeTab = 0; // 0: Theme, 1: Gameplay Rules, 2: About
-  private selectedTheme = 0; // 0: Icefield, 1: Violet Dusk, 2: Sunset Glow
+  private selectedTheme = ProfileManager.getProfile().selectedTheme || 0; // 0: Icefield, 1: Violet Dusk, 2: Sunset Glow
   private bulletTimeSpeed = 1; // 0: Slow (25%), 1: Normal (50%), 2: Fast (100%)
   private selectedQuality = 2; // 0: Smooth, 1: Balanced, 2: HD
+  private powerSaveMode = ProfileManager.isPowerSaveMode();
 
   private dialogNode: Node | null = null;
   private tabsRoot: Node | null = null;
@@ -186,14 +191,15 @@ export class SettingsModal extends Component {
     this.createLabel(parent, 'SubTitle', new Vec3(-200, 140, 0), '✨ 选择宇宙背景主题与配色：', 19, '#93C5FD', 280, 32);
 
     const themes = [
-      { name: '极光冰原', desc: '经典深蓝紫流光', top: '#2563EB', side: '#1E3A8A', border: '#00F0FF' },
-      { name: '暮色罗兰', desc: '高雅紫魅玫瑰光', top: '#7C3AED', side: '#581C87', border: '#C4B5FD' },
-      { name: '落日余晖', desc: '暗红日落金橙光', top: '#C2410C', side: '#7C2D12', border: '#FBBF24' }
+      { name: '极光冰原', desc: '默认解锁', top: '#2563EB', side: '#1E3A8A', border: '#00F0FF', cost: 0 },
+      { name: '暮色罗兰', desc: '300晶核解锁', top: '#7C3AED', side: '#581C87', border: '#C4B5FD', cost: 300 },
+      { name: '落日余晖', desc: '分享/500晶核', top: '#C2410C', side: '#7C2D12', border: '#FBBF24', cost: 500 }
     ];
 
     const cardXs = [-200, 0, 200];
     themes.forEach((th, idx) => {
       const isSelected = this.selectedTheme === idx;
+      const isUnlocked = ProfileManager.isThemeUnlocked(idx);
       const card = this.createNode(`Theme_${idx}`, new Vec3(cardXs[idx], 40, 0), parent);
       this.ensureTransform(card, 170, 140);
 
@@ -202,15 +208,15 @@ export class SettingsModal extends Component {
       ((g.fillColor) as ((any)) as any).a = 230;
       g.roundRect(-85, -70, 170, 140, 16);
       g.fill();
-      g.strokeColor = isSelected ? this.hex(th.border) : this.hex('#334155');
+      g.strokeColor = isSelected ? this.hex(th.border) : (isUnlocked ? this.hex('#334155') : this.hex('#64748B'));
       g.lineWidth = isSelected ? 3 : 1.5;
       g.stroke();
 
       // Draw 3D isometric mini cube
       this.drawIsometricBlock(g, this.hex(th.top), this.hex(th.side), this.hex('#0F172A'), this.hex(th.border), 1.5, 12, 48, 28, 15, 0);
 
-      this.createLabel(card, 'Name', new Vec3(0, -25, 0), th.name, 21, isSelected ? '#FFFFFF' : '#CBD5E1', 150, 28);
-      this.createLabel(card, 'Desc', new Vec3(0, -49, 0), th.desc, 15, '#64748B', 150, 22);
+      this.createLabel(card, 'Name', new Vec3(0, -25, 0), th.name, 21, isSelected ? '#FFFFFF' : (isUnlocked ? '#CBD5E1' : '#94A3B8'), 150, 28);
+      this.createLabel(card, 'Desc', new Vec3(0, -49, 0), isUnlocked ? th.desc : `解锁 ${th.cost}💎`, 15, isUnlocked ? '#64748B' : '#FDE047', 150, 22);
 
       if (isSelected) {
         const badge = this.createNode('Badge', new Vec3(65, 50, 0), card);
@@ -220,12 +226,33 @@ export class SettingsModal extends Component {
         bg.circle(0, 0, 12);
         bg.fill();
         this.createLabel(badge, 'Check', new Vec3(0, 1, 0), '✔', 14, '#000000', 24, 24);
+      } else if (!isUnlocked) {
+        const lock = this.createNode('LockBadge', new Vec3(65, 50, 0), card);
+        this.ensureTransform(lock, 38, 24);
+        const lg = lock.addComponent(Graphics);
+        lg.fillColor = this.hex('#451A03');
+        lg.roundRect(-19, -12, 38, 24, 10);
+        lg.fill();
+        lg.strokeColor = this.hex('#FDE047');
+        lg.lineWidth = 1.3;
+        lg.stroke();
+        this.createLabel(lock, 'Lock', new Vec3(0, 1, 0), '锁', 13, '#FDE047', 30, 18);
       }
 
       this.addClick(card, () => {
+        if (!ProfileManager.isThemeUnlocked(idx)) {
+          if (!ProfileManager.unlockTheme(idx, th.cost)) {
+            WeChatService.showToast(`晶核不足，还差 ${Math.max(0, th.cost - ProfileManager.getProfile().diamonds)} 💎`, 'none');
+            return;
+          }
+          AnalyticsService.track('theme_unlock', { theme: idx, cost: th.cost });
+          WeChatService.showToast(`${th.name} 已解锁！`, 'success');
+        }
         if (this.selectedTheme !== idx) {
           console.log(`[SettingsModal] Selected Theme ${th.name}`);
           this.selectedTheme = idx;
+          ProfileManager.setSelectedTheme(idx);
+          AnalyticsService.track('theme_apply', { theme: idx });
           this.updateDialogStyle();
           this.renderTabs();
           this.renderContent();
@@ -269,13 +296,12 @@ export class SettingsModal extends Component {
       });
     });
 
-    // Graphics Quality Selector Row Container (Y = -135)
-    const qRow = this.createNode('QRow', new Vec3(0, -135, 0), parent);
-    this.ensureTransform(qRow, 580, 52);
+    const qRow = this.createNode('QRow', new Vec3(0, -120, 0), parent);
+    this.ensureTransform(qRow, 580, 48);
     const qG = qRow.addComponent(Graphics);
     qG.fillColor = this.hex('#1E293B');
     ((qG.fillColor) as ((any)) as any).a = 150;
-    qG.roundRect(-290, -26, 580, 52, 14);
+    qG.roundRect(-290, -24, 580, 48, 14);
     qG.fill();
     qG.strokeColor = this.hex('#334155');
     qG.lineWidth = 1.2;
@@ -297,8 +323,42 @@ export class SettingsModal extends Component {
       this.createLabel(btn, 'Text', new Vec3(0, 1, 0), q, 16, isSel ? '#FFFFFF' : '#94A3B8', 118, 28);
       this.addClick(btn, () => {
         this.selectedQuality = i;
+        if (i === 0 && !this.powerSaveMode) {
+          this.powerSaveMode = true;
+          ProfileManager.setPowerSaveMode(true);
+          if (this.onPowerSaveChangedCallback) this.onPowerSaveChangedCallback(true);
+        }
         this.renderContent();
       });
+    });
+
+    const pRow = this.createNode('PowerSaveRow', new Vec3(0, -176, 0), parent);
+    this.ensureTransform(pRow, 580, 48);
+    const pG = pRow.addComponent(Graphics);
+    pG.fillColor = this.hex(this.powerSaveMode ? '#14532D' : '#1E293B');
+    ((pG.fillColor) as any).a = this.powerSaveMode ? 210 : 150;
+    pG.roundRect(-290, -24, 580, 48, 14);
+    pG.fill();
+    pG.strokeColor = this.hex(this.powerSaveMode ? '#86EFAC' : '#334155');
+    pG.lineWidth = 1.5;
+    pG.stroke();
+
+    this.createLabel(pRow, 'PowerLabel', new Vec3(-172, 0, 0), '省电流畅模式', 18, '#93C5FD', 170, 28);
+    this.createLabel(pRow, 'PowerDesc', new Vec3(35, 0, 0), this.powerSaveMode ? '已减少粒子/辉光/循环动效' : '低配安卓建议开启', 15, this.powerSaveMode ? '#BBF7D0' : '#94A3B8', 240, 26);
+    const toggle = this.createNode('PowerToggle', new Vec3(236, 0, 0), pRow);
+    this.ensureTransform(toggle, 78, 34);
+    const tg = toggle.addComponent(Graphics);
+    tg.fillColor = this.hex(this.powerSaveMode ? '#10B981' : '#334155');
+    tg.roundRect(-39, -17, 78, 34, 17);
+    tg.fill();
+    tg.fillColor = this.hex('#FFFFFF');
+    tg.circle(this.powerSaveMode ? 20 : -20, 0, 13);
+    tg.fill();
+    this.addClick(pRow, () => {
+      this.powerSaveMode = !this.powerSaveMode;
+      ProfileManager.setPowerSaveMode(this.powerSaveMode);
+      if (this.onPowerSaveChangedCallback) this.onPowerSaveChangedCallback(this.powerSaveMode);
+      this.renderContent();
     });
   }
 

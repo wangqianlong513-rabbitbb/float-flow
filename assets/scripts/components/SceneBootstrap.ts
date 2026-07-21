@@ -1,5 +1,6 @@
-import { _decorator, Button, Color, Component, Graphics, Label, Layers, Node, ResolutionPolicy, UITransform, Vec3, view } from 'cc';
+import { _decorator, Button, Color, Component, Graphics, Label, Layers, Node, ResolutionPolicy, tween, UITransform, Vec3, view } from 'cc';
 import { GameRoot } from './GameRoot';
+import type { FailureShareSummary } from './GameRoot';
 import { HomeRoot } from './HomeRoot';
 import { LevelSelect } from './LevelSelect';
 import { ReviveModal } from './ReviveModal';
@@ -7,6 +8,9 @@ import { SettingsModal } from './SettingsModal';
 import { VictoryPoster } from './VictoryPoster';
 import { WeChatService } from '../wx/WeChatService';
 import { ProfileManager } from '../core/ProfileManager';
+import { AdService } from '../wx/AdService';
+import { CloudGameService } from '../wx/CloudGameService';
+import { AnalyticsService } from '../wx/AnalyticsService';
 
 declare const wx: any;
 
@@ -21,12 +25,20 @@ export class SceneBootstrap extends Component {
   private reviveModalRootNode: Node | null = null;
   private victoryPosterRootNode: Node | null = null;
   private bgGraphicsNode: Graphics | null = null;
-  private currentTheme = 0; // 0: Icefield, 1: Violet Dusk, 2: Sunset Glow
+  private currentTheme = ProfileManager.getProfile().selectedTheme || 0; // 0: Icefield, 1: Violet Dusk, 2: Sunset Glow
+  private powerSaveMode = ProfileManager.isPowerSaveMode();
 
   private closeAllModals(): void {
     if (this.settingsModalRootNode) this.settingsModalRootNode.active = false;
     if (this.reviveModalRootNode) this.reviveModalRootNode.active = false;
     if (this.victoryPosterRootNode) this.victoryPosterRootNode.active = false;
+    const home = this.homePageRoot?.getComponent(HomeRoot);
+    if (home) home.closePopup();
+  }
+
+  private openExclusiveModal(modalRoot: Node | null): void {
+    this.closeAllModals();
+    if (modalRoot) modalRoot.active = true;
   }
 
   private applyTheme(themeIdx: number): void {
@@ -89,7 +101,9 @@ export class SceneBootstrap extends Component {
       g.fill();
     }
 
-    this.drawBackgroundDecorations(g, themeIdx);
+    if (!this.powerSaveMode) {
+      this.drawBackgroundDecorations(g, themeIdx);
+    }
 
     if (this.homePageRoot) {
       const home = this.homePageRoot.getComponent(HomeRoot);
@@ -107,6 +121,15 @@ export class SceneBootstrap extends Component {
       const settings = this.settingsModalRootNode.getComponent(SettingsModal);
       if (settings) settings.applyTheme(themeIdx);
     }
+  }
+
+  private applyPowerSaveMode(enabled: boolean): void {
+    this.powerSaveMode = enabled;
+    const home = this.homePageRoot?.getComponent(HomeRoot);
+    if (home) home.applyPowerSaveMode(enabled);
+    const game = this.gamePageRoot?.getComponent(GameRoot);
+    if (game) game.applyPowerSaveMode(enabled);
+    this.applyTheme(this.currentTheme);
   }
 
   private drawBackgroundDecorations(graphics: Graphics, themeIdx: number): void {
@@ -205,6 +228,7 @@ export class SceneBootstrap extends Component {
   protected onLoad(): void {
     console.log('[FloatFlow] SceneBootstrap onLoad');
     WeChatService.initShareMenu();
+    AdService.init(WeChatService.adUnitId);
     view.setDesignResolutionSize(720, 1558, ResolutionPolicy.FIXED_WIDTH);
     const visibleSize = view.getVisibleSize();
     const root = this.node;
@@ -222,6 +246,8 @@ export class SceneBootstrap extends Component {
     const homePage = this.createRoot('HomePage', new Vec3(0, 0, 0));
     this.homePageRoot = homePage;
     const home = homePage.addComponent(HomeRoot);
+    home.applyTheme(this.currentTheme);
+    home.applyPowerSaveMode(this.powerSaveMode);
 
     // 2. Game Page Root (Hidden by default until player starts a game!)
     const gamePage = this.createRoot('GamePage', new Vec3(0, 0, 0));
@@ -259,36 +285,50 @@ export class SceneBootstrap extends Component {
     const levelLabel = this.createTopNav(uiRoot, new Vec3(0, halfH - capsuleYOffset, 0));
 
     // 2. Bottom Card Deck Background tightly matching CardRoot at Y = -halfH + 260
-    this.createBottomDeck(uiRoot, new Vec3(0, -halfH + 260, 0));
+    const bottomDeckGraphics = this.createBottomDeck(uiRoot, new Vec3(0, -halfH + 260, 0));
 
-    // 3. 提示字条 与 状态文本 (整体下移并拉开间距，解决文字重叠)
+    // 3. 状态胶囊 与 提示文本：把时空缓冲从按钮行上移，避免底部工具区拥挤。
     const tipPill = this.createRoot('TipPill', new Vec3(0, -halfH + 495, 0), uiRoot); // 下移
-    this.ensureTransform(tipPill, 540, 36);
+    this.ensureTransform(tipPill, 610, 38);
     const tg = tipPill.addComponent(Graphics);
     tg.fillColor = this.hex('#080E24');
     ((tg.fillColor) as any).a = 150;
-    tg.roundRect(-270, -18, 540, 36, 18);
+    tg.roundRect(-305, -19, 610, 38, 19);
     tg.fill();
-    const tipLabel = this.createLabel(tipPill, 'TipLabel', new Vec3(0, 1, 0), '💡 提示：拖拽手牌触发子弹时间减速 | 点击地图水晶旋转', 17, '#A5F3FC', 520, 32);
+    const tipLabel = this.createLabel(tipPill, 'TipLabel', new Vec3(-96, 1, 0), '手数 0/5 · 救场 3', 17, '#A5F3FC', 380, 32);
+    const btMeter = this.createBulletTimeMeter(tipPill, new Vec3(218, 0, 0));
 
-    const statusLabel = this.createLabel(uiRoot, 'StatusLabel', new Vec3(0, -halfH + 450, 0), '拖动手牌到地图放置', 22, '#60A5FA', 680, 36); // 下移
+    const statusToast = this.createRoot('StatusToast', new Vec3(0, -halfH + 450, 0), uiRoot);
+    this.ensureTransform(statusToast, 610, 42);
+    const stg = statusToast.addComponent(Graphics);
+    stg.fillColor = this.hex('#061128');
+    ((stg.fillColor) as any).a = 210;
+    stg.roundRect(-305, -21, 610, 42, 21);
+    stg.fill();
+    stg.strokeColor = this.hex('#38BDF8');
+    ((stg.strokeColor) as any).a = 160;
+    stg.lineWidth = 1.6;
+    stg.stroke();
+    const statusLabel = this.createLabel(statusToast, 'StatusLabel', new Vec3(0, 1, 0), '拖动手牌到地图放置', 20, '#A5F3FC', 580, 34);
+    statusToast.active = false;
 
     const game = gamePage.getComponent(GameRoot) ?? gamePage.addComponent(GameRoot);
     game.boardRoot = boardRoot;
     game.previewRoot = previewRoot;
     game.runnerRoot = runnerRoot;
     game.cardRoot = cardRoot;
+    game.bottomDeckGraphics = bottomDeckGraphics;
     game.levelLabel = levelLabel;
     game.tipLabel = tipLabel;
     game.statusLabel = statusLabel;
+    game.applyPowerSaveMode(this.powerSaveMode);
 
-    // 4. 下方横排辅助操作区 ActionRow (下移至 -halfH + 395 消除与文字重叠)
+    // 4. 下方横排辅助操作区 ActionRow：只放可点击操作，状态进度已收纳到上方胶囊。
     const actionRow = this.createRoot('ActionRow', new Vec3(0, -halfH + 395, 0), uiRoot);
-    const btMeter = this.createBulletTimeMeter(actionRow, new Vec3(-220, 0, 0));
     game.bulletTimeNode = btMeter.node;
     game.bulletTimeGraphics = btMeter.graphics;
     game.bulletTimeValueLabel = btMeter.valueLabel;
-    this.createSideActionButtons(actionRow, game, new Vec3(65, 0, 0));
+    this.createSideActionButtons(actionRow, game, new Vec3(0, 0, 0));
 
     // 5. 底部操控中心：平时仅保留极具统治力的大巨幕“启动流光”按钮，隐藏次要常驻按钮
     this.createHeroButton(uiRoot, 'StartButton', new Vec3(0, -halfH + 90, 0), '★  启 动 流 光  [ 释放光速波 ]', () => game.startRunner());
@@ -300,6 +340,11 @@ export class SceneBootstrap extends Component {
     const settingsModal = settingsModalRoot.addComponent(SettingsModal);
     settingsModal.onThemeChangedCallback = (idx: number) => {
       this.applyTheme(idx);
+    };
+    settingsModal.onPowerSaveChangedCallback = (enabled: boolean) => {
+      AnalyticsService.track('power_save_toggle', { enabled });
+      this.applyPowerSaveMode(enabled);
+      WeChatService.showToast(enabled ? '已开启省电流畅模式' : '已恢复完整流光特效', 'success');
     };
 
     // 6. Revive Modal Root (Hidden by default!)
@@ -315,9 +360,13 @@ export class SceneBootstrap extends Component {
       console.log('[SceneBootstrap] Give up -> Restart level!');
       game.restartLevel();
     };
-    game.onShowReviveModalCallback = () => {
+    reviveModal.onShareHelpCallback = () => {
+      console.log('[SceneBootstrap] Share current residual for help!');
+      game.shareCurrentResidual();
+    };
+    game.onShowReviveModalCallback = (summary: FailureShareSummary) => {
       console.log('[SceneBootstrap] Show Revive Modal!');
-      reviveModal.show();
+      reviveModal.show(summary);
     };
 
     // 7. Level Select Root (Hidden by default!)
@@ -325,12 +374,15 @@ export class SceneBootstrap extends Component {
     levelSelectRoot.active = false;
     this.levelSelectRootNode = levelSelectRoot;
     const levelSelect = levelSelectRoot.addComponent(LevelSelect);
-    levelSelect.onSelectLevelCallback = (idx: number) => {
+    const journeyLevelCount = 20;
+
+    const startJourneyLevel = (idx: number, source: 'continue' | 'select' | 'share' = 'select') => {
+      const safeIndex = Math.max(0, Math.min(idx, journeyLevelCount - 1));
       const profile = ProfileManager.getProfile();
       if (profile.energy <= 0) {
         WeChatService.showModal({
           title: '时空能量耗尽',
-          content: '挑战旅途关卡需要消耗 1 点能量，当前能量不足！请在主页点击“时空蓄能”进行快速恢复。',
+          content: '挑战旅途关卡需要 1 点时空能量。去主页点“时空蓄能”，或先玩无尽模式也可以。',
           confirmText: '我知道了'
         });
         return;
@@ -338,17 +390,21 @@ export class SceneBootstrap extends Component {
       ProfileManager.addEnergy(-1);
 
       // Auto apply themed scene color based on level index
-      if (idx >= 10 && idx < 20) {
+      if (safeIndex >= 10 && safeIndex < 20) {
         this.applyTheme(1); // Theme 1: Violet Dusk
       } else {
         this.applyTheme(0); // Theme 0: Icefield
       }
 
-      console.log(`[SceneBootstrap] LevelSelect -> Start Level Index ${idx}!`);
+      console.log(`[SceneBootstrap] Start journey from ${source}, level index ${safeIndex}!`);
       this.closeAllModals();
+      homePage.active = false;
       levelSelectRoot.active = false;
       gamePage.active = true;
-      game.loadLevel(idx);
+      game.loadLevel(safeIndex);
+    };
+    levelSelect.onSelectLevelCallback = (idx: number) => {
+      startJourneyLevel(idx, 'select');
     };
     levelSelect.onReturnHomeCallback = () => {
       console.log('[SceneBootstrap] LevelSelect -> Return to HomePage!');
@@ -378,27 +434,49 @@ export class SceneBootstrap extends Component {
     victoryPoster.onNextLevelCallback = () => {
       console.log('[SceneBootstrap] VictoryPoster Next Level -> Load Next!');
       this.closeAllModals();
-      game.loadNextLevel();
+      const nextIndex = game.getLevelIndex() + 1;
+      if (nextIndex >= journeyLevelCount) {
+        gamePage.active = false;
+        levelSelectRoot.active = true;
+        WeChatService.showToast('旅途关卡已全通，去无尽模式冲榜吧！', 'success');
+        return;
+      }
+      startJourneyLevel(nextIndex, 'continue');
     };
-    game.onShowVictoryPosterCallback = (levelName: string, stars: number, moves: number) => {
+    game.onShowVictoryPosterCallback = (levelId: number, levelName: string, stars: number, moves: number) => {
       console.log(`[SceneBootstrap] Show Victory Poster for ${levelName}!`);
       victoryPosterRoot.active = true;
-      victoryPoster.showVictory(levelName, stars, moves);
+      victoryPoster.showVictory(levelId, levelName, stars, moves);
       // 对接：自动同步通关层级和分数至微信关系链排行榜云存储
-      const score = (game.getLevelIndex() + 1) * 10 + stars;
+      const score = levelName.indexOf('今日光路') !== -1 ? Math.max(10, 100 - moves * 8) : (game.getLevelIndex() + 1) * 10 + stars;
+      if (levelName.indexOf('今日光路') !== -1) {
+        const profile = ProfileManager.getProfile();
+        const rank = CloudGameService.getDailyLeaderboard(CloudGameService.getTodayKey(), profile.dailyChallengeBest || score, profile.dailyChallengeBestMoves || moves);
+        WeChatService.showToast(rank.hintText, 'none');
+      }
       WeChatService.uploadUserScore(game.getLevelIndex(), score);
     };
 
     // Connect Home Page to Game Page, Level Select & Settings!
+    home.onBeforeOpenPopup = () => {
+      this.closeAllModals();
+    };
     home.onOpenSettingsCallback = () => {
       console.log('[SceneBootstrap] Open Settings Modal!');
-      settingsModalRoot.active = true;
+      this.openExclusiveModal(settingsModalRoot);
     };
-    home.onStartJourneyCallback = () => {
-      console.log('[SceneBootstrap] Start Journey Mode -> Open LevelSelect!');
+    home.onOpenLevelSelectCallback = () => {
+      console.log('[SceneBootstrap] Open LevelSelect from hero island!');
       this.closeAllModals();
       homePage.active = false;
       levelSelectRoot.active = true;
+    };
+    home.onStartJourneyCallback = () => {
+      const profile = ProfileManager.getProfile();
+      const continueIndex = Math.max(0, Math.min(profile.levelProgress, journeyLevelCount - 1));
+      AnalyticsService.track('home_start_journey', { levelIndex: continueIndex });
+      console.log(`[SceneBootstrap] Start Journey Mode -> Continue Level ${continueIndex + 1}!`);
+      startJourneyLevel(continueIndex, 'continue');
     };
     home.onStartEndlessCallback = () => {
       console.log('[SceneBootstrap] Start Endless Mode -> Switch to GamePage!');
@@ -406,6 +484,14 @@ export class SceneBootstrap extends Component {
       homePage.active = false;
       gamePage.active = true;
       game.loadLevel(0, false, true);
+    };
+    home.onStartDailyCallback = () => {
+      console.log('[SceneBootstrap] Start Daily Challenge -> Switch to GamePage!');
+      this.closeAllModals();
+      homePage.active = false;
+      levelSelectRoot.active = false;
+      gamePage.active = true;
+      game.loadDailyChallenge();
     };
 
     WeChatService.checkLaunchQuery(
@@ -427,6 +513,27 @@ export class SceneBootstrap extends Component {
         if (this.levelSelectRootNode) this.levelSelectRootNode.active = false;
         gamePage.active = true;
         game.loadResidualFromShare(residualStr);
+      },
+      (assistId: string) => {
+        console.log(`[SceneBootstrap] Launch from solved residual assistId=${assistId}`);
+        const canClaim = CloudGameService.canClaimResidualRequesterReward(assistId);
+        const claimed = canClaim && ProfileManager.claimResidualHelpReward(assistId, 60);
+        if (claimed) {
+          CloudGameService.markResidualRequesterRewardClaimed(assistId);
+        }
+        WeChatService.showToast(claimed ? '好友已帮你接通，晶核 +60 💎' : '这份助攻奖励已领取或已过期', claimed ? 'success' : 'none');
+        this.closeAllModals();
+        if (this.homePageRoot) this.homePageRoot.active = true;
+        if (this.levelSelectRootNode) this.levelSelectRootNode.active = false;
+        gamePage.active = false;
+      },
+      () => {
+        console.log('[SceneBootstrap] Launch from daily challenge share');
+        this.closeAllModals();
+        if (this.homePageRoot) this.homePageRoot.active = false;
+        if (this.levelSelectRootNode) this.levelSelectRootNode.active = false;
+        gamePage.active = true;
+        game.loadDailyChallenge();
       }
     );
   }
@@ -448,7 +555,7 @@ export class SceneBootstrap extends Component {
     this.ensureTransform(node, 2560, 2560);
     const graphics = node.addComponent(Graphics);
     this.bgGraphicsNode = graphics;
-    this.applyTheme(0);
+    this.applyTheme(this.currentTheme);
   }
 
   private createTopNav(parent: Node, position: Vec3): Label {
@@ -468,8 +575,8 @@ export class SceneBootstrap extends Component {
     graphics.lineWidth = 2.0;
     graphics.stroke();
 
-    // Level Title Label inside TopNav (shifted left and width adjusted to fit within the narrower pill)
-    const levelLabel = this.createLabel(node, 'LevelLabel', new Vec3(-114, 0, 0), '旅途模式 · 5-12', 24, '#FFFFFF', 170, 40);
+    // Top nav only keeps navigation and level title; gameplay tools live in the thumb-friendly bottom toolbar.
+    const levelLabel = this.createLabel(node, 'LevelLabel', new Vec3(-20, 0, 0), '旅途模式 · 5-12', 22, '#FFFFFF', 360, 40);
 
     // Clickable Pause / Return to Home button!
     const homeReturnBtn = new Node('HomeReturnBtn');
@@ -499,54 +606,10 @@ export class SceneBootstrap extends Component {
       }
     });
 
-    // Clickable Hint button (opt-in Rewarded Video Ad)
-    const hintBtn = new Node('HintBtn');
-    hintBtn.layer = Layers.Enum.UI_2D;
-    hintBtn.setParent(node);
-    hintBtn.setPosition(new Vec3(28, 0, 0));
-    this.ensureTransform(hintBtn, 92, 50);
-    const hg = hintBtn.addComponent(Graphics);
-    hg.fillColor = this.hex('#1E3A8A');
-    hg.roundRect(-46, -25, 92, 50, 16);
-    hg.fill();
-    hg.strokeColor = this.hex('#60A5FA');
-    hg.lineWidth = 2.4;
-    hg.stroke();
-    this.createLabel(hintBtn, 'HintText', new Vec3(0, 1, 0), '💡 提示', 21, '#FFFFFF', 86, 38);
-    this.addClick(hintBtn, () => {
-      console.log('[SceneBootstrap] Clicked Hint button!');
-      if (this.gamePageRoot && this.gamePageRoot.active) {
-        const game = this.gamePageRoot.getComponent(GameRoot);
-        if (game) game.showGameplayHint();
-      }
-    });
-
-    // Clickable Share / Ask for Help button (shifted left to clear WeChat Capsule zone)
-    const shareBtn = new Node('ShareHelpBtn');
-    shareBtn.layer = Layers.Enum.UI_2D;
-    shareBtn.setParent(node);
-    shareBtn.setPosition(new Vec3(124, 0, 0));
-    this.ensureTransform(shareBtn, 92, 50);
-    const sg = shareBtn.addComponent(Graphics);
-    sg.fillColor = this.hex('#1D4ED8');
-    sg.roundRect(-46, -25, 92, 50, 16);
-    sg.fill();
-    sg.strokeColor = this.hex('#60A5FA');
-    sg.lineWidth = 2.4;
-    sg.stroke();
-    this.createLabel(shareBtn, 'ShareText', new Vec3(0, 1, 0), '★ 求助', 21, '#FFFFFF', 86, 38);
-    this.addClick(shareBtn, () => {
-      console.log('[SceneBootstrap] Clicked Share/Help button!');
-      if (this.gamePageRoot && this.gamePageRoot.active) {
-        const game = this.gamePageRoot.getComponent(GameRoot);
-        if (game) game.shareCurrentResidual();
-      }
-    });
-
     return levelLabel;
   }
 
-  private createBottomDeck(parent: Node, position: Vec3): void {
+  private createBottomDeck(parent: Node, position: Vec3): Graphics {
     const node = new Node('BottomDeck');
     node.layer = Layers.Enum.UI_2D;
     node.setParent(parent);
@@ -566,6 +629,7 @@ export class SceneBootstrap extends Component {
     graphics.strokeColor = this.hex('#60A5FA');
     graphics.lineWidth = 2.8;
     graphics.stroke();
+    return graphics;
   }
 
   private createBulletTimeMeter(parent: Node, position: Vec3): { node: Node; graphics: Graphics; valueLabel: Label } {
@@ -573,13 +637,13 @@ export class SceneBootstrap extends Component {
     node.layer = Layers.Enum.UI_2D;
     node.setParent(parent);
     node.setPosition(position);
-    this.ensureTransform(node, 136, 52);
+    this.ensureTransform(node, 150, 32);
 
     const g = node.addComponent(Graphics);
     // Graphics drawn dynamically in game.redrawBulletTimeMeter()
 
-    this.createLabel(node, 'Title', new Vec3(-30, 11, 0), '时空缓冲', 13, '#93C5FD', 70, 20);
-    const valueLabel = this.createLabel(node, 'Value', new Vec3(25, 1, 0), '⏱ 3.0s', 17, '#00F0FF', 80, 30);
+    this.createLabel(node, 'Title', new Vec3(-43, 0, 0), '缓冲', 13, '#93C5FD', 46, 24);
+    const valueLabel = this.createLabel(node, 'Value', new Vec3(26, 0, 0), '⏱ 3.0s', 16, '#00F0FF', 86, 26);
     return { node, graphics: g, valueLabel };
   }
 
@@ -588,39 +652,47 @@ export class SceneBootstrap extends Component {
     root.layer = Layers.Enum.UI_2D;
     root.setParent(parent);
     root.setPosition(position);
-    this.ensureTransform(root, 440, 56);
+    this.ensureTransform(root, 600, 56);
 
-    // 优化：把原本右侧竖着的“预览、撤回、清盘”移到下方横排，不仅释放右侧空间让棋盘放大，且与手牌操作连贯一致！
-    this.createSideActionButton(root, 'PreviewBtn', new Vec3(-148, 0, 0), '◎ 预 览', '#0D162C', '#00F0FF', '#60A5FA', () => {
+    // Same-row 3+2 grouping keeps the toolbar aligned while giving rescue actions a separate visual rhythm.
+    this.createSideActionButton(root, 'PreviewBtn', new Vec3(-227, 0, 0), 108, '◎ 预览', '#0D162C', '#00F0FF', '#60A5FA', () => {
       game.showRoutePreview();
     });
 
-    this.createSideActionButton(root, 'UndoBtn', new Vec3(0, 0, 0), '< 撤 回', '#0D162C', '#38BDF8', '#38BDF8', () => {
+    this.createSideActionButton(root, 'UndoBtn', new Vec3(-107, 0, 0), 108, '< 撤回', '#0D162C', '#38BDF8', '#38BDF8', () => {
       game.undoLastMove();
     });
 
-    this.createSideActionButton(root, 'EraseBtn', new Vec3(148, 0, 0), '× 清 盘', '#1E3A8A', '#FF4B3E', '#FF4B3E', () => {
+    this.createSideActionButton(root, 'EraseBtn', new Vec3(13, 0, 0), 108, '× 清盘', '#1E3A8A', '#FF4B3E', '#FF4B3E', () => {
       game.clearPlacedTiles();
+    });
+
+    this.createSideActionButton(root, 'HintBtn', new Vec3(135, 0, 0), 92, '💡 提示', '#172554', '#EAB308', '#FFFFFF', () => {
+      game.showGameplayHint();
+    });
+
+    this.createSideActionButton(root, 'ShareHelpBtn', new Vec3(237, 0, 0), 92, '★ 求助', '#1D4ED8', '#93C5FD', '#FFFFFF', () => {
+      game.shareCurrentResidual();
     });
   }
 
-  private createSideActionButton(parent: Node, name: string, pos: Vec3, labelStr: string, bgHex: string, borderHex: string, textHex: string, onClick: () => void): void {
+  private createSideActionButton(parent: Node, name: string, pos: Vec3, width: number, labelStr: string, bgHex: string, borderHex: string, textHex: string, onClick: () => void): void {
     const node = new Node(name);
     node.layer = Layers.Enum.UI_2D;
     node.setParent(parent);
     node.setPosition(pos);
-    this.ensureTransform(node, 136, 52);
+    this.ensureTransform(node, width, 52);
 
     const g = node.addComponent(Graphics);
     g.fillColor = this.hex(bgHex);
     ((g.fillColor) as any).a = 230;
-    g.roundRect(-68, -26, 136, 52, 22);
+    g.roundRect(-width / 2, -26, width, 52, 20);
     g.fill();
     g.strokeColor = this.hex(borderHex);
-    g.lineWidth = 2.4;
+    g.lineWidth = 2.0;
     g.stroke();
 
-    this.createLabel(node, 'Text', new Vec3(0, 1, 0), labelStr, 18, textHex, 126, 40);
+    this.createLabel(node, 'Text', new Vec3(0, 1, 0), labelStr, 17, textHex, width - 8, 36);
     this.addClick(node, onClick);
   }
 
@@ -683,6 +755,15 @@ export class SceneBootstrap extends Component {
     label.color = this.hex('#080E24');
 
     this.addClick(node, onClick);
+
+    if (!this.powerSaveMode) {
+      tween(node)
+        .to(1.1, { scale: new Vec3(1.035, 1.035, 1) }, { easing: 'sineInOut' })
+        .to(1.1, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'sineInOut' })
+        .union()
+        .repeatForever()
+        .start();
+    }
   }
 
   private createSecondaryButton(parent: Node, name: string, position: Vec3, text: string, onClick: () => void): void {
