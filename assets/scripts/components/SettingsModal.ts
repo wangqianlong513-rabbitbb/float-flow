@@ -374,13 +374,13 @@ export class SettingsModal extends Component {
     g.lineWidth = 2.0;
     g.stroke();
 
-    this.createLabel(rulesBox, 'Title', new Vec3(0, 140, 0), '浮岛浮光 · 玩法与进阶技巧', 25, '#FDE047', 540, 40);
+    this.createLabel(rulesBox, 'Title', new Vec3(0, 140, 0), '浮岛浮光 · 玩法速记', 25, '#FDE047', 540, 40);
 
     const rules = [
-      '• 放置与接通：拖拽或点击手牌中的水晶地砖，放置在棋盘对应方格，接通起点至终点的光轨通道。',
-      '• 子弹时间：当流光行进到拐角或通路中断时，自动触发子弹时间减速，为你争取规划路线的宝贵时机！',
-      '• 撤销与擦除：利用底部的 [撤销] 按钮退回上一步；遇到死局时，可通过点击 [擦除] 重新获得手牌。',
-      '• 能量与蓄能：挑战关卡需要消耗 1 点能量，如果能量耗尽，可以在主页点击“时空蓄能”进行快速恢复。'
+      '• 放置接光：拖拽/点击水晶，铺出从起点到终点的光路。',
+      '• 子弹时间：光路卡住会减速，给你补路和调整的机会。',
+      '• 撤回清盘：撤回退一步，清盘重拿手牌，救回死局。',
+      '• 能量补给：闯关耗 1 能量，不够时到福利中心补满。'
     ];
 
     rules.forEach((r, idx) => {
@@ -392,7 +392,7 @@ export class SettingsModal extends Component {
       ((rg.fillColor) as any).a = 210;
       rg.roundRect(-280, -30, 560, 60, 14);
       rg.fill();
-      this.createLabel(rNode, 'Text', new Vec3(-10, 0, 0), r, 20, '#E2E8F0', 560, 52);
+      this.createLabel(rNode, 'Text', new Vec3(-10, 0, 0), r, 19, '#E2E8F0', 560, 46);
     });
   }
 
@@ -414,17 +414,17 @@ export class SettingsModal extends Component {
     this.createLabel(aboutBox, 'Team', new Vec3(0, -45, 0), '核心特色: 唯美几何调色板 · 动态光路规划 · 极限子弹救场', 16, '#FDE047', 520, 26);
     this.createLabel(aboutBox, 'Copy', new Vec3(0, -80, 0), '© 2026 浮岛浮光 制作组. All Rights Reserved.', 15, '#64748B', 400, 22);
 
-    // Reset Progress Button (Y = -145, 尺寸 320x60)
     const resetBtn = this.createNode('ResetBtn', new Vec3(0, -145, 0), parent);
-    this.ensureTransform(resetBtn, 320, 60);
+    this.ensureTransform(resetBtn, 220, 46);
     const rg = resetBtn.addComponent(Graphics);
-    rg.fillColor = this.hex('#991B1B');
-    rg.roundRect(-160, -30, 320, 60, 18);
+    rg.fillColor = this.hex('#3F1D2A');
+    ((rg.fillColor) as any).a = 190;
+    rg.roundRect(-110, -23, 220, 46, 16);
     rg.fill();
-    rg.strokeColor = this.hex('#F87171');
-    rg.lineWidth = 2.4;
+    rg.strokeColor = this.hex('#7F1D1D');
+    rg.lineWidth = 1.6;
     rg.stroke();
-    this.createLabel(resetBtn, 'Text', new Vec3(0, 1, 0), '重置所有关卡进度', 23, '#FFFFFF', 280, 40);
+    this.createLabel(resetBtn, 'Text', new Vec3(0, 1, 0), '重置进度', 18, '#FCA5A5', 180, 32);
 
     this.addClick(resetBtn, () => {
       console.log('[SettingsModal] Clicked Reset Progress!');

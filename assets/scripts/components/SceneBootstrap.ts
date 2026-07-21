@@ -324,7 +324,7 @@ export class SceneBootstrap extends Component {
     game.applyPowerSaveMode(this.powerSaveMode);
 
     // 4. 下方横排辅助操作区 ActionRow：只放可点击操作，状态进度已收纳到上方胶囊。
-    const actionRow = this.createRoot('ActionRow', new Vec3(0, -halfH + 395, 0), uiRoot);
+    const actionRow = this.createRoot('ActionRow', new Vec3(0, -halfH + 403, 0), uiRoot);
     game.bulletTimeNode = btMeter.node;
     game.bulletTimeGraphics = btMeter.graphics;
     game.bulletTimeValueLabel = btMeter.valueLabel;
@@ -655,7 +655,7 @@ export class SceneBootstrap extends Component {
     this.ensureTransform(root, 600, 56);
 
     // Same-row 3+2 grouping keeps the toolbar aligned while giving rescue actions a separate visual rhythm.
-    this.createSideActionButton(root, 'PreviewBtn', new Vec3(-227, 0, 0), 108, '◎ 预览', '#0D162C', '#00F0FF', '#60A5FA', () => {
+    this.createSideActionButton(root, 'PreviewBtn', new Vec3(-227, 0, 0), 108, '◎ 预览', '#0D162C', '#00F0FF', '#A5F3FC', () => {
       game.showRoutePreview();
     });
 

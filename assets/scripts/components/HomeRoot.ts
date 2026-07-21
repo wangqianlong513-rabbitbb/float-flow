@@ -138,7 +138,7 @@ export class HomeRoot extends Component {
       }
     }
 
-    const topBar = this.createNode('TopBar', new Vec3(0, halfH - capsuleYOffset, 0), this.node);
+    const topBar = this.createNode('TopBar', new Vec3(0, halfH - capsuleYOffset - 10, 0), this.node);
     this.ensureTransform(topBar, 1280, 76);
 
     const isRose = this.currentTheme === 1;
@@ -510,12 +510,12 @@ export class HomeRoot extends Component {
           const currentLevel = profile.levelProgress + 1;
           const stars = currentLevel * 3 - 2; // Approximate stars count
           this.showPopup('🏆   微 信 好 友 排 行 榜', [
-            '🥇  1. 微信好友·星辰大师 —— 通关 88 关 (260 ⭐)',
-            `🥈  2. 你 (流光开拓者) —— 通关 ${currentLevel} 关 (${stars} ⭐)`,
-            '🥉  3. 微信好友·阳光微风 —— 通关 42 关 (120 ⭐)',
-            '🏅  4. 微信好友·极光旅人 —— 通关 35 关 (98 ⭐)',
-            '🏅  5. 微信好友·暗夜流星 —— 通关 19 关 (50 ⭐)'
-          ], '💬   邀 请 微 信 好 友 冲 榜', '#60A5FA', '#065F46');
+            '🥇  微信好友·星辰大师    88关 · 260⭐',
+            `🥈  你 · 流光开拓者    ${currentLevel}关 · ${stars}⭐`,
+            '🥉  微信好友·阳光微风    42关 · 120⭐',
+            '🏅  微信好友·极光旅人    35关 · 98⭐',
+            '🏅  微信好友·暗夜流星    19关 · 50⭐'
+          ], '💬   邀 好 友 冲 榜  双 方 得 晶 核', '#60A5FA', '#065F46');
         } else if (item.id === 'achieve') {
           const profile = ProfileManager.getProfile();
           const unlockedThemeCount = (profile.unlockedThemes || [0]).length;
@@ -676,11 +676,12 @@ export class HomeRoot extends Component {
             textColor = '#FDE047';
             fontSize = 18;
           } else if (idx === 1) {
-            itemBg = '#1E293B';
-            itemBgAlpha = 240;
-            itemBorder = '#94A3B8';
-            borderWidth = 1.8;
-            textColor = '#F8FAFC';
+            itemBg = '#0E7490';
+            itemBgAlpha = 235;
+            itemBorder = '#22D3EE';
+            borderWidth = 2.4;
+            textColor = '#ECFEFF';
+            fontSize = 18;
           } else if (idx === 2) {
             itemBg = '#3B2314';
             itemBgAlpha = 220;
@@ -965,7 +966,7 @@ export class HomeRoot extends Component {
 
   private createBottomFeatureRow(halfH: number): void {
     // 收敛商业化入口：首屏只保留福利中心 + 主题定制，减少新手压迫感。
-    const pillsRoot = this.createNode('FeatureRowRoot', new Vec3(0, -halfH + 146, 0), this.node);
+    const pillsRoot = this.createNode('FeatureRowRoot', new Vec3(0, -halfH + 160, 0), this.node);
     this.ensureTransform(pillsRoot, 656, 88);
 
     const isRose = this.currentTheme === 1;
@@ -1095,12 +1096,12 @@ export class HomeRoot extends Component {
       const row = this.createNode(`DailyRankRow_${idx}`, new Vec3(0, y, 0), dialog);
       this.ensureTransform(row, 520, 48);
       const rowG = row.addComponent(Graphics);
-      rowG.fillColor = this.hex(entry.isSelf ? '#14532D' : '#0F172A');
+      rowG.fillColor = this.hex(entry.isSelf ? '#0E7490' : '#0F172A');
       ((rowG.fillColor) as any).a = entry.isSelf ? 235 : 205;
       rowG.roundRect(-260, -24, 520, 48, 16);
       rowG.fill();
-      rowG.strokeColor = this.hex(entry.isSelf ? '#86EFAC' : '#334155');
-      rowG.lineWidth = entry.isSelf ? 2.2 : 1.2;
+      rowG.strokeColor = this.hex(entry.isSelf ? '#22D3EE' : '#334155');
+      rowG.lineWidth = entry.isSelf ? 2.6 : 1.2;
       rowG.stroke();
 
       this.createLabel(row, 'Rank', new Vec3(-226, 0, 0), `${idx + 1}`, 20, idx < 3 ? '#FDE047' : '#CBD5E1', 40, 30);
@@ -1119,7 +1120,7 @@ export class HomeRoot extends Component {
     cg.strokeColor = this.hex('#86EFAC');
     cg.lineWidth = 2.4;
     cg.stroke();
-    this.createLabel(cta, 'Text', new Vec3(0, 1, 0), result.selfRank > 0 ? '再挑战一次，冲上去' : '立即挑战，解锁排名', 21, '#FFFFFF', 360, 38);
+    this.createLabel(cta, 'Text', new Vec3(0, 1, 0), result.selfRank > 0 ? '再挑战冲榜，赢晶核' : '立即挑战，解锁排名', 21, '#FFFFFF', 360, 38);
     this.addClick(cta, () => {
       this.closePopup();
       if (this.onStartDailyCallback) this.onStartDailyCallback();
@@ -1169,11 +1170,11 @@ export class HomeRoot extends Component {
     this.addClick(closeBtn, () => { this.closePopup(); });
 
     const cards = [
-      { id: 'daily', title: signedInToday ? '今日已签到' : '每日签到可领', sub: signedInToday ? '明天再来拿连续奖励' : '点我领取今日钻石', icon: '礼', y: 115, border: signedInToday ? '#64748B' : '#FDE047', bg: signedInToday ? '#1E293B' : '#451A03', dot: !signedInToday },
-      { id: 'share', title: '分享好友领奖', sub: '每日首次分享立得 60 晶核', icon: '享', y: 45, border: '#86EFAC', bg: '#064E3B', dot: (profile.lastShareRewardDate !== CloudGameService.getTodayKey()) },
-      { id: 'energy', title: `时空能量 ${profile.energy}/10`, sub: profile.energy >= 10 ? '能量已满，直接开玩' : '50钻瞬间回满能量', icon: '电', y: -25, border: profile.energy >= 10 ? '#38BDF8' : '#FDE047', bg: '#0B1026', dot: profile.energy < 10 },
-      { id: 'hand', title: '强化手牌补给', sub: '看广告领强化资源，失败时再推荐', icon: '卡', y: -95, border: '#A78BFA', bg: '#312E81', dot: false },
-      { id: 'achieve', title: hasAchievementReward ? '成就奖励可领' : '成就进度', sub: hasAchievementReward ? '初次启航奖励待领取' : '完成挑战解锁更多奖励', icon: '奖', y: -165, border: hasAchievementReward ? '#FDE047' : '#C084FC', bg: hasAchievementReward ? '#451A03' : '#2E1065', dot: hasAchievementReward },
+      { id: 'daily', title: signedInToday ? '今日已领' : '每日签到', sub: signedInToday ? '明天继续连签' : '今日钻石可领', action: signedInToday ? '已领' : '领取', icon: '礼', y: 115, border: signedInToday ? '#64748B' : '#FDE047', bg: signedInToday ? '#1E293B' : '#451A03', dot: !signedInToday },
+      { id: 'share', title: '分享好友领奖', sub: '每日首分享 +60', action: '分享', icon: '享', y: 45, border: '#86EFAC', bg: '#064E3B', dot: (profile.lastShareRewardDate !== CloudGameService.getTodayKey()) },
+      { id: 'energy', title: `时空能量 ${profile.energy}/10`, sub: profile.energy >= 10 ? '能量已满' : '50钻回满', action: profile.energy >= 10 ? '已满' : '补满', icon: '电', y: -25, border: profile.energy >= 10 ? '#38BDF8' : '#FDE047', bg: '#0B1026', dot: profile.energy < 10 },
+      { id: 'hand', title: '强化手牌补给', sub: '广告补给资源', action: '领取', icon: '卡', y: -95, border: '#A78BFA', bg: '#312E81', dot: false },
+      { id: 'achieve', title: hasAchievementReward ? '成就奖励可领' : '成就进度', sub: hasAchievementReward ? '初次启航待领' : '查看目标奖励', action: '查看', icon: '奖', y: -165, border: hasAchievementReward ? '#FDE047' : '#C084FC', bg: hasAchievementReward ? '#451A03' : '#2E1065', dot: hasAchievementReward },
     ];
 
     cards.forEach((card) => {
@@ -1194,7 +1195,7 @@ export class HomeRoot extends Component {
       this.createLabel(row, 'Icon', new Vec3(-228, 1, 0), card.icon, 17, '#111827', 36, 30);
       this.createLabel(row, 'Title', new Vec3(-55, 11, 0), card.title, 19, '#FFFFFF', 290, 24);
       this.createLabel(row, 'Sub', new Vec3(-55, -13, 0), card.sub, 14, '#CBD5E1', 290, 20);
-      this.createLabel(row, 'Action', new Vec3(205, 0, 0), card.id === 'energy' ? '补满' : (card.id === 'hand' ? '领取' : (card.id === 'share' ? '分享' : '打开')), 17, card.border, 82, 28);
+      this.createLabel(row, 'Action', new Vec3(205, 0, 0), card.action, 17, card.border, 82, 28);
       if (card.dot) this.createRedDot(row, new Vec3(252, 22, 1));
 
       this.addClick(row, () => {
