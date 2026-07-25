@@ -3,6 +3,7 @@ import { TileType } from './GameTypes';
 export class CardSystem {
   private hand: TileType[] = [];
   private cursor = 0;
+  private misses: Partial<Record<TileType, number>> = {};
 
   constructor(
     private readonly pool: TileType[],
@@ -89,7 +90,36 @@ export class CardSystem {
       return 'straight';
     }
 
-    const randomIndex = Math.floor(Math.random() * this.pool.length);
-    return this.pool[randomIndex];
+    const randomIndex = this.pickWeightedIndex();
+    const drawn = this.pool[randomIndex];
+    this.updateMissProtection(drawn);
+    return drawn;
+  }
+
+  private pickWeightedIndex(): number {
+    let total = 0;
+    const weights = this.pool.map((type) => {
+      const missBonus = Math.min(4, this.misses[type] || 0);
+      const isConnector = type === 'straight' || type === 'curve' || type === 'cross' || type === 'universal';
+      const weight = 1 + missBonus * (isConnector ? 0.35 : 0.18);
+      total += weight;
+      return weight;
+    });
+
+    let roll = Math.random() * total;
+    for (let i = 0; i < weights.length; i++) {
+      roll -= weights[i];
+      if (roll <= 0) {
+        return i;
+      }
+    }
+    return Math.max(0, weights.length - 1);
+  }
+
+  private updateMissProtection(drawn: TileType): void {
+    const tracked: TileType[] = ['straight', 'curve', 'cross', 'universal'];
+    for (const type of tracked) {
+      this.misses[type] = type === drawn ? 0 : (this.misses[type] || 0) + 1;
+    }
   }
 }

@@ -20,7 +20,20 @@ export interface UserProfile {
   unlockedThemes?: number[];
   lastShareRewardDate?: string;
   shareRewardClaimCount?: number;
+  rewardedAdClaims?: Record<string, number>;
   blessings?: Record<string, number>;
+  tileMastery?: Record<string, number>;
+  collectedTiles?: string[];
+  titles?: string[];
+  levelAttempts?: Record<string, { starts: number; wins: number; fails: number; bestMoves: number; lastReason?: string }>;
+  unlockedCosmetics?: string[];
+  selectedTrail?: string;
+  selectedRunnerSkin?: string;
+  islandDecor?: string[];
+  commuteDate?: string;
+  commuteCompletedStages?: number[];
+  hintTiers?: Record<string, number>;
+  beautifulRouteBest?: number;
 }
 
 export interface ResidualHelpRecord {
@@ -31,7 +44,7 @@ export interface ResidualHelpRecord {
 
 const STORAGE_KEY = 'flow_land_light_profile';
 const XOR_KEY = 77; // Obfuscation XOR key
-const PROFILE_VERSION = 2;
+const PROFILE_VERSION = 3;
 
 export class ProfileManager {
   private static cachedProfile: UserProfile | null = null;
@@ -57,7 +70,20 @@ export class ProfileManager {
       unlockedThemes: [0],
       lastShareRewardDate: '',
       shareRewardClaimCount: 0,
-      blessings: {}
+      rewardedAdClaims: {},
+      blessings: {},
+      tileMastery: {},
+      collectedTiles: [],
+      titles: [],
+      levelAttempts: {},
+      unlockedCosmetics: ['trail_default', 'runner_default'],
+      selectedTrail: 'trail_default',
+      selectedRunnerSkin: 'runner_default',
+      islandDecor: [],
+      commuteDate: '',
+      commuteCompletedStages: [],
+      hintTiers: {},
+      beautifulRouteBest: 0
     };
   }
 
@@ -292,6 +318,29 @@ export class ProfileManager {
     return true;
   }
 
+  public static claimRewardedAdBonus(key: string, reward: number, dailyLimit = 1): boolean {
+    const profile = this.getProfile();
+    const today = new Date().toDateString();
+    const claimKey = `${today}:${key}`;
+    profile.rewardedAdClaims = profile.rewardedAdClaims || {};
+    const count = Math.max(0, Math.floor(profile.rewardedAdClaims[claimKey] || 0));
+    if (count >= dailyLimit) {
+      this.saveProfile(profile);
+      return false;
+    }
+    profile.rewardedAdClaims[claimKey] = count + 1;
+    profile.diamonds += reward;
+
+    // Keep only today's ad-claim counters to avoid unbounded local storage growth.
+    Object.keys(profile.rewardedAdClaims).forEach((storedKey) => {
+      if (!storedKey.startsWith(`${today}:`)) {
+        delete profile.rewardedAdClaims![storedKey];
+      }
+    });
+    this.saveProfile(profile);
+    return true;
+  }
+
   public static getBlessingLevel(blessingId: string): number {
     const profile = this.getProfile();
     return Math.max(0, Math.floor(profile.blessings?.[blessingId] || 0));
@@ -303,6 +352,119 @@ export class ProfileManager {
     profile.blessings[blessingId] = Math.max(0, Math.floor(profile.blessings[blessingId] || 0)) + 1;
     this.saveProfile(profile);
     return profile.blessings[blessingId];
+  }
+
+  public static recordLevelStart(levelId: number): void {
+    const profile = this.getProfile();
+    const key = String(levelId);
+    profile.levelAttempts = profile.levelAttempts || {};
+    const item = profile.levelAttempts[key] || { starts: 0, wins: 0, fails: 0, bestMoves: 0 };
+    item.starts++;
+    profile.levelAttempts[key] = item;
+    this.saveProfile(profile);
+  }
+
+  public static recordLevelResult(levelId: number, won: boolean, moves: number, reason = ''): void {
+    const profile = this.getProfile();
+    const key = String(levelId);
+    profile.levelAttempts = profile.levelAttempts || {};
+    const item = profile.levelAttempts[key] || { starts: 0, wins: 0, fails: 0, bestMoves: 0 };
+    if (won) {
+      item.wins++;
+      item.bestMoves = item.bestMoves <= 0 ? moves : Math.min(item.bestMoves, moves);
+    } else {
+      item.fails++;
+      item.lastReason = reason;
+    }
+    profile.levelAttempts[key] = item;
+    this.saveProfile(profile);
+  }
+
+  public static addTileMastery(tileType: string, amount = 1): number {
+    const profile = this.getProfile();
+    profile.tileMastery = profile.tileMastery || {};
+    profile.collectedTiles = profile.collectedTiles || [];
+    profile.tileMastery[tileType] = Math.max(0, Math.floor(profile.tileMastery[tileType] || 0)) + amount;
+    if (!profile.collectedTiles.includes(tileType)) {
+      profile.collectedTiles.push(tileType);
+    }
+    this.saveProfile(profile);
+    return profile.tileMastery[tileType];
+  }
+
+  public static unlockTitle(title: string): boolean {
+    const profile = this.getProfile();
+    profile.titles = profile.titles || [];
+    if (profile.titles.includes(title)) {
+      return false;
+    }
+    profile.titles.push(title);
+    this.saveProfile(profile);
+    return true;
+  }
+
+  public static unlockCosmetic(cosmeticId: string): boolean {
+    if (!cosmeticId) return false;
+    const profile = this.getProfile();
+    profile.unlockedCosmetics = profile.unlockedCosmetics || ['trail_default', 'runner_default'];
+    if (profile.unlockedCosmetics.includes(cosmeticId)) {
+      return false;
+    }
+    profile.unlockedCosmetics.push(cosmeticId);
+    if (cosmeticId.indexOf('trail_') === 0 && (!profile.selectedTrail || profile.selectedTrail === 'trail_default')) {
+      profile.selectedTrail = cosmeticId;
+    }
+    if (cosmeticId.indexOf('runner_') === 0 && (!profile.selectedRunnerSkin || profile.selectedRunnerSkin === 'runner_default')) {
+      profile.selectedRunnerSkin = cosmeticId;
+    }
+    this.saveProfile(profile);
+    return true;
+  }
+
+  public static addIslandDecor(decorId: string): boolean {
+    if (!decorId) return false;
+    const profile = this.getProfile();
+    profile.islandDecor = profile.islandDecor || [];
+    if (profile.islandDecor.includes(decorId)) {
+      return false;
+    }
+    profile.islandDecor.push(decorId);
+    this.saveProfile(profile);
+    return true;
+  }
+
+  public static recordCommuteStage(dateKey: string, stage: number): number {
+    const profile = this.getProfile();
+    if (profile.commuteDate !== dateKey) {
+      profile.commuteDate = dateKey;
+      profile.commuteCompletedStages = [];
+    }
+    profile.commuteCompletedStages = profile.commuteCompletedStages || [];
+    if (!profile.commuteCompletedStages.includes(stage)) {
+      profile.commuteCompletedStages.push(stage);
+    }
+    this.saveProfile(profile);
+    return profile.commuteCompletedStages.length;
+  }
+
+  public static nextHintTier(levelId: number): number {
+    const profile = this.getProfile();
+    profile.hintTiers = profile.hintTiers || {};
+    const key = String(levelId);
+    profile.hintTiers[key] = Math.min(3, (profile.hintTiers[key] || 0) + 1);
+    this.saveProfile(profile);
+    return profile.hintTiers[key];
+  }
+
+  public static updateBeautifulRouteBest(score: number): boolean {
+    const profile = this.getProfile();
+    const current = profile.beautifulRouteBest || 0;
+    if (score <= current) {
+      return false;
+    }
+    profile.beautifulRouteBest = score;
+    this.saveProfile(profile);
+    return true;
   }
 
   private static normalizeProfile(profile: UserProfile): UserProfile {
@@ -331,7 +493,22 @@ export class ProfileManager {
     if (!profile.unlockedThemes.includes(0)) profile.unlockedThemes.push(0);
     profile.lastShareRewardDate = typeof profile.lastShareRewardDate === 'string' ? profile.lastShareRewardDate : '';
     profile.shareRewardClaimCount = Number.isFinite(profile.shareRewardClaimCount) ? profile.shareRewardClaimCount : 0;
+    profile.rewardedAdClaims = profile.rewardedAdClaims && typeof profile.rewardedAdClaims === 'object' ? profile.rewardedAdClaims : {};
     profile.blessings = profile.blessings && typeof profile.blessings === 'object' ? profile.blessings : {};
+    profile.tileMastery = profile.tileMastery && typeof profile.tileMastery === 'object' ? profile.tileMastery : {};
+    profile.collectedTiles = Array.isArray(profile.collectedTiles) ? profile.collectedTiles : [];
+    profile.titles = Array.isArray(profile.titles) ? profile.titles : [];
+    profile.levelAttempts = profile.levelAttempts && typeof profile.levelAttempts === 'object' ? profile.levelAttempts : {};
+    profile.unlockedCosmetics = Array.isArray(profile.unlockedCosmetics) ? profile.unlockedCosmetics : ['trail_default', 'runner_default'];
+    if (!profile.unlockedCosmetics.includes('trail_default')) profile.unlockedCosmetics.push('trail_default');
+    if (!profile.unlockedCosmetics.includes('runner_default')) profile.unlockedCosmetics.push('runner_default');
+    profile.selectedTrail = typeof profile.selectedTrail === 'string' ? profile.selectedTrail : 'trail_default';
+    profile.selectedRunnerSkin = typeof profile.selectedRunnerSkin === 'string' ? profile.selectedRunnerSkin : 'runner_default';
+    profile.islandDecor = Array.isArray(profile.islandDecor) ? profile.islandDecor : [];
+    profile.commuteDate = typeof profile.commuteDate === 'string' ? profile.commuteDate : '';
+    profile.commuteCompletedStages = Array.isArray(profile.commuteCompletedStages) ? profile.commuteCompletedStages : [];
+    profile.hintTiers = profile.hintTiers && typeof profile.hintTiers === 'object' ? profile.hintTiers : {};
+    profile.beautifulRouteBest = Number.isFinite(profile.beautifulRouteBest) ? profile.beautifulRouteBest : 0;
     return profile;
   }
 

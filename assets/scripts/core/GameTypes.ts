@@ -7,6 +7,11 @@ export type TileType =
   | 'cross'
   | 'collapse'
   | 'boost'
+  | 'mirror'
+  | 'vine'
+  | 'jump'
+  | 'blackhole'
+  | 'splitter'
   | 'paint_red'
   | 'paint_blue'
   | 'gate_red'
@@ -23,6 +28,9 @@ export interface GridPos {
 
 export interface GoalConfig extends GridPos {
   color?: RunnerColor;
+  required?: boolean;
+  lit?: boolean;
+  label?: string;
 }
 
 export interface RunnerState extends GridPos {
@@ -43,7 +51,9 @@ export interface TileConfig {
   colorPaint?: RunnerColor;
   speedModifier?: number;
   scoreModifier?: number;
-  skill?: 'time' | 'star' | 'refresh';
+  skill?: 'time' | 'star' | 'refresh' | 'mirror' | 'vine' | 'jump' | 'blackhole' | 'splitter';
+  jumpDistance?: number;
+  autoGrow?: number;
 }
 
 export interface TileInstance {
@@ -66,10 +76,20 @@ export interface LevelConfig {
   obstacles: Array<[number, number]>;
   initialTiles?: Array<{ row: number; col: number; tile: TileInstance }>;
   starCores?: GridPos[];
+  unstableCells?: Array<GridPos & { collapseAfterSteps: number }>;
   tilePool: TileType[];
   fixedHands?: TileType[];
   recommendedMoves: number;
   tutorialTip?: string;
+  routeHints?: {
+    safe?: GridPos[];
+    reward?: GridPos[];
+    risk?: GridPos[];
+    headline?: string;
+  };
+  objective?: 'reach_goal' | 'collect_star' | 'light_all_goals' | 'survive' | 'race_blackhole' | 'sync_goals';
+  versionTag?: string;
+  eventTag?: string;
 }
 
 export type PathNodeResult = 'pass' | 'goal' | 'dead' | 'blocked' | 'loop';

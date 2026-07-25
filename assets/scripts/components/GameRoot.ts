@@ -15,16 +15,20 @@ import {
 } from 'cc';
 import { CardSystem } from '../core/CardSystem';
 import { GridManager } from '../core/GridManager';
-import { move } from '../core/DirectionUtils';
-import { GoalConfig, GridPos, LevelConfig, RunnerColor, RunnerState, TileInstance, TileType } from '../core/GameTypes';
+import { move, posKey } from '../core/DirectionUtils';
+import { Direction, GoalConfig, GridPos, LevelConfig, RunnerColor, RunnerState, TileInstance, TileType } from '../core/GameTypes';
 import { RouteSimulator } from '../core/RouteSimulator';
 import { createTile, getTileDisplayName, resolveTileConfig, rotateTile } from '../core/TileDefinitions';
+import { LevelDirector } from '../core/LevelDirector';
+import { LiveOpsService } from '../core/LiveOpsService';
+import { EngagementService, FailureInsight } from '../core/EngagementService';
 import { BUILTIN_LEVELS } from '../level/BuiltinLevels';
 import { WeChatService } from '../wx/WeChatService';
 import { ShareService } from '../wx/ShareService';
 import { ProfileManager } from '../core/ProfileManager';
 import { CloudGameService } from '../wx/CloudGameService';
 import { AnalyticsService } from '../wx/AnalyticsService';
+import { AdService } from '../wx/AdService';
 
 export interface FailureShareSummary {
   levelId: number;
@@ -33,6 +37,9 @@ export interface FailureShareSummary {
   handCount: number;
   reason: string;
   isNearGoal: boolean;
+  grade?: string;
+  rescueText?: string;
+  shareText?: string;
 }
 
 interface ConfettiParticle {
@@ -133,7 +140,7 @@ export class GameRoot extends Component {
   private usedMoves = 0;
   public undoRemaining = 1;
   public eraseRemaining = 1;
-  private moveHistory: { pos: GridPos; cardIndex: number; tileType: TileType }[] = [];
+  private moveHistory: { pos: GridPos; cardIndex: number; tileType: TileType; generated?: GridPos[] }[] = [];
   private flowEnergy = 0;
   private runnerTimer = 0;
   private maxBulletTime = 3.0;
@@ -155,12 +162,17 @@ export class GameRoot extends Component {
   private bonusCollected = false;
   private bonusNode: Node | null = null;
   private starCoreNodes = new Map<string, Node>();
+  private collectedStarCoreKeys = new Set<string>();
   private triggeredSkillTiles = new Set<string>();
   private rewindSnapshot: RewindSnapshot | null = null;
   private timeRewindUsed = false;
   private blessingOverlayNode: Node | null = null;
   private pendingBonusDiamonds = 0;
   private skillComboCount = 0;
+  private litGoalKeys = new Set<string>();
+  private runnerStepCount = 0;
+  private lastFailureInsight: FailureInsight | null = null;
+  private commuteStage = -1;
   private activeParticles: ConfettiParticle[] = [];
   private statusToastSerial = 0;
 
@@ -182,8 +194,17 @@ export class GameRoot extends Component {
   protected start(): void {
     // If this log does not appear in Preview console, the component is not mounted.
     console.log('[FloatFlow] GameRoot started');
+    this.resetTransientInputState();
     this.ensureRoots();
     this.loadLevel(0);
+  }
+
+  protected onDisable(): void {
+    this.resetTransientInputState();
+  }
+
+  protected onDestroy(): void {
+    this.resetTransientInputState();
   }
 
   protected update(deltaTime: number): void {
@@ -270,11 +291,15 @@ export class GameRoot extends Component {
         success: (res) => {
           if (res.confirm) {
             console.log('[FloatFlow] Watch Ad for Erase Reset');
-            WeChatService.showVideoAd(() => {
-              this.eraseRemaining = 1;
-              WeChatService.showToast('★ 广告观看成功，已重置清盘机会！', 'success');
-              this.setStatus('★ 已补给 1 次清盘机会并自动为您重置棋盘！');
-              this.clearPlacedTiles();
+            AdService.showRewarded('utility_refill').then((adRes) => {
+              if (adRes.completed) {
+                this.eraseRemaining = 1;
+                WeChatService.showToast('★ 已重置清盘机会！', 'success');
+                this.setStatus('★ 已补给 1 次清盘机会并自动为您重置棋盘！');
+                this.clearPlacedTiles();
+              } else {
+                WeChatService.showToast(adRes.error || '观看完成后补给清盘机会', 'none');
+              }
             });
           }
         },
@@ -306,14 +331,18 @@ export class GameRoot extends Component {
         success: (res) => {
           if (res.confirm) {
             console.log('[FloatFlow] Watch Ad for Undo Reset');
-            WeChatService.showVideoAd(() => {
-              this.undoRemaining = 1;
-              WeChatService.showToast('★ 广告观看成功，已获得 1 次撤回机会！', 'success');
-              this.setStatus('★ 补给成功！已获得 1 次撤回机会！');
-              if (this.moveHistory.length > 0) {
-                this.undoLastMove();
+            AdService.showRewarded('utility_refill').then((adRes) => {
+              if (adRes.completed) {
+                this.undoRemaining = 1;
+                WeChatService.showToast('★ 已获得 1 次撤回机会！', 'success');
+                this.setStatus('★ 补给成功！已获得 1 次撤回机会！');
+                if (this.moveHistory.length > 0) {
+                  this.undoLastMove();
+                } else {
+                  WeChatService.showToast('现在去放置地砖，走错时随时可使用撤回哦~', 'none');
+                }
               } else {
-                WeChatService.showToast('现在去放置地砖，走错时随时可使用撤回哦~', 'none');
+                WeChatService.showToast(adRes.error || '观看完成后补给撤回机会', 'none');
               }
             });
           }
@@ -334,6 +363,12 @@ export class GameRoot extends Component {
     const key = this.key(last.pos);
     this.tileNodes.get(key)?.destroy();
     this.tileNodes.delete(key);
+    for (const generated of last.generated ?? []) {
+      this.grid.setTile(generated, null);
+      const generatedKey = this.key(generated);
+      this.tileNodes.get(generatedKey)?.destroy();
+      this.tileNodes.delete(generatedKey);
+    }
 
     this.hand = this.cardSystem.returnTileToHand(last.cardIndex, last.tileType);
     this.renderCards();
@@ -374,18 +409,69 @@ export class GameRoot extends Component {
   public shareCurrentResidual(): void {
     if (!this.level || !this.runner) return;
     WeChatService.vibrateShort('light');
+    const preview = this.grid ? RouteSimulator.simulate(this.grid, this.runner, this.level.goals) : null;
+    const insight = this.lastFailureInsight
+      ?? EngagementService.analyzeFailure('主动残局求助', this.runner, this.level.goals, preview?.path ?? []);
     const assistId = `${this.level.id}-${Date.now().toString(36)}-${Math.floor(Math.random() * 10000)}`;
-    AnalyticsService.track('share_residual', { levelId: this.level.id, moves: this.usedMoves, handCount: this.hand.length });
+    AnalyticsService.track('share_residual', { levelId: this.level.id, moves: this.usedMoves, handCount: this.hand.length, grade: insight.grade });
     ProfileManager.markResidualHelpShared(assistId, this.level.id);
     CloudGameService.registerResidualAssist(assistId, this.level.id);
-    ShareService.shareResidual(this.level, {
+    const payload = {
       levelId: this.level.id,
-      runner: this.runner,
+      runner: { ...this.runner, state: 'IDLE' as const },
       hand: this.hand,
       assistId,
       moves: this.usedMoves,
+      grade: insight.grade,
+      missingCell: insight.missingCell,
+    };
+    ShareService.shareOneTileRescue(this.level, payload, insight.grade);
+    WeChatService.showToast(`${insight.shareText} 好友接通后双方都得晶核。`, 'success');
+  }
+
+  public shareCurrentChallenge(): void {
+    if (!this.level) return;
+    AnalyticsService.track('friend_challenge_share', { levelId: this.level.id, moves: this.usedMoves });
+    ShareService.shareFriendChallenge(this.level, Math.max(1, this.usedMoves), this.level.id);
+  }
+
+  public shareBeautifulRoute(): void {
+    if (!this.level) return;
+    const stars = this.calculateStars();
+    const beautyScore = EngagementService.scoreBeautifulRoute(this.usedMoves, this.skillComboCount, this.bonusCollected, stars);
+    ProfileManager.updateBeautifulRouteBest(beautyScore);
+    AnalyticsService.track('friend_challenge_share', { levelId: this.level.id, moves: this.usedMoves, beautyScore });
+    ShareService.shareBeautifulRoute(this.level, Math.max(1, this.usedMoves), beautyScore);
+  }
+
+  public shareCurrentRelay(): void {
+    if (!this.level || !this.runner) return;
+    AnalyticsService.track('relay_share', { levelId: this.level.id, moves: this.usedMoves });
+    ShareService.shareRelay(this.level, {
+      levelId: this.level.id,
+      runner: this.runner,
+      hand: this.hand,
+      moves: this.usedMoves,
+      seed: this.level.id,
     });
-    WeChatService.showToast('分享残局求助中...', 'success');
+  }
+
+  public showIslandRoom(): void {
+    const profile = ProfileManager.getProfile();
+    const decorCount = profile.islandDecor?.length || 0;
+    const cosmeticCount = profile.unlockedCosmetics?.length || 0;
+    const titles = profile.titles && profile.titles.length > 0 ? profile.titles.slice(-3).join('、') : '暂无称号';
+    WeChatService.showModal({
+      title: '我的光之岛',
+      content: `已收藏装扮 ${cosmeticCount} 件，浮岛摆件 ${decorCount} 件。\n当前称号：${titles}\n继续通关、分享最美光轨、完成通勤挑战可解锁更多光轨和摆件。`,
+      confirmText: '知道了',
+      cancelText: '分享',
+      success: (res) => {
+        if (res.cancel && this.level) {
+          ShareService.shareBeautifulRoute(this.level, Math.max(1, this.usedMoves), ProfileManager.getProfile().beautifulRouteBest || 60);
+        }
+      }
+    });
   }
 
   public loadResidualFromShare(residualStr: string): void {
@@ -395,15 +481,20 @@ export class GameRoot extends Component {
     if (idx >= 0) {
       this.loadLevel(idx);
       if (payload.runner) {
-        this.runner = { ...payload.runner };
+        this.runner = { ...payload.runner, state: 'IDLE' };
         this.renderRunner();
       }
       if (payload.hand && Array.isArray(payload.hand)) {
         this.hand = this.cardSystem ? this.cardSystem.setHand(payload.hand) : [...payload.hand];
         this.renderCards();
       }
+      this.usedMoves = Math.max(0, Math.floor(payload.moves ?? this.usedMoves));
       this.residualAssistId = payload.assistId || '';
-      this.setStatus('已还原好友求助残局，帮 TA 接上这束光吧！成功可得 80 钻助攻奖。');
+      if (payload.missingCell) {
+        this.showFailureReplayMarker(payload.missingCell);
+      }
+      this.updateLabels();
+      this.setStatus(`已还原好友${payload.grade || '残局'}求助，直接补关键路。助攻成功可得 80 钻。`);
       WeChatService.vibrateShort('medium');
     }
   }
@@ -433,12 +524,31 @@ export class GameRoot extends Component {
     this.eraseRemaining = 1;
     this.moveHistory = [];
     this.residualAssistId = '';
+    this.lastFailureInsight = null;
     this.triggeredSkillTiles.clear();
     this.rewindSnapshot = null;
     this.timeRewindUsed = false;
     this.pendingBonusDiamonds = 0;
     this.skillComboCount = 0;
+    this.litGoalKeys.clear();
+    this.runnerStepCount = 0;
+    this.commuteStage = -1;
     this.level = this.generateDailyChallengeLevel();
+    const liveEvent = LiveOpsService.getActiveEvent();
+    this.level.eventTag = liveEvent.tag;
+    if (liveEvent.tag === 'blackhole_weekend') {
+      this.level.name = `周末黑洞 · ${CloudGameService.getTodayKey()}`;
+      const forward = this.level.start.direction === 'left' ? -1 : 1;
+      const c1 = Math.max(1, Math.min(this.level.gridSize[1] - 2, this.level.start.col + forward * 2));
+      const c2 = Math.max(1, Math.min(this.level.gridSize[1] - 2, this.level.start.col + forward * 3));
+      this.level.unstableCells = [
+        { row: this.level.start.row, col: c1, collapseAfterSteps: 4 },
+        { row: this.level.start.row, col: c2, collapseAfterSteps: 6 },
+      ];
+      this.level.tilePool = [...this.level.tilePool, 'boost', 'jump', 'time_crystal'];
+      this.level.objective = 'race_blackhole';
+      this.level.tutorialTip = '周末黑洞：身后浮岛会坍塌，接到终点前别停太久。';
+    }
     this.grid = GridManager.fromLevel(this.level);
     this.runner = { ...this.level.start, state: 'IDLE' };
     this.cardSystem = new CardSystem(this.withSkillTiles(this.level.tilePool), this.level.handSize, this.level.fixedHands ?? []);
@@ -451,6 +561,7 @@ export class GameRoot extends Component {
     this.bonusCollected = false;
     this.bonusNode = null;
     this.starCoreNodes.clear();
+    this.collectedStarCoreKeys.clear();
 
     this.activeParticles.forEach((p) => p.node.destroy());
     this.activeParticles = [];
@@ -474,11 +585,82 @@ export class GameRoot extends Component {
     this.maxBulletTime = this.level.bulletTimeSeconds ?? 3.0;
     this.currentBulletTime = this.maxBulletTime;
     this.redrawBulletTimeMeter();
-    this.setStatus('今日挑战开启：用最少步数接光，通关后晒战绩！');
+    this.setStatus(`${liveEvent.title}开启：用最少步数接光，通关后晒战绩！`);
+    ProfileManager.recordLevelStart(this.level.id);
+    AnalyticsService.track('level_start', { levelId: this.level.id, daily: true, versionTag: this.level.versionTag || 'v1.5' });
     if (this.previewRoot) {
       this.previewRoot.active = false;
       this.clearNode(this.previewRoot);
     }
+  }
+
+  public loadSeededChallenge(seed = Date.now() % 100000, stage = 0): void {
+    WeChatService.vibrateShort('medium');
+    this.isEndlessMode = false;
+    this.isDailyChallenge = false;
+    this.endlessStageIndex = stage;
+    this.level = LevelDirector.generateSeededChallenge(seed, stage);
+    this.levelIndex = Math.max(0, stage);
+    this.grid = GridManager.fromLevel(this.level);
+    this.runner = { ...this.level.start, state: 'IDLE' };
+    this.cardSystem = new CardSystem(this.withSkillTiles(this.level.tilePool), this.level.handSize, this.level.fixedHands ?? []);
+    this.hand = this.cardSystem.drawInitial();
+    this.usedMoves = 0;
+    this.flowEnergy = this.level.bulletTimeEnergy ?? 3;
+    this.runnerTimer = 0;
+    this.isResolving = false;
+    this.residualAssistId = '';
+    this.lastFailureInsight = null;
+    this.triggeredSkillTiles.clear();
+    this.litGoalKeys.clear();
+    this.runnerStepCount = 0;
+    this.bonusCell = null;
+    this.bonusCollected = false;
+    this.bonusNode = null;
+    this.starCoreNodes.clear();
+    this.collectedStarCoreKeys.clear();
+    this.pendingBonusDiamonds = 0;
+    this.skillComboCount = 0;
+    this.commuteStage = -1;
+    this.clearNode(this.boardRoot);
+    this.clearNode(this.previewRoot);
+    this.clearNode(this.runnerRoot);
+    this.clearNode(this.cardRoot);
+    this.tileNodes.clear();
+    this.cardNodes = [];
+    this.renderBoard();
+    this.renderAllTiles();
+    this.renderRunner();
+    this.renderCards();
+    this.updateLabels();
+    this.maxBulletTime = this.level.bulletTimeSeconds ?? 3.0;
+    this.currentBulletTime = this.maxBulletTime;
+    this.redrawBulletTimeMeter();
+    const report = LevelDirector.estimateDifficulty(this.level);
+    this.setStatus(`种子挑战已生成：${report.label}，用于每日/活动内容生产。`);
+    AnalyticsService.track('level_start', { levelId: this.level.id, seed, stage, difficulty: report.label, versionTag: 'v1.7' });
+  }
+
+  public loadCommuteChallenge(stage = 0): void {
+    const challenge = EngagementService.getCommuteChallenge();
+    const safeStage = Math.max(0, Math.min(stage, challenge.stages.length - 1));
+    this.loadSeededChallenge(Number(CloudGameService.getTodayKey()), challenge.stages[safeStage]);
+    this.commuteStage = safeStage;
+    if (this.level) {
+      this.level.name = `${challenge.title} · ${safeStage + 1}/3`;
+      this.level.eventTag = 'commute_3min';
+      this.level.versionTag = 'v1.5';
+      this.setStatus(`${challenge.subtitle}。完成 3 关可领 ${challenge.reward} 晶核。`);
+      this.updateLabels();
+    }
+  }
+
+  public continueSpecialChallengeIfAny(): boolean {
+    if (this.commuteStage >= 0 && this.commuteStage < 2) {
+      this.loadCommuteChallenge(this.commuteStage + 1);
+      return true;
+    }
+    return false;
   }
 
   private ensureRoots(): void {
@@ -539,6 +721,9 @@ export class GameRoot extends Component {
         goals[0].color = 'blue';
       }
     }
+    if (stage >= 10) tilePool.push('mirror', 'vine');
+    if (stage >= 12) tilePool.push('jump', 'blackhole');
+    if (stage >= 15) tilePool.push('splitter');
 
     const obstacles: Array<[number, number]> = [];
     const obstacleCount = Math.min(6, 2 + Math.floor(stage / 2));
@@ -567,8 +752,11 @@ export class GameRoot extends Component {
       runnerStepSeconds: stepSeconds,
       autoStart: false,
       obstacles,
+      unstableCells: stage >= 9 ? [{ row: startRow, col: Math.floor(size / 2), collapseAfterSteps: 5 }] : [],
       tilePool,
       recommendedMoves: 5 + stage,
+      objective: stage >= 15 ? 'race_blackhole' : 'reach_goal',
+      versionTag: stage >= 15 ? 'v2.0' : 'v1.7',
     };
   }
 
@@ -602,6 +790,8 @@ export class GameRoot extends Component {
       fixedHands: variant === 2 ? ['curve', 'cross', 'straight'] : ['curve', 'straight', 'curve'],
       recommendedMoves: 4,
       tutorialTip: '今日挑战：接上光路后分享战绩，看看谁能更少步。',
+      objective: 'reach_goal',
+      versionTag: 'v1.5',
     };
   }
 
@@ -622,6 +812,17 @@ export class GameRoot extends Component {
     }
     if (progress >= 5) {
       pushMany('refresh_crystal', 1 + this.getBlessingEffectLevel('refresh_hand'));
+    }
+    if (progress >= 8) {
+      pushMany('mirror', 1 + this.getBlessingEffectLevel('mirror_chain'));
+      pushMany('vine', 1);
+    }
+    if (progress >= 12) {
+      pushMany('jump', 1);
+      pushMany('blackhole', 1 + this.getBlessingEffectLevel('blackhole_flow'));
+    }
+    if (progress >= 16) {
+      pushMany('splitter', 1);
     }
     return pool;
   }
@@ -654,6 +855,11 @@ export class GameRoot extends Component {
     this.timeRewindUsed = false;
     this.pendingBonusDiamonds = 0;
     this.skillComboCount = 0;
+    this.litGoalKeys.clear();
+    this.runnerStepCount = 0;
+    this.commuteStage = -1;
+    this.residualAssistId = '';
+    this.lastFailureInsight = null;
 
     if (isEndless) {
       this.isEndlessMode = true;
@@ -671,13 +877,12 @@ export class GameRoot extends Component {
       this.isEndlessMode = false;
       this.isDailyChallenge = false;
       this.fourthSlotUnlocked = false;
-      const maxJourneyLevelCount = this.levels.length * 2;
+      const maxJourneyLevelCount = this.levels.length;
       const safeIndex = Math.max(0, Math.min(index, maxJourneyLevelCount - 1));
       this.levelIndex = safeIndex;
       const baseLevel = this.levels[safeIndex % this.levels.length];
-      if (safeIndex >= 10) {
-        // Deep copy the base level configuration to avoid mutation
-        const copied = JSON.parse(JSON.stringify(baseLevel)) as LevelConfig;
+      const copied = JSON.parse(JSON.stringify(baseLevel)) as LevelConfig;
+      if (safeIndex >= this.levels.length) {
         copied.id = safeIndex + 1;
         copied.name = `暮色镜像 · ${baseLevel.name}`;
         const cols = copied.gridSize[1];
@@ -707,12 +912,22 @@ export class GameRoot extends Component {
             it.col = cols - 1 - it.col;
           });
         }
+        if (copied.unstableCells) {
+          copied.unstableCells.forEach((cell) => {
+            cell.col = cols - 1 - cell.col;
+          });
+        }
+        if (copied.starCores) {
+          copied.starCores.forEach((cell) => {
+            cell.col = cols - 1 - cell.col;
+          });
+        }
 
         this.level = copied;
-        this.applyTheme(1); // Auto Theme 1 (Violet Dusk) for Chapter 2
+        this.currentTheme = 1; // Auto Theme 1 (Violet Dusk) for Chapter 2
       } else {
-        this.level = baseLevel;
-        this.applyTheme(0); // Auto Theme 0 (Icefield) for Chapter 1
+        this.level = copied;
+        this.currentTheme = safeIndex >= 20 ? 2 : (safeIndex >= 10 ? 1 : 0);
       }
     }
 
@@ -722,6 +937,7 @@ export class GameRoot extends Component {
     this.bonusCollected = false;
     this.bonusNode = null;
     this.starCoreNodes.clear();
+    this.collectedStarCoreKeys.clear();
 
     if (this.level?.starCores && this.level.starCores.length > 0) {
       this.bonusCell = { ...this.level.starCores[0] };
@@ -753,6 +969,7 @@ export class GameRoot extends Component {
       if (candidates.length > 0) {
         const randIdx = Math.floor(Math.random() * candidates.length);
         this.bonusCell = candidates[randIdx];
+        this.level.starCores = [{ ...this.bonusCell }];
       }
     }
 
@@ -800,7 +1017,19 @@ export class GameRoot extends Component {
     this.maxBulletTime = this.level.bulletTimeSeconds ?? 3.0;
     this.currentBulletTime = this.maxBulletTime;
     this.redrawBulletTimeMeter();
-    this.setStatus(this.level.tutorialTip ?? '拖拽水晶，接住这束光。');
+    const objectiveIntro = this.level.objective === 'light_all_goals'
+      ? '今日委托：点亮所有灯塔。'
+      : (this.level.objective === 'collect_star' ? '今日委托：顺路收集星核。' : '今日委托：把光信送到终点。');
+    const routeChoiceText = this.getActiveBonusCells().length > 0 ? '蓝线稳过，金线贪奖励。' : '';
+    this.setStatus(`${objectiveIntro}${routeChoiceText}${this.level.tutorialTip ?? '拖拽水晶，接住这束光。'}`);
+    ProfileManager.recordLevelStart(this.level.id);
+    AnalyticsService.track('level_start', {
+      levelId: this.level.id,
+      daily: false,
+      endless: this.isEndlessMode,
+      versionTag: this.level.versionTag || 'v1.0',
+      difficulty: LevelDirector.estimateDifficulty(this.level).label,
+    });
     if (this.previewRoot) {
       this.previewRoot.active = false;
       this.clearNode(this.previewRoot);
@@ -871,12 +1100,30 @@ export class GameRoot extends Component {
         }
 
         this.drawTopDownTile(graphics, topCol, strokeCol, 2.2, this.tileWidth, this.tileHeight, 0, 0, 6);
+        const unstable = this.level?.unstableCells?.find((cell) => cell.row === pos.row && cell.col === pos.col && cell.collapseAfterSteps >= 0);
+        if (unstable) {
+          graphics.fillColor = new Color(255, 59, 48, 62);
+          graphics.roundRect(-this.tileWidth / 2 + 8, -this.tileHeight / 2 + 8, this.tileWidth - 16, this.tileHeight - 16, 16);
+          graphics.fill();
+          graphics.strokeColor = this.hex('#FF3B30');
+          graphics.lineWidth = 4.5;
+          graphics.circle(0, 0, 30);
+          graphics.stroke();
+          graphics.moveTo(-22, 8);
+          graphics.lineTo(-8, -5);
+          graphics.lineTo(4, 7);
+          graphics.lineTo(18, -10);
+          graphics.stroke();
+          this.createCellMarkerLabel(node, 'RiskText', '危', '#FFFFFF', '#FF3B30', new Vec3(0, -1, 2));
+        }
 
         node.on(Node.EventType.TOUCH_END, () => {
           this.onCellTouch(pos);
         }, this);
       }
     });
+
+    this.drawRouteHintLayer();
 
     // 3. Start Point Sleek Cyber Emblem (起点平铺极简金青魔法印章，告别杂乱叠块！)
     if (this.level.start) {
@@ -904,22 +1151,29 @@ export class GameRoot extends Component {
       this.drawGoal(goal);
     }
 
-    if (this.bonusCell && !this.bonusCollected) {
+    for (const bonusCell of this.getActiveBonusCells()) {
       const bonusNode = new Node('BonusCrystal');
       bonusNode.layer = Layers.Enum.UI_2D;
       bonusNode.setParent(this.boardRoot!);
-      bonusNode.setPosition(this.gridToLocal(this.bonusCell).add3f(0, 0, 3));
+      bonusNode.setPosition(this.gridToLocal(bonusCell).add3f(0, 0, 3));
       let t = bonusNode.getComponent(UITransform);
       if (!t) t = bonusNode.addComponent(UITransform);
       t.setContentSize(64, 64);
       const bg = bonusNode.addComponent(Graphics);
+      bg.fillColor = new Color(253, 224, 71, 58);
+      bg.circle(0, 0, 34);
+      bg.fill();
+      bg.strokeColor = this.hex('#FDE047');
+      bg.lineWidth = 4;
+      bg.circle(0, 0, 29);
+      bg.stroke();
       bg.fillColor = this.hex('#FDE047');
       bg.strokeColor = this.hex('#FFFFFF');
-      bg.lineWidth = 1.8;
-      bg.moveTo(0, 16);
-      bg.lineTo(12, 0);
-      bg.lineTo(0, -16);
-      bg.lineTo(-12, 0);
+      bg.lineWidth = 2.5;
+      bg.moveTo(0, 23);
+      bg.lineTo(17, 0);
+      bg.lineTo(0, -23);
+      bg.lineTo(-17, 0);
       bg.close();
       bg.fill();
       bg.stroke();
@@ -932,15 +1186,200 @@ export class GameRoot extends Component {
       if (!lt) lt = labelNode.addComponent(UITransform);
       lt.setContentSize(40, 40);
       const label = labelNode.addComponent(Label);
-      label.string = '💎';
-      label.fontSize = 20;
-      label.color = new Color(255, 255, 255, 255);
+      label.string = '+30';
+      label.fontSize = 18;
+      label.color = this.hex('#451A03');
       label.horizontalAlign = Label.HorizontalAlign.CENTER;
       label.verticalAlign = Label.VerticalAlign.CENTER;
 
-      this.bonusNode = bonusNode;
-      this.starCoreNodes.set(this.key(this.bonusCell), bonusNode);
+      if (!this.powerSaveMode) {
+        tween(bonusNode)
+          .to(0.8, { scale: new Vec3(1.12, 1.12, 1) }, { easing: 'sineInOut' })
+          .to(0.8, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' })
+          .union()
+          .repeatForever()
+          .start();
+      }
+
+      if (!this.bonusNode) {
+        this.bonusNode = bonusNode;
+      }
+      this.starCoreNodes.set(this.key(bonusCell), bonusNode);
     }
+  }
+
+  private getActiveBonusCells(): GridPos[] {
+    const configured = this.level?.starCores && this.level.starCores.length > 0
+      ? this.level.starCores
+      : (this.bonusCell ? [this.bonusCell] : []);
+    return configured.filter((cell) => !this.collectedStarCoreKeys.has(this.key(cell)));
+  }
+
+  private drawRouteHintLayer(): void {
+    if (!this.level || !this.boardRoot) {
+      return;
+    }
+    const routeHints = this.getVisibleRouteHints();
+    if (!routeHints.safe?.length && !routeHints.reward?.length && !routeHints.risk?.length) {
+      return;
+    }
+    const hintRoot = new Node('RouteChoiceHints');
+    hintRoot.layer = Layers.Enum.UI_2D;
+    hintRoot.setParent(this.boardRoot);
+    hintRoot.setPosition(new Vec3(0, 0, 4));
+    const g = hintRoot.addComponent(Graphics);
+    this.drawHintPath(g, routeHints.safe ?? [], '#22D3EE', '稳');
+    this.drawHintPath(g, routeHints.reward ?? [], '#FDE047', '奖');
+    for (const risk of routeHints.risk ?? []) {
+      const p = this.gridToLocal(risk);
+      g.strokeColor = this.hex('#FF3B30');
+      g.lineWidth = 4;
+      g.circle(p.x, p.y, 30);
+      g.stroke();
+    }
+  }
+
+  private getVisibleRouteHints(): { safe?: GridPos[]; reward?: GridPos[]; risk?: GridPos[] } {
+    if (!this.level) {
+      return {};
+    }
+    if (this.level.routeHints) {
+      return this.level.routeHints;
+    }
+
+    const safe = this.level.goals[0] ? this.findRouteHintPath(this.level.start, this.level.goals[0]) : [];
+    const activeStars = this.getActiveBonusCells();
+    let reward: GridPos[] = [];
+    if (activeStars.length > 0 && this.level.goals[0]) {
+      const rewardTargets = [...activeStars.slice(0, 2), this.level.goals[0]];
+      let cursor: GridPos = this.level.start;
+      for (const target of rewardTargets) {
+        const segment = this.findRouteHintPath(cursor, target);
+        if (segment.length === 0) {
+          reward = [];
+          break;
+        }
+        reward = reward.length > 0 ? reward.concat(segment.slice(1)) : segment;
+        cursor = target;
+      }
+    }
+
+    return {
+      safe,
+      reward,
+      risk: this.level.unstableCells?.filter((cell) => cell.collapseAfterSteps >= 0),
+    };
+  }
+
+  private findRouteHintPath(from: GridPos, to: GridPos): GridPos[] {
+    if (!this.level) {
+      return [];
+    }
+    const rows = this.level.gridSize[0];
+    const cols = this.level.gridSize[1];
+    const obstacleKeys = new Set(this.level.obstacles.map(([r, c]) => `${r},${c}`));
+    const startKey = `${from.row},${from.col}`;
+    const targetKey = `${to.row},${to.col}`;
+    const queue: GridPos[] = [{ row: from.row, col: from.col }];
+    const parent = new Map<string, string>();
+    const seen = new Set<string>([startKey]);
+    const dirs = [
+      { row: 0, col: 1 },
+      { row: 1, col: 0 },
+      { row: -1, col: 0 },
+      { row: 0, col: -1 },
+    ];
+
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      const curKey = `${cur.row},${cur.col}`;
+      if (curKey === targetKey) {
+        break;
+      }
+      for (const d of dirs) {
+        const next = { row: cur.row + d.row, col: cur.col + d.col };
+        const key = `${next.row},${next.col}`;
+        if (next.row < 0 || next.row >= rows || next.col < 0 || next.col >= cols || seen.has(key)) {
+          continue;
+        }
+        if (obstacleKeys.has(key) && key !== targetKey) {
+          continue;
+        }
+        seen.add(key);
+        parent.set(key, curKey);
+        queue.push(next);
+      }
+    }
+
+    if (!seen.has(targetKey)) {
+      return [];
+    }
+    const path: GridPos[] = [];
+    let key = targetKey;
+    while (key) {
+      const [row, col] = key.split(',').map((value) => parseInt(value, 10));
+      path.push({ row, col });
+      if (key === startKey) {
+        break;
+      }
+      key = parent.get(key) || '';
+    }
+    return path.reverse();
+  }
+
+  private drawHintPath(g: Graphics, path: GridPos[], colorHex: string, marker: string): void {
+    if (path.length === 0) {
+      return;
+    }
+    const col = this.hex(colorHex);
+    const glow = new Color(col.r, col.g, col.b, 74);
+    g.strokeColor = glow;
+    g.lineWidth = 18;
+    const first = this.gridToLocal(path[0]);
+    g.moveTo(first.x, first.y);
+    for (const cell of path.slice(1)) {
+      const point = this.gridToLocal(cell);
+      g.lineTo(point.x, point.y);
+    }
+    g.stroke();
+
+    g.strokeColor = new Color(col.r, col.g, col.b, 180);
+    g.lineWidth = 5;
+    g.moveTo(first.x, first.y);
+    for (const cell of path.slice(1)) {
+      const point = this.gridToLocal(cell);
+      g.lineTo(point.x, point.y);
+    }
+    g.stroke();
+
+    const labelCell = path[Math.min(1, path.length - 1)];
+    const labelPos = this.gridToLocal(labelCell);
+    const labelNode = new Node(`RouteHint_${marker}`);
+    labelNode.layer = Layers.Enum.UI_2D;
+    labelNode.setParent(this.boardRoot!);
+    labelNode.setPosition(labelPos.add3f(0, 26, 7));
+    this.createCellMarkerLabel(labelNode, 'Label', marker, marker === '稳' ? '#082F49' : '#451A03', colorHex, new Vec3(0, 0, 0));
+  }
+
+  private createCellMarkerLabel(parent: Node, name: string, text: string, textHex: string, bgHex: string, pos: Vec3): void {
+    const node = new Node(name);
+    node.layer = Layers.Enum.UI_2D;
+    node.setParent(parent);
+    node.setPosition(pos);
+    node.addComponent(UITransform).setContentSize(42, 28);
+    const g = node.addComponent(Graphics);
+    g.fillColor = this.hex(bgHex);
+    g.roundRect(-21, -14, 42, 28, 14);
+    g.fill();
+    g.strokeColor = this.hex('#FFFFFF');
+    g.lineWidth = 1.6;
+    g.stroke();
+    const label = node.addComponent(Label);
+    label.string = text;
+    label.fontSize = 18;
+    label.color = this.hex(textHex);
+    label.horizontalAlign = Label.HorizontalAlign.CENTER;
+    label.verticalAlign = Label.VerticalAlign.CENTER;
   }
 
   private renderAllTiles(): void {
@@ -969,6 +1408,9 @@ export class GameRoot extends Component {
     node.addComponent(UITransform).setContentSize(this.tileWidth, this.tileHeight);
     const graphics = node.addComponent(Graphics);
     const topCol = this.tileColor(tile.type);
+    graphics.fillColor = new Color(0, 240, 255, 46);
+    graphics.roundRect(-this.tileWidth * 0.48, -this.tileHeight * 0.48, this.tileWidth * 0.96, this.tileHeight * 0.96, 24);
+    graphics.fill();
     this.drawDiamond(graphics, topCol, this.hex('#FFFFFF'), 2.2);
     this.drawTileArrow(graphics, tile, 0, 0.86, 0, 44);
     this.drawSkillBadge(graphics, tile.type, 0, 0);
@@ -988,23 +1430,33 @@ export class GameRoot extends Component {
     const graphics = node.addComponent(Graphics);
     const goalCol = this.colorForRunner(goal.color ?? 'none');
 
-    // 1. Goal Pad Rounded Base
-    this.drawTopDownTile(graphics, goalCol, this.hex('#FFFFFF'), 3, this.tileWidth * 0.9, this.tileHeight * 0.9, 0, 0, 6);
+    // 1. Goal Pad: intentionally brighter than normal tiles so the objective reads instantly.
+    graphics.fillColor = new Color(255, 255, 255, 235);
+    graphics.roundRect(-this.tileWidth * 0.46, -this.tileHeight * 0.46, this.tileWidth * 0.92, this.tileHeight * 0.92, 24);
+    graphics.fill();
+    graphics.strokeColor = this.hex('#FFFFFF');
+    graphics.lineWidth = 4.5;
+    graphics.stroke();
 
     // 2. Glowing Portal Ring
     const portalCol = goal.color === 'red' ? this.hex('#FF2E93') : (goal.color === 'blue' ? this.hex('#00F0FF') : this.hex('#E066FF'));
-    graphics.fillColor = new Color(portalCol.r, portalCol.g, portalCol.b, 65);
-    graphics.circle(0, 0, 36);
+    graphics.fillColor = new Color(portalCol.r, portalCol.g, portalCol.b, 82);
+    graphics.circle(0, 0, 42);
     graphics.fill();
     graphics.strokeColor = portalCol;
-    graphics.lineWidth = 4;
-    graphics.circle(0, 0, 36);
+    graphics.lineWidth = 5.5;
+    graphics.circle(0, 0, 38);
+    graphics.stroke();
+    graphics.strokeColor = goal.required ? this.hex('#FDE047') : goalCol;
+    graphics.lineWidth = 3;
+    graphics.circle(0, 0, 23);
     graphics.stroke();
 
-    // Center portal vortex star
+    // Center portal vortex star and explicit label.
     graphics.fillColor = this.hex('#FFFFFF');
-    graphics.circle(0, 0, 10);
+    graphics.circle(0, 0, 11);
     graphics.fill();
+    this.createCellMarkerLabel(node, 'GoalText', goal.required ? '灯塔' : '终点', '#111827', goal.required ? '#FDE047' : '#FFFFFF', new Vec3(0, -38, 2));
   }
 
   private renderRunner(): void {
@@ -1146,13 +1598,15 @@ export class GameRoot extends Component {
       cancelText: '不需要',
       success: (res) => {
         if (res.confirm) {
-          WeChatService.showVideoAd(() => {
-            if (this.cardSystem) {
+          AdService.showRewarded('utility_refill').then((adRes) => {
+            if (adRes.completed && this.cardSystem) {
               this.fourthSlotUnlocked = true;
               this.hand = this.cardSystem.unlockFourthSlot();
               this.renderCards();
               WeChatService.showToast('成功解锁第四手牌槽位！', 'success');
               this.setStatus('★ 已看视频成功，本局已解锁第四手牌槽位，极大地降低卡手概率！');
+            } else if (!adRes.completed) {
+              WeChatService.showToast(adRes.error || '观看完成后解锁第四槽位', 'none');
             }
           });
         }
@@ -1212,46 +1666,51 @@ export class GameRoot extends Component {
   }
 
   private handleCardDrop(event: EventTouch): void {
-    if (!this.dragTile || !this.grid || !this.level || !this.cardSystem) {
-      this.endDrag();
-      return;
-    }
-
-    if (!this.hasMovedDuringDrag) {
-      this.selectCard(this.dragCardIndex);
-      this.endDrag();
-      return;
-    }
-
-    const pos = event.getUILocation();
-    const cell = this.uiToGrid(pos.x, pos.y);
-    if (cell && this.canPlace(cell)) {
-      if (this.hintHighlightNode) {
-        this.hintHighlightNode.destroy();
-        this.hintHighlightNode = null;
+    try {
+      if (!this.dragTile || !this.grid || !this.level || !this.cardSystem) {
+        return;
       }
-      WeChatService.vibrateShort('light');
-      this.grid.setTile(cell, this.dragTile);
-      this.renderTile(cell, this.dragTile);
-      this.moveHistory.push({
-        pos: { ...cell },
-        cardIndex: this.dragCardIndex,
-        tileType: this.dragTile.type,
-      });
-      this.usedMoves++;
-      this.hand = this.cardSystem.consume(this.dragCardIndex);
-      this.renderCards();
-      this.currentBulletTime = Math.min(this.maxBulletTime, this.currentBulletTime + 1.2);
-      this.redrawBulletTimeMeter();
-      this.setStatus('放置成功！已补充 1.2s 子弹时间。可继续铺路或启动流光。');
-    } else {
-      WeChatService.vibrateShort('heavy');
-      this.setStatus('这里不能放置');
-    }
 
-    this.endDrag();
-    this.updateLabels();
-    this.updateRoutePreviewLine();
+      if (!this.hasMovedDuringDrag) {
+        this.selectCard(this.dragCardIndex);
+        return;
+      }
+
+      const pos = event.getUILocation();
+      const cell = this.uiToGrid(pos.x, pos.y);
+      if (cell && this.canPlace(cell)) {
+        if (this.hintHighlightNode) {
+          this.hintHighlightNode.destroy();
+          this.hintHighlightNode = null;
+        }
+        WeChatService.vibrateShort('light');
+        this.grid.setTile(cell, this.dragTile);
+        this.renderTile(cell, this.dragTile);
+        const generated = this.applyPlacementSkill(this.dragTile, cell);
+        this.moveHistory.push({
+          pos: { ...cell },
+          cardIndex: this.dragCardIndex,
+          tileType: this.dragTile.type,
+          generated,
+        });
+        this.usedMoves++;
+        this.hand = this.cardSystem.consume(this.dragCardIndex);
+        this.renderCards();
+        this.currentBulletTime = Math.min(this.maxBulletTime, this.currentBulletTime + 1.2);
+        this.redrawBulletTimeMeter();
+        this.setStatus('放置成功！已补充 1.2s 子弹时间。可继续铺路或启动流光。');
+      } else {
+        WeChatService.vibrateShort('heavy');
+        this.setStatus('这里不能放置');
+      }
+    } catch (error) {
+      console.error('[GameRoot] Card drop failed:', error);
+      this.setStatus('本次拖拽出现异常，已自动恢复操作状态。');
+    } finally {
+      this.endDrag();
+      this.updateLabels();
+      this.updateRoutePreviewLine();
+    }
   }
 
   private onPlacedTileTouch(pos: GridPos): void {
@@ -1314,10 +1773,12 @@ export class GameRoot extends Component {
         WeChatService.vibrateShort('light');
         this.grid.setTile(pos, tile);
         this.renderTile(pos, tile);
+        const generated = this.applyPlacementSkill(tile, pos);
         this.moveHistory.push({
           pos: { ...pos },
           cardIndex: this.selectedCardIndex,
           tileType: tile.type,
+          generated,
         });
         this.usedMoves++;
         this.hand = this.cardSystem.consume(this.selectedCardIndex);
@@ -1337,6 +1798,45 @@ export class GameRoot extends Component {
     }
   }
 
+  private applyPlacementSkill(tile: TileInstance, pos: GridPos): GridPos[] {
+    if (!this.grid) {
+      return [];
+    }
+    const config = resolveTileConfig(tile);
+    if (config.skill !== 'vine' && config.skill !== 'mirror') {
+      return [];
+    }
+
+    const outputs = Object.values(config.routing).filter((value) => !!value && value !== 'dead') as Direction[];
+    const direction = outputs[0];
+    if (!direction) {
+      return [];
+    }
+
+    const growCount = config.skill === 'vine' ? (config.autoGrow || 1) : 1;
+    let cursor = { ...pos };
+    let placed = 0;
+    const generatedPositions: GridPos[] = [];
+    for (let i = 0; i < growCount; i++) {
+      cursor = move(cursor, direction);
+      if (!this.canPlace(cursor) || this.grid.getTile(cursor)) {
+        break;
+      }
+      const type: TileType = config.skill === 'mirror' ? tile.type : 'straight';
+      const generated = createTile(type, tile.rotation);
+      this.grid.setTile(cursor, generated);
+      this.renderTile(cursor, generated);
+      generatedPositions.push({ ...cursor });
+      placed++;
+    }
+    if (placed > 0) {
+      const name = config.skill === 'vine' ? '生长水晶' : '镜像水晶';
+      this.setStatus(`${name}触发：自动延展 ${placed} 格光路。`);
+      AnalyticsService.track('skill_trigger', { levelId: this.level?.id ?? 0, skill: config.skill, placed });
+    }
+    return generatedPositions;
+  }
+
   private endDrag(): void {
     director.getScheduler().setTimeScale(1);
     this.dragTile = null;
@@ -1349,6 +1849,19 @@ export class GameRoot extends Component {
     }
     this.cardNodes.forEach((card) => card.setScale(new Vec3(1, 1, 1)));
     this.redrawBulletTimeMeter();
+  }
+
+  private resetTransientInputState(): void {
+    director.getScheduler().setTimeScale(1);
+    this.dragTile = null;
+    this.dragCardIndex = -1;
+    this.hoverCell = null;
+    this.hasMovedDuringDrag = false;
+    this.isResolving = false;
+    if (this.dragNode) {
+      this.dragNode.destroy();
+      this.dragNode = null;
+    }
   }
 
   public updateRoutePreviewLine(): void {
@@ -1438,14 +1951,26 @@ export class GameRoot extends Component {
 
     this.rewindSnapshot = this.createRewindSnapshot();
     const next = move(this.runner, this.runner.direction);
-    const preview = RouteSimulator.simulate(this.grid, this.runner, this.level.goals);
-    if (preview.path.length > 0 && preview.path[0].result === 'goal') {
-      this.moveRunnerVisual(next, () => this.handleSuccess());
-      return;
-    }
 
     if (!this.grid.isValid(next) || this.grid.isObstacle(next)) {
       this.handleDead('前方无法通行');
+      return;
+    }
+
+    const directGoal = this.findGoal(next, this.level.goals);
+    if (directGoal && this.isGoalColorMatched(directGoal)) {
+      this.runner.row = next.row;
+      this.runner.col = next.col;
+      const complete = this.visitGoal(directGoal);
+      this.afterRunnerStep();
+      this.moveRunnerVisual(this.runner, () => {
+        if (complete) {
+          this.handleSuccess();
+        }
+      });
+      return;
+    } else if (directGoal) {
+      this.handleDead('光的颜色不匹配');
       return;
     }
 
@@ -1471,19 +1996,7 @@ export class GameRoot extends Component {
     this.runner.col = next.col;
     this.runner.direction = out;
 
-    if (this.bonusCell && next.row === this.bonusCell.row && next.col === this.bonusCell.col && !this.bonusCollected) {
-      this.bonusCollected = true;
-      WeChatService.vibrateShort('medium');
-      const reward = 30 + this.getBlessingEffectLevel('star_reward') * 10;
-      this.pendingBonusDiamonds += reward;
-      WeChatService.showToast(`收集星核 +${reward} 💎，通关结算`, 'success');
-      if (this.bonusNode) {
-        this.bonusNode.destroy();
-        this.bonusNode = null;
-      }
-      this.starCoreNodes.delete(this.key(next));
-      this.updateLabels();
-    }
+    this.collectBonusAt(next);
 
     this.applySkillTileEffect(tile, next);
 
@@ -1500,12 +2013,95 @@ export class GameRoot extends Component {
       this.tileNodes.delete(this.key(next));
     }
 
+    let completedByJump = false;
+    if (config.jumpDistance && config.jumpDistance > 0) {
+      for (let i = 0; i < config.jumpDistance; i++) {
+        const landing = move(this.runner, this.runner.direction);
+        if (!this.grid.isValid(landing) || this.grid.isObstacle(landing)) {
+          this.handleDead('跃迁落点无法通行');
+          return;
+        }
+        this.runner.row = landing.row;
+        this.runner.col = landing.col;
+        this.collectBonusAt(landing);
+        const jumpGoal = this.findGoal(landing, this.level.goals);
+        if (jumpGoal && this.isGoalColorMatched(jumpGoal)) {
+          completedByJump = this.visitGoal(jumpGoal);
+          break;
+        }
+      }
+    }
+
+    this.afterRunnerStep();
     this.moveRunnerVisual(this.runner, () => {
       const goal = this.findGoal(this.runner!, this.level!.goals);
-      if (goal && (!goal.color || goal.color === 'none' || goal.color === this.runner!.color)) {
+      if (completedByJump || (goal && this.isGoalColorMatched(goal) && this.visitGoal(goal))) {
         this.handleSuccess();
       }
     });
+  }
+
+  private collectBonusAt(pos: GridPos): void {
+    const bonus = this.getActiveBonusCells().find((cell) => cell.row === pos.row && cell.col === pos.col);
+    if (bonus) {
+      this.collectedStarCoreKeys.add(this.key(pos));
+      this.bonusCollected = this.getActiveBonusCells().length === 0;
+      WeChatService.vibrateShort('medium');
+      const reward = 30 + this.getBlessingEffectLevel('star_reward') * 10;
+      this.pendingBonusDiamonds += reward;
+      WeChatService.showToast(`收集星核 +${reward} 💎，通关结算`, 'success');
+      const node = this.starCoreNodes.get(this.key(pos));
+      node?.destroy();
+      this.starCoreNodes.delete(this.key(pos));
+      this.bonusNode = this.starCoreNodes.values().next().value ?? null;
+      this.updateLabels();
+    }
+  }
+
+  private isGoalColorMatched(goal: GoalConfig): boolean {
+    return !!this.runner && (!goal.color || goal.color === 'none' || goal.color === this.runner.color);
+  }
+
+  private visitGoal(goal: GoalConfig): boolean {
+    const requiredGoals = this.level?.goals.filter((item) => item.required) ?? [];
+    if (requiredGoals.length === 0) {
+      return true;
+    }
+    const key = posKey(goal);
+    if (!this.litGoalKeys.has(key)) {
+      this.litGoalKeys.add(key);
+      goal.lit = true;
+      AnalyticsService.track('goal_lit', { levelId: this.level?.id ?? 0, row: goal.row, col: goal.col, lit: this.litGoalKeys.size, total: requiredGoals.length });
+      this.setStatus(`灯塔已点亮 ${this.litGoalKeys.size}/${requiredGoals.length}，继续接通剩余光点。`);
+    }
+    return requiredGoals.every((item) => this.litGoalKeys.has(posKey(item)));
+  }
+
+  private afterRunnerStep(): void {
+    this.runnerStepCount++;
+    this.resolveUnstableCells();
+  }
+
+  private resolveUnstableCells(): void {
+    if (!this.level || !this.grid || !this.runner || !this.level.unstableCells) {
+      return;
+    }
+    for (const cell of this.level.unstableCells) {
+      if (cell.collapseAfterSteps < 0 || this.runnerStepCount < cell.collapseAfterSteps) {
+        continue;
+      }
+      cell.collapseAfterSteps = -1;
+      this.grid.setTile(cell, null);
+      this.grid.setObstacle(cell, true);
+      this.tileNodes.get(this.key(cell))?.destroy();
+      this.tileNodes.delete(this.key(cell));
+      AnalyticsService.track('unstable_collapse', { levelId: this.level.id, row: cell.row, col: cell.col, step: this.runnerStepCount });
+      if (this.runner.row === cell.row && this.runner.col === cell.col) {
+        this.handleDead('未来影子坍塌命中');
+        return;
+      }
+      this.setStatus('未来影子坍塌了一块浮岛，提前规划路线！');
+    }
   }
 
   private createRewindSnapshot(): RewindSnapshot | null {
@@ -1550,7 +2146,24 @@ export class GameRoot extends Component {
       this.renderCards();
       WeChatService.showToast('刷新水晶：换 1 张牌', 'success');
       this.setStatus('刷新水晶触发，已替换一张手牌。');
+    } else if (config.skill === 'jump') {
+      this.currentBulletTime = Math.min(this.maxBulletTime + 2, this.currentBulletTime + 0.6);
+      this.redrawBulletTimeMeter();
+      WeChatService.showToast('跃迁水晶：跳过危险格', 'success');
+      this.setStatus('跃迁水晶触发，流光跳过前方一格。');
+    } else if (config.skill === 'blackhole') {
+      this.hand = this.cardSystem.redrawAll();
+      this.renderCards();
+      WeChatService.showToast('黑洞水晶：吞掉卡手牌', 'success');
+      this.setStatus('黑洞水晶触发，手牌已全部净化重抽。');
+    } else if (config.skill === 'splitter') {
+      const reward = 12 + this.getBlessingEffectLevel('star_reward') * 4;
+      this.pendingBonusDiamonds += reward;
+      WeChatService.showToast(`分光连锁 +${reward} 💎`, 'success');
+      this.setStatus('分光水晶触发，多目标关会更容易点亮全部灯塔。');
     }
+    AnalyticsService.track('skill_trigger', { levelId: this.level?.id ?? 0, skill: config.skill, tile: tile.type });
+    ProfileManager.addTileMastery(tile.type, 1);
     this.triggerSkillComboFeedback();
     this.updateLabels();
   }
@@ -1579,7 +2192,7 @@ export class GameRoot extends Component {
     this.isResolving = true;
     const startPos = this.runnerNode.position.clone();
     const endPos = this.gridToLocal(pos).add3f(0, 0, 10);
-    const baseCol = this.colorForRunner(this.runner?.color ?? 'none');
+    const baseCol = this.runnerSkinColor(this.colorForRunner(this.runner?.color ?? 'none'));
 
     if (!this.powerSaveMode) {
       for (let i = 1; i <= 3; i++) {
@@ -1600,13 +2213,14 @@ export class GameRoot extends Component {
 
   private spawnTrailGhost(pos: Vec3, color: Color, delay: number): void {
     if (!this.runnerRoot || this.powerSaveMode) return;
+    const trailColor = this.trailSkinColor(color);
     const ghost = new Node('TrailGhost');
     ghost.layer = Layers.Enum.UI_2D;
     ghost.setParent(this.runnerRoot);
     ghost.setPosition(pos);
     ghost.addComponent(UITransform).setContentSize(40, 40);
     const graphics = ghost.addComponent(Graphics);
-    graphics.fillColor = new Color(color.r, color.g, color.b, 140);
+    graphics.fillColor = new Color(trailColor.r, trailColor.g, trailColor.b, 140);
     graphics.circle(0, 0, 16);
     graphics.fill();
     graphics.fillColor = new Color(255, 255, 255, 180);
@@ -1618,6 +2232,14 @@ export class GameRoot extends Component {
       .to(0.18, { scale: new Vec3(0.2, 0.2, 1) })
       .call(() => ghost.destroy())
       .start();
+  }
+
+  private trailSkinColor(defaultColor: Color): Color {
+    const trail = ProfileManager.getProfile().selectedTrail || 'trail_default';
+    if (trail === 'trail_aurora') return this.hex('#67E8F9');
+    if (trail === 'trail_sakura') return this.hex('#FDA4AF');
+    if (trail === 'trail_neon') return this.hex('#C084FC');
+    return defaultColor;
   }
 
   private spawnLandingRipple(pos: Vec3, color: Color): void {
@@ -1656,13 +2278,15 @@ export class GameRoot extends Component {
       const dateKey = this.level.name.replace('今日光路 · ', '');
       const dailyScore = Math.floor(score);
       ProfileManager.updateDailyChallengeBest(dateKey, dailyScore, this.usedMoves);
+      ProfileManager.recordLevelResult(this.level.id, true, this.usedMoves);
+      const engagementSummary = this.applyEngagementSuccessRewards(Math.min(3, this.calculateStars()));
       const leaderboard = CloudGameService.submitDailyChallenge(dateKey, dailyScore, this.usedMoves);
       AnalyticsService.track('daily_success', { levelId: this.level.id, score: dailyScore, moves: this.usedMoves, beatPercent: leaderboard.beatPercent });
       const reward = this.usedMoves <= this.level.recommendedMoves ? 80 : 50;
       const totalReward = reward + this.pendingBonusDiamonds;
       ProfileManager.addDiamonds(totalReward);
       this.triggerVictoryShockwave();
-      this.setStatus(`今日挑战完成！${leaderboard.hintText}，晶核 +${totalReward} 💎`);
+      this.setStatus(`今日挑战完成！${leaderboard.hintText}，晶核 +${totalReward} 💎。${engagementSummary}`);
       this.updateLabels();
       WeChatService.showToast(`今日挑战通关 +${totalReward} 💎`, 'success');
       if (this.onShowVictoryPosterCallback) {
@@ -1688,6 +2312,8 @@ export class GameRoot extends Component {
     }
 
     const stars = this.calculateStars();
+    ProfileManager.recordLevelResult(this.level.id, true, this.usedMoves);
+    const engagementSummary = this.applyEngagementSuccessRewards(stars);
     AnalyticsService.track('level_success', { levelId: this.level.id, stars, moves: this.usedMoves, assist: !!this.residualAssistId });
     const reward = stars * 20;
     ProfileManager.addDiamonds(reward + this.pendingBonusDiamonds);
@@ -1701,8 +2327,9 @@ export class GameRoot extends Component {
     }
 
     this.triggerVictoryShockwave();
+    this.unlockMetaTitles(stars);
     const beatPercent = this.estimateFriendBeatPercent(stars, this.usedMoves);
-    this.setStatus(`通关！${stars} 星，晶核 +${reward + this.pendingBonusDiamonds + assistBonus} 💎，击败 ${beatPercent}% 好友！`);
+    this.setStatus(`通关！${stars} 星，晶核 +${reward + this.pendingBonusDiamonds + assistBonus} 💎，击败 ${beatPercent}% 好友！${engagementSummary}`);
     this.updateLabels();
     if (assistBonus > 0) {
       WeChatService.showToast('助攻成功！额外获得 80 💎', 'success');
@@ -1733,7 +2360,7 @@ export class GameRoot extends Component {
       return;
     }
 
-    const options: BlessingOption[] = [
+    const optionPool: BlessingOption[] = [
       {
         id: 'time_flow',
         title: '时间共鸣',
@@ -1752,7 +2379,24 @@ export class GameRoot extends Component {
         desc: '刷新水晶更容易出现，卡手更少。',
         color: '#34D399',
       },
+      {
+        id: 'mirror_chain',
+        title: '镜像连锁',
+        desc: '镜像水晶更容易出现，适合复制关键转弯。',
+        color: '#C084FC',
+      },
+      {
+        id: 'blackhole_flow',
+        title: '黑洞净化',
+        desc: '黑洞水晶更容易出现，能吞掉卡手牌。',
+        color: '#F97316',
+      },
     ];
+    const options = optionPool
+      .map((option) => ({ option, roll: Math.random() }))
+      .sort((a, b) => a.roll - b.roll)
+      .slice(0, 3)
+      .map((entry) => entry.option);
 
     const size = view.getVisibleSize();
     const halfW = size.width / 2;
@@ -1822,6 +2466,50 @@ export class GameRoot extends Component {
     const moveBonus = Math.max(0, recommended - moves) * 4;
     const base = 58 + stars * 11 + moveBonus + Math.min(8, this.levelIndex);
     return Math.max(55, Math.min(99, Math.round(base)));
+  }
+
+  private applyEngagementSuccessRewards(stars: number): string {
+    if (!this.level) {
+      return '';
+    }
+
+    const beautyScore = EngagementService.scoreBeautifulRoute(this.usedMoves, this.skillComboCount, this.bonusCollected, stars);
+    const isBestBeauty = ProfileManager.updateBeautifulRouteBest(beautyScore);
+    const mail = EngagementService.getLightMail(this.level, this.usedMoves);
+    if (isBestBeauty && beautyScore >= 82) {
+      const reward = EngagementService.pickCosmeticReward(this.skillComboCount, this.bonusCollected, !!this.residualAssistId);
+      if (reward.kind === 'island_decor') {
+        ProfileManager.addIslandDecor(reward.id);
+      } else {
+        ProfileManager.unlockCosmetic(reward.id);
+      }
+      WeChatService.showToast(`解锁${reward.name}：${reward.unlockText}`, 'success');
+    }
+
+    if (this.commuteStage >= 0) {
+      const challenge = EngagementService.getCommuteChallenge();
+      const doneCount = ProfileManager.recordCommuteStage(CloudGameService.getTodayKey(), this.commuteStage);
+      if (doneCount >= challenge.stages.length) {
+        ProfileManager.addDiamonds(challenge.reward);
+        ProfileManager.unlockCosmetic('trail_aurora');
+        WeChatService.showToast(`${challenge.title}完成 +${challenge.reward} 💎`, 'success');
+      }
+    }
+
+    return `${mail} 光轨美感 ${beautyScore} 分。`;
+  }
+
+  private unlockMetaTitles(stars: number): void {
+    const titles: string[] = [];
+    if (stars >= 3) titles.push('完美接光者');
+    if (this.skillComboCount >= 3) titles.push('流派连锁大师');
+    if (this.level?.objective === 'light_all_goals') titles.push('灯塔唤醒者');
+    for (const title of titles) {
+      if (ProfileManager.unlockTitle(title)) {
+        AnalyticsService.track('meta_title_unlock', { title, levelId: this.level?.id ?? 0 });
+        WeChatService.showToast(`获得称号：${title}`, 'success');
+      }
+    }
   }
 
   private triggerVictoryShockwave(): void {
@@ -1977,8 +2665,12 @@ export class GameRoot extends Component {
     }
     WeChatService.vibrateShort('heavy');
     this.runner.state = 'DEAD';
-    AnalyticsService.track('level_fail', { levelId: this.level?.id ?? 0, moves: this.usedMoves, reason, daily: this.isDailyChallenge, endless: this.isEndlessMode });
-    this.setStatus(`失败：${reason}。呼叫时空导师救我一命！`);
+    const preview = this.grid && this.level ? RouteSimulator.simulate(this.grid, this.runner, this.level.goals) : null;
+    this.lastFailureInsight = EngagementService.analyzeFailure(reason, this.runner, this.level?.goals ?? [], preview?.path ?? []);
+    this.showFailureReplayMarker(this.lastFailureInsight.missingCell ?? null);
+    ProfileManager.recordLevelResult(this.level?.id ?? this.levelIndex + 1, false, this.usedMoves, reason);
+    AnalyticsService.track('level_fail', { levelId: this.level?.id ?? 0, moves: this.usedMoves, reason, grade: this.lastFailureInsight.grade, daily: this.isDailyChallenge, endless: this.isEndlessMode });
+    this.setStatus(`${this.lastFailureInsight.grade}：${reason}。${this.lastFailureInsight.rescueText}`);
     this.updateLabels();
 
     if (this.isEndlessMode && !this.isDailyChallenge) {
@@ -1997,6 +2689,9 @@ export class GameRoot extends Component {
         handCount: this.hand.length,
         reason,
         isNearGoal: this.isNearGoalFromCurrentRoute(),
+        grade: this.lastFailureInsight.grade,
+        rescueText: this.lastFailureInsight.rescueText,
+        shareText: this.lastFailureInsight.shareText,
       });
     }
   }
@@ -2027,6 +2722,36 @@ export class GameRoot extends Component {
     this.setStatus('时光回溯触发！流光倒回关键节点，额外补给 1 张救场牌。');
     AnalyticsService.track('time_rewind', { levelId: this.level?.id ?? 0, reason, moves: this.usedMoves });
     return true;
+  }
+
+  private showFailureReplayMarker(pos: GridPos | null): void {
+    if (!pos || !this.boardRoot || !this.grid || !this.grid.isValid(pos) || this.powerSaveMode) {
+      return;
+    }
+    if (this.hintHighlightNode) {
+      this.hintHighlightNode.destroy();
+      this.hintHighlightNode = null;
+    }
+    const marker = new Node('FailureReplayMarker');
+    marker.layer = Layers.Enum.UI_2D;
+    marker.setParent(this.boardRoot);
+    marker.setPosition(this.gridToLocal(pos).add3f(0, 0, 8));
+    marker.addComponent(UITransform).setContentSize(this.tileWidth, this.tileHeight);
+    const g = marker.addComponent(Graphics);
+    g.fillColor = new Color(255, 59, 48, 50);
+    g.circle(0, 0, 42);
+    g.fill();
+    g.strokeColor = this.hex('#FF3B30');
+    g.lineWidth = 5;
+    g.circle(0, 0, 42);
+    g.stroke();
+    this.hintHighlightNode = marker;
+    tween(marker)
+      .to(0.45, { scale: new Vec3(1.18, 1.18, 1) }, { easing: 'sineInOut' })
+      .to(0.45, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' })
+      .union()
+      .repeat(3)
+      .start();
   }
 
   private showRewindFlash(text: string): void {
@@ -2156,7 +2881,7 @@ export class GameRoot extends Component {
       return;
     }
     graphics.clear();
-    const baseCol = this.colorForRunner(this.runner.color);
+    const baseCol = this.runnerSkinColor(this.colorForRunner(this.runner.color));
 
     // 1. Soft cyber halo
     graphics.fillColor = new Color(baseCol.r, baseCol.g, baseCol.b, 65);
@@ -2180,6 +2905,13 @@ export class GameRoot extends Component {
     graphics.fillColor = new Color(255, 255, 255, 220);
     graphics.circle(-4, 4, 3);
     graphics.fill();
+  }
+
+  private runnerSkinColor(defaultColor: Color): Color {
+    const skin = ProfileManager.getProfile().selectedRunnerSkin || 'runner_default';
+    if (skin === 'runner_crystal_cat') return this.hex('#F9A8D4');
+    if (skin === 'runner_paper_plane') return this.hex('#BAE6FD');
+    return defaultColor;
   }
 
   private drawTopDownTile(
@@ -2329,7 +3061,7 @@ export class GameRoot extends Component {
       return;
     }
     const badgeY = offsetY + 30;
-    const badgeColor = config.skill === 'time' ? this.hex('#22D3EE') : (config.skill === 'star' ? this.hex('#FDE047') : this.hex('#34D399'));
+    const badgeColor = this.skillColor(config.skill);
     graphics.fillColor = new Color(badgeColor.r, badgeColor.g, badgeColor.b, 230);
     graphics.circle(offsetX + 30, badgeY, 14);
     graphics.fill();
@@ -2346,7 +3078,7 @@ export class GameRoot extends Component {
       graphics.lineTo(offsetX + 30, badgeY + 6);
       graphics.moveTo(offsetX + 30, badgeY);
       graphics.lineTo(offsetX + 35, badgeY);
-    } else if (config.skill === 'star') {
+    } else if (config.skill === 'star' || config.skill === 'splitter') {
       graphics.moveTo(offsetX + 30, badgeY + 8);
       graphics.lineTo(offsetX + 33, badgeY + 1);
       graphics.lineTo(offsetX + 40, badgeY);
@@ -2366,6 +3098,27 @@ export class GameRoot extends Component {
       graphics.lineTo(offsetX + 34, badgeY - 5);
     }
     graphics.stroke();
+  }
+
+  private skillColor(skill: string): Color {
+    switch (skill) {
+      case 'time':
+        return this.hex('#22D3EE');
+      case 'star':
+      case 'splitter':
+        return this.hex('#FDE047');
+      case 'mirror':
+        return this.hex('#C084FC');
+      case 'vine':
+        return this.hex('#84CC16');
+      case 'jump':
+        return this.hex('#FB7185');
+      case 'blackhole':
+        return this.hex('#F97316');
+      case 'refresh':
+      default:
+        return this.hex('#34D399');
+    }
   }
 
   private directionPoint(direction: string, length: number): Vec3 {
@@ -2445,6 +3198,16 @@ export class GameRoot extends Component {
         return this.hex('#F59E0B');
       case 'boost':
         return this.hex('#F472B6');
+      case 'mirror':
+        return this.hex('#C084FC');
+      case 'vine':
+        return this.hex('#84CC16');
+      case 'jump':
+        return this.hex('#FB7185');
+      case 'blackhole':
+        return this.hex('#F97316');
+      case 'splitter':
+        return this.hex('#FACC15');
       case 'paint_red':
       case 'gate_red':
         return this.hex('#EF4444');
@@ -2546,7 +3309,8 @@ export class GameRoot extends Component {
     }
     if (this.tipLabel && this.level) {
       const bonusText = this.pendingBonusDiamonds > 0 ? ` · 待结算 +${this.pendingBonusDiamonds}💎` : '';
-      const starText = this.bonusCell && !this.bonusCollected ? ' · 星核待收集' : '';
+      const remainingStars = this.getActiveBonusCells().length;
+      const starText = remainingStars > 0 ? ` · 星核 ${remainingStars}` : '';
       if (this.isDailyChallenge) {
         this.tipLabel.string = `今日 ${this.usedMoves}/${this.level.recommendedMoves} · 分享冲榜${bonusText}`;
       } else if (this.isEndlessMode) {
@@ -2597,12 +3361,20 @@ export class GameRoot extends Component {
       }
     }
 
-    const tilesToPlace = [...this.hand];
+    emptyCells.sort((a, b) => this.scoreHintCell(a) - this.scoreHintCell(b));
+
+    const tilesToPlace = [...this.hand].slice(0, 3);
     if (tilesToPlace.length === 0) return null;
 
     const solution: { row: number; col: number; type: TileType; rotation: number }[] = [];
+    const searchCells = emptyCells.slice(0, this.levelIndex <= 2 ? 36 : 18);
+    const maxAttempts = this.levelIndex <= 2 ? 12000 : 1800;
+    let attempts = 0;
 
     const dfs = (tileIdx: number): boolean => {
+      if (++attempts > maxAttempts) {
+        return false;
+      }
       const earlyRes = RouteSimulator.simulate(this.grid!, this.runner!, this.level!.goals);
       if (earlyRes.success) {
         return true;
@@ -2614,8 +3386,8 @@ export class GameRoot extends Component {
 
       const tileType = tilesToPlace[tileIdx];
 
-      for (let i = 0; i < emptyCells.length; i++) {
-        const cell = emptyCells[i];
+      for (let i = 0; i < searchCells.length; i++) {
+        const cell = searchCells[i];
         const occupied = solution.some(s => s.row === cell.row && s.col === cell.col);
         if (occupied) continue;
 
@@ -2642,6 +3414,15 @@ export class GameRoot extends Component {
     }
 
     return null;
+  }
+
+  private scoreHintCell(cell: GridPos): number {
+    if (!this.runner || !this.level) {
+      return 0;
+    }
+    const runnerDistance = Math.abs(cell.row - this.runner.row) + Math.abs(cell.col - this.runner.col);
+    const goalDistance = Math.min(...this.level.goals.map((goal) => Math.abs(cell.row - goal.row) + Math.abs(cell.col - goal.col)));
+    return runnerDistance * 0.65 + goalDistance;
   }
 
   private showTutorialOverlayIfNeeded(): void {
@@ -2756,7 +3537,8 @@ export class GameRoot extends Component {
   }
 
   public showGameplayHint(): void {
-    WeChatService.showVideoAd(() => {
+    const tier = ProfileManager.nextHintTier(this.level?.id ?? this.levelIndex + 1);
+    const runHint = () => {
       const sol = this.findSolution();
       if (!sol || sol.length === 0) {
         WeChatService.showToast('当前状态已可以连通，或未找到解法！', 'none');
@@ -2766,9 +3548,15 @@ export class GameRoot extends Component {
       const firstStep = sol[0];
       const displayName = getTileDisplayName(firstStep.type);
       const rotText = firstStep.rotation === 0 ? '默认方向' : `顺时针旋转 ${firstStep.rotation * 90}°`;
-      
-      this.setStatus(`提示：第 ${firstStep.row + 1} 行，第 ${firstStep.col + 1} 列，放入【${displayName}】并【${rotText}】`);
-      WeChatService.showToast('获得时空导引导航！', 'success');
+      const tierText = EngagementService.getHintTierText(tier);
+      if (tier <= 1) {
+        this.setStatus(`${tierText}：优先观察第 ${firstStep.row + 1} 行附近的断点。`);
+      } else if (tier === 2) {
+        this.setStatus(`${tierText}：第 ${firstStep.row + 1} 行，第 ${firstStep.col + 1} 列是关键格。`);
+      } else {
+        this.setStatus(`${tierText}：第 ${firstStep.row + 1} 行，第 ${firstStep.col + 1} 列，放入【${displayName}】并【${rotText}】`);
+      }
+      WeChatService.showToast(tier <= 1 ? '获得免费一级提示' : '高级提示已解锁', 'success');
 
       if (this.hintHighlightNode) {
         this.hintHighlightNode.destroy();
@@ -2782,10 +3570,10 @@ export class GameRoot extends Component {
       highlight.setPosition(this.gridToLocal(firstStep).add3f(0, 0, 3));
       highlight.addComponent(UITransform).setContentSize(this.tileWidth, this.tileHeight);
       const g = highlight.addComponent(Graphics);
-      
+
       g.strokeColor = this.hex('#00F0FF');
       g.lineWidth = 4.5;
-      
+
       const hw = this.tileWidth / 2 + 6;
       const hh = this.tileHeight / 2 + 6;
       g.moveTo(0, hh);
@@ -2811,9 +3599,19 @@ export class GameRoot extends Component {
           this.hintHighlightNode = null;
         }
       }, 8.0);
+    };
 
-    }, () => {
-      console.log('[GameRoot] Ad failed to load or closed.');
+    if (tier <= 1) {
+      runHint();
+      return;
+    }
+
+    AdService.showRewarded('foresight_card').then((res) => {
+      if (res.completed) {
+        runHint();
+      } else {
+        WeChatService.showToast(res.error || '观看完成后解锁高级提示', 'none');
+      }
     });
   }
 }

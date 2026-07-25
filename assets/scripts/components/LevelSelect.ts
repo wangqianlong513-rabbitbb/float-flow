@@ -12,7 +12,7 @@ export class LevelSelect extends Component {
   public onReturnHomeCallback?: () => void;
   public onStartEndlessCallback?: () => void;
 
-  private currentChapter = 0; // 0 = Chapter 1 (1-10), 1 = Chapter 2 (11-20)
+  private currentChapter = 0; // 0/1/2 = journey chapters, each chapter has 10 levels.
   private gridRoot: Node | null = null;
   private tabsRoot: Node | null = null;
   private currentTheme = 0; // 0: Icefield, 1: Violet Dusk, 2: Sunset Glow
@@ -80,9 +80,10 @@ export class LevelSelect extends Component {
     this.tabsRoot.destroyAllChildren();
 
     const tabs = [
-      { name: '极光冰原 (1-10)', idx: 0, isEndless: false },
-      { name: '暮色时空 (11-20)', idx: 1, isEndless: false },
-      { name: '★ 流光无尽模式', idx: 2, isEndless: true }
+      { name: '冰原 1-10', idx: 0, isEndless: false },
+      { name: '暮色 11-20', idx: 1, isEndless: false },
+      { name: '命运 21-30', idx: 2, isEndless: false },
+      { name: '★ 无尽', idx: 3, isEndless: true }
     ];
 
     const isRose = this.currentTheme === 1;
@@ -90,17 +91,17 @@ export class LevelSelect extends Component {
     const activeBg = isRose ? '#581C87' : (isGold ? '#7C2D12' : '#2563EB');
     const activeBorder = isRose ? '#C4B5FD' : (isGold ? '#FBBF24' : '#00F0FF');
 
-    const tabXs = [-246, 0, 246];
+    const tabXs = [-258, -86, 86, 258];
     tabs.forEach((tab, i) => {
       const isSelected = !tab.isEndless && this.currentChapter === tab.idx;
       const tabNode = this.createNode(`Tab_${i}`, new Vec3(tabXs[i], 0, 0), this.tabsRoot!);
-      this.ensureTransform(tabNode, 240, 56);
+      this.ensureTransform(tabNode, 166, 56);
 
       const g = tabNode.addComponent(Graphics);
       if (isSelected) {
         g.fillColor = this.hex(activeBg);
         ((g.fillColor) as any).a = 245;
-        g.roundRect(-120, -28, 240, 56, 18);
+        g.roundRect(-83, -28, 166, 56, 18);
         g.fill();
         g.strokeColor = this.hex(activeBorder);
         g.lineWidth = 3.0;
@@ -108,7 +109,7 @@ export class LevelSelect extends Component {
       } else if (tab.isEndless) {
         g.fillColor = this.hex(isRose ? '#3B0764' : (isGold ? '#451A03' : '#4C1D95'));
         ((g.fillColor) as any).a = 220;
-        g.roundRect(-120, -28, 240, 56, 18);
+        g.roundRect(-83, -28, 166, 56, 18);
         g.fill();
         g.strokeColor = this.hex(isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#A78BFA'));
         g.lineWidth = 2.4;
@@ -116,7 +117,7 @@ export class LevelSelect extends Component {
       } else {
         g.fillColor = this.hex('#0F172A');
         ((g.fillColor) as any).a = 220;
-        g.roundRect(-120, -28, 240, 56, 18);
+        g.roundRect(-83, -28, 166, 56, 18);
         g.fill();
         g.strokeColor = this.hex('#334155');
         g.lineWidth = 2.0;
@@ -124,7 +125,7 @@ export class LevelSelect extends Component {
       }
 
       const textColor = isSelected ? '#FFFFFF' : (tab.isEndless ? (isGold ? '#FDE047' : '#F472B6') : '#CBD5E1');
-      this.createLabel(tabNode, 'Text', new Vec3(0, 1, 0), tab.name, 19, textColor, 230, 36);
+      this.createLabel(tabNode, 'Text', new Vec3(0, 1, 0), tab.name, 16, textColor, 158, 36);
 
       this.addClick(tabNode, () => {
         if (tab.isEndless) {
@@ -329,7 +330,8 @@ export class LevelSelect extends Component {
       if (this.onReturnHomeCallback) this.onReturnHomeCallback();
     });
 
-    const title = this.currentChapter === 0 ? '关卡选择 · 冰原章节' : '关卡选择 · 暮色章节';
+    const chapterTitles = ['关卡选择 · 冰原章节', '关卡选择 · 暮色章节', '关卡选择 · 命运章节'];
+    const title = chapterTitles[this.currentChapter] || chapterTitles[0];
     this.createLabel(navRoot, 'Title', new Vec3(-80, 1, 0), title, 22, '#FFFFFF', 210, 42);
 
     const starPill = this.createNode('StarPill', new Vec3(95, 0, 0), navRoot);
@@ -370,7 +372,7 @@ export class LevelSelect extends Component {
     const completed = Math.max(0, Math.min(10, profile.levelProgress - chapterStart));
     const progress = completed / 10;
     const nextHint = completed >= 10
-      ? (this.currentChapter === 0 ? '暮色章节已开启，继续解锁新机制！' : '本章已全通，去无尽模式冲榜！')
+      ? (this.currentChapter < 2 ? '下一章节已开启，继续解锁爆点机制！' : '30关已全通，去无尽模式冲榜！')
       : `再通 ${10 - completed} 关解锁本章满星奖励`;
     this.createLabel(footerRoot, 'ProgText', new Vec3(0, 10, 0), `章节进度 ${completed}/10 · 星徽 ${completed * 3}/30 ★ · ${nextHint}`, 16, borderCol, 660, 28);
 

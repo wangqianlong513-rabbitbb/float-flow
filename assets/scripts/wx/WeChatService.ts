@@ -57,6 +57,32 @@ export class WeChatService {
     }
   }
 
+  static showActionSheet(items: string[], onSelect: (index: number) => void): void {
+    if (typeof wx !== 'undefined' && wx.showActionSheet) {
+      wx.showActionSheet({
+        itemList: items,
+        success: (res: { tapIndex: number }) => {
+          if (typeof res.tapIndex === 'number') {
+            onSelect(res.tapIndex);
+          }
+        },
+      });
+      return;
+    }
+
+    WeChatService.showModal({
+      title: '更多操作',
+      content: items.map((item, index) => `${index + 1}. ${item}`).join('\n'),
+      confirmText: '第1项',
+      cancelText: '取消',
+      success: (res) => {
+        if (res.confirm) {
+          onSelect(0);
+        }
+      },
+    });
+  }
+
   static showVideoAd(onSuccess: () => void, onFail?: () => void): void {
     if (typeof wx !== 'undefined' && wx.createRewardedVideoAd && WeChatService.adUnitId && WeChatService.adUnitId.indexOf('demo') < 0) {
       try {

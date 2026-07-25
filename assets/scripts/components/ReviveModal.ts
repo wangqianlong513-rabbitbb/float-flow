@@ -77,10 +77,10 @@ export class ReviveModal extends Component {
     console.log('[ReviveModal] show()');
     this.node.active = true;
     if (summary) {
-      if (this.titleLabel) this.titleLabel.string = summary.isNearGoal ? '只差一步！' : '光路断开！';
-      if (this.subLabel) this.subLabel.string = `第 ${summary.levelId} 关 · 已走 ${summary.moves} 步 · 剩 ${summary.handCount} 张手牌`;
-      if (this.shareTextLabel) this.shareTextLabel.string = summary.isNearGoal ? '发好友帮我接上最后一束光' : '发好友帮我破解残局';
-      if (this.footerTipLabel) this.footerTipLabel.string = `好友打开就是当前残局，助攻成功你们都得晶核`;
+      if (this.titleLabel) this.titleLabel.string = summary.grade || (summary.isNearGoal ? '只差一步！' : '残局求助！');
+      if (this.subLabel) this.subLabel.string = `第 ${summary.levelId} 关 · 已走 ${summary.moves} 步 · ${summary.rescueText || `剩 ${summary.handCount} 张手牌`}`;
+      if (this.shareTextLabel) this.shareTextLabel.string = summary.isNearGoal ? '发好友一格救援' : '发好友接手残局';
+      if (this.footerTipLabel) this.footerTipLabel.string = `好友打开直接接手当前残局，接通后双方都得晶核`;
     }
     WeChatService.vibrateShort('heavy');
     if (this.dialogNode && ProfileManager.isPowerSaveMode()) {
@@ -230,7 +230,7 @@ export class ReviveModal extends Component {
     sg.stroke();
 
     this.createLabel(shareBtn, 'Icon', new Vec3(-132, 1, 0), '💬', 24, '#FFFFFF', 44, 42);
-    this.shareTextLabel = this.createLabel(shareBtn, 'Text', new Vec3(18, 0, 0), '发好友帮我接上最后一束光', 19, '#FFFFFF', 270, 32);
+    this.shareTextLabel = this.createLabel(shareBtn, 'Text', new Vec3(18, 0, 0), '发好友一格救援', 19, '#FFFFFF', 270, 32);
 
     shareBtn.on(Node.EventType.TOUCH_END, () => {
       console.log('[ReviveModal] Clicked WeChat Share Help');

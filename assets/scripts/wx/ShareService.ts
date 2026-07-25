@@ -10,6 +10,8 @@ export interface ResidualSharePayload {
   assistId?: string;
   moves?: number;
   seed?: number;
+  grade?: string;
+  missingCell?: { row: number; col: number };
 }
 
 export class ShareService {
@@ -39,6 +41,22 @@ export class ShareService {
     }, (imageUrl) => this.share(title, query, imageUrl));
   }
 
+  static shareOneTileRescue(level: LevelConfig, payload: ResidualSharePayload, grade = '差一格'): void {
+    const query = `residual=${this.encodeResidual({ ...payload, grade })}&rescue=1`;
+    const isOneTile = grade === '差一格';
+    const title = isOneTile
+      ? `差一格就能点亮浮岛！帮我补上《浮岛流光》这一格`
+      : `${grade}残局求助！帮我改写《浮岛流光》这局`;
+    SharePosterService.createPosterAsync({
+      kind: 'residual',
+      level,
+      headline: isOneTile ? '一 格 救 援' : '残 局 救 援',
+      subline: isOneTile ? `第 ${level.id} 关 · 好友进来只补关键一格` : `第 ${level.id} 关 · 好友打开直接接手残局`,
+      badgeText: grade,
+      metricText: `已走 ${payload.moves ?? 0} 步 · 双方都得晶核`,
+    }, (imageUrl) => this.share(title, query, imageUrl));
+  }
+
   static shareResidualSolved(level: LevelConfig, assistId: string): void {
     const title = `我帮你接通《浮岛流光》第 ${level.id} 关了，回来领助攻晶核！`;
     const query = `assistDone=${encodeURIComponent(assistId)}`;
@@ -65,6 +83,45 @@ export class ShareService {
       subline: isDaily ? `${level.name} · 30 秒挑战` : `第 ${level.id} 关 · ${level.name}`,
       badgeText: scoreText,
       metricText: isDaily ? '点开立刻挑战同一道题' : '来挑战我的光轨记录',
+    }, (imageUrl) => this.share(title, query, imageUrl));
+  }
+
+  static shareFriendChallenge(level: LevelConfig, moves: number, seed = 0): void {
+    const title = `我 ${moves} 步接通《浮岛流光》第 ${level.id} 关，你能少一步吗？`;
+    const query = `challenge=${level.id}&moves=${moves}&seed=${seed}`;
+    SharePosterService.createPosterAsync({
+      kind: 'victory',
+      level,
+      headline: '好 友 极 限 挑 战',
+      subline: `第 ${level.id} 关 · 少一步就算你赢`,
+      badgeText: `${moves} 步纪录`,
+      metricText: '点开挑战同一条光路',
+    }, (imageUrl) => this.share(title, query, imageUrl));
+  }
+
+  static shareBeautifulRoute(level: LevelConfig, moves: number, beautyScore: number): void {
+    const title = `我修出了一条 ${beautyScore} 分光轨，来《浮岛流光》看看你的路线有多美`;
+    const query = `beauty=${level.id}&moves=${moves}&score=${beautyScore}`;
+    SharePosterService.createPosterAsync({
+      kind: 'victory',
+      level,
+      headline: '最 美 光 轨',
+      subline: `第 ${level.id} 关 · 不只比步数，也比路线美感`,
+      badgeText: `${beautyScore} 分光轨`,
+      metricText: `${moves} 步接通 · 点开挑战同题`,
+    }, (imageUrl) => this.share(title, query, imageUrl));
+  }
+
+  static shareRelay(level: LevelConfig, payload: ResidualSharePayload): void {
+    const query = `relay=${this.encodeResidual(payload)}`;
+    const title = `我铺好了前半段光路，轮到你接力点亮浮岛！`;
+    SharePosterService.createPosterAsync({
+      kind: 'residual',
+      level,
+      headline: '光 路 接 力',
+      subline: `第 ${level.id} 关 · 好友协作`,
+      badgeText: '接上后双方领奖',
+      metricText: `前段已走 ${payload.moves ?? 0} 步`,
     }, (imageUrl) => this.share(title, query, imageUrl));
   }
 

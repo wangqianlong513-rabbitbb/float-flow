@@ -6,7 +6,8 @@
     "version": "3.8.7"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepare:wechat-preview": "node tools/prepare-wechat-preview.js"
   },
   "devDependencies": {}
 }

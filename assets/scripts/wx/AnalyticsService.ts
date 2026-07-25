@@ -20,7 +20,14 @@ export type AnalyticsEventName =
   | 'theme_apply'
   | 'power_save_toggle'
   | 'time_rewind'
-  | 'blessing_pick';
+  | 'blessing_pick'
+  | 'level_start'
+  | 'skill_trigger'
+  | 'goal_lit'
+  | 'unstable_collapse'
+  | 'friend_challenge_share'
+  | 'relay_share'
+  | 'meta_title_unlock';
 
 export class AnalyticsService {
   static track(event: AnalyticsEventName, params: Record<string, unknown> = {}): void {

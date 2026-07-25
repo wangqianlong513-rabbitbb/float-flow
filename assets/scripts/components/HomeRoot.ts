@@ -4,6 +4,7 @@ import { ProfileManager } from '../core/ProfileManager';
 import { CloudGameService } from '../wx/CloudGameService';
 import { ShareService } from '../wx/ShareService';
 import { AnalyticsService } from '../wx/AnalyticsService';
+import { AdService } from '../wx/AdService';
 
 declare const wx: any;
 
@@ -810,7 +811,7 @@ export class HomeRoot extends Component {
     jg.fill();
 
     const profile = ProfileManager.getProfile();
-    const journeyLevelCount = 20;
+    const journeyLevelCount = 30;
     const currentLevel = Math.min(profile.levelProgress + 1, journeyLevelCount);
     this.createLabel(journeyCard, 'Title', new Vec3(-45, 2, 0), '一 键 续 光', 32, '#FFFFFF', 300, 48); // 字体 32
     this.createLabel(journeyCard, 'Sub', new Vec3(195, 2, 0), `第 ${currentLevel} / ${journeyLevelCount} 关`, 19, jBorder, 136, 32);  // 字体 19
@@ -1224,11 +1225,15 @@ export class HomeRoot extends Component {
             WeChatService.showToast('晶核不足 50，先去签到或通关领奖！', 'none');
           }
         } else if (card.id === 'hand') {
-          WeChatService.showVideoAd(() => {
-            ProfileManager.addDiamonds(100);
-            this.closePopup();
-            this.rebuildUI();
-            WeChatService.showToast('强化补给 +100 💎', 'success');
+          AdService.showRewarded('redraw_cards').then((res) => {
+            if (res.completed) {
+              const claimed = ProfileManager.claimRewardedAdBonus('welfare_hand', 100, 2);
+              this.closePopup();
+              this.rebuildUI();
+              WeChatService.showToast(claimed ? '强化补给 +100 💎' : '今日强化补给已领完', claimed ? 'success' : 'none');
+            } else {
+              WeChatService.showToast(res.error || '观看完成后领取补给', 'none');
+            }
           });
         } else if (card.id === 'achieve') {
           this.closePopup();
@@ -1263,7 +1268,15 @@ export class HomeRoot extends Component {
     const borderHex = signedInToday ? '#64748B' : '#FDE047';
     this.showPopup('🎁   每 日 签 到 奖 励', lines, btnText, borderHex, btnBgHex, () => {
       if (ProfileManager.isTodaySignedin()) {
-        WeChatService.showToast('今天已经签到过了，明天再来哦！', 'none');
+        AdService.showRewarded('daily_retry').then((res) => {
+          if (res.completed) {
+            const claimed = ProfileManager.claimRewardedAdBonus('daily_retry', 30, 1);
+            this.rebuildUI();
+            WeChatService.showToast(claimed ? '今日额外补签礼 +30 💎' : '今日补签礼已领取', claimed ? 'success' : 'none');
+          } else {
+            WeChatService.showToast(res.error || '观看完成后领取额外补签礼', 'none');
+          }
+        });
         return;
       }
       ProfileManager.claimDailySignin(nextDayIndex, currentTodayReward);

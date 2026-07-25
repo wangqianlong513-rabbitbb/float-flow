@@ -323,15 +323,15 @@ export class SceneBootstrap extends Component {
     game.statusLabel = statusLabel;
     game.applyPowerSaveMode(this.powerSaveMode);
 
-    // 4. 下方横排辅助操作区 ActionRow：只放可点击操作，状态进度已收纳到上方胶囊。
+    // 4. 下方横排辅助操作区：仅保留高频局内操作，低频/社交入口收进“更多”。
     const actionRow = this.createRoot('ActionRow', new Vec3(0, -halfH + 403, 0), uiRoot);
     game.bulletTimeNode = btMeter.node;
     game.bulletTimeGraphics = btMeter.graphics;
     game.bulletTimeValueLabel = btMeter.valueLabel;
     this.createSideActionButtons(actionRow, game, new Vec3(0, 0, 0));
 
-    // 5. 底部操控中心：平时仅保留极具统治力的大巨幕“启动流光”按钮，隐藏次要常驻按钮
-    this.createHeroButton(uiRoot, 'StartButton', new Vec3(0, -halfH + 90, 0), '★  启 动 流 光  [ 释放光速波 ]', () => game.startRunner());
+    // 5. 底部操控中心：只做单一主行动，避免和工具按钮抢注意力。
+    this.createHeroButton(uiRoot, 'StartButton', new Vec3(0, -halfH + 90, 0), '★  启 动 流 光', () => game.startRunner());
 
     // 3. Settings Modal Root (Hidden by default!)
     const settingsModalRoot = this.createRoot('SettingsModalRoot', new Vec3(0, 0, 0));
@@ -374,7 +374,7 @@ export class SceneBootstrap extends Component {
     levelSelectRoot.active = false;
     this.levelSelectRootNode = levelSelectRoot;
     const levelSelect = levelSelectRoot.addComponent(LevelSelect);
-    const journeyLevelCount = 20;
+    const journeyLevelCount = 30;
 
     const startJourneyLevel = (idx: number, source: 'continue' | 'select' | 'share' = 'select') => {
       const safeIndex = Math.max(0, Math.min(idx, journeyLevelCount - 1));
@@ -390,7 +390,9 @@ export class SceneBootstrap extends Component {
       ProfileManager.addEnergy(-1);
 
       // Auto apply themed scene color based on level index
-      if (safeIndex >= 10 && safeIndex < 20) {
+      if (safeIndex >= 20 && safeIndex < 30) {
+        this.applyTheme(2); // Theme 2: Sunset Glow for destiny chapter.
+      } else if (safeIndex >= 10 && safeIndex < 20) {
         this.applyTheme(1); // Theme 1: Violet Dusk
       } else {
         this.applyTheme(0); // Theme 0: Icefield
@@ -434,6 +436,9 @@ export class SceneBootstrap extends Component {
     victoryPoster.onNextLevelCallback = () => {
       console.log('[SceneBootstrap] VictoryPoster Next Level -> Load Next!');
       this.closeAllModals();
+      if (game.continueSpecialChallengeIfAny()) {
+        return;
+      }
       const nextIndex = game.getLevelIndex() + 1;
       if (nextIndex >= journeyLevelCount) {
         gamePage.active = false;
@@ -652,27 +657,31 @@ export class SceneBootstrap extends Component {
     root.layer = Layers.Enum.UI_2D;
     root.setParent(parent);
     root.setPosition(position);
-    this.ensureTransform(root, 600, 56);
+    this.ensureTransform(root, 560, 56);
 
-    // Same-row 3+2 grouping keeps the toolbar aligned while giving rescue actions a separate visual rhythm.
-    this.createSideActionButton(root, 'PreviewBtn', new Vec3(-227, 0, 0), 108, '◎ 预览', '#0D162C', '#00F0FF', '#A5F3FC', () => {
+    this.createSideActionButton(root, 'PreviewBtn', new Vec3(-210, 0, 0), 110, '预览', '#0D162C', '#00F0FF', '#A5F3FC', () => {
       game.showRoutePreview();
     });
 
-    this.createSideActionButton(root, 'UndoBtn', new Vec3(-107, 0, 0), 108, '< 撤回', '#0D162C', '#38BDF8', '#38BDF8', () => {
+    this.createSideActionButton(root, 'UndoBtn', new Vec3(-70, 0, 0), 110, '撤回', '#0D162C', '#38BDF8', '#38BDF8', () => {
       game.undoLastMove();
     });
 
-    this.createSideActionButton(root, 'EraseBtn', new Vec3(13, 0, 0), 108, '× 清盘', '#1E3A8A', '#FF4B3E', '#FF4B3E', () => {
-      game.clearPlacedTiles();
-    });
-
-    this.createSideActionButton(root, 'HintBtn', new Vec3(135, 0, 0), 92, '💡 提示', '#172554', '#EAB308', '#FFFFFF', () => {
+    this.createSideActionButton(root, 'HintBtn', new Vec3(70, 0, 0), 110, '提示', '#172554', '#EAB308', '#FFFFFF', () => {
       game.showGameplayHint();
     });
 
-    this.createSideActionButton(root, 'ShareHelpBtn', new Vec3(237, 0, 0), 92, '★ 求助', '#1D4ED8', '#93C5FD', '#FFFFFF', () => {
-      game.shareCurrentResidual();
+    this.createSideActionButton(root, 'MoreBtn', new Vec3(210, 0, 0), 110, '更多', '#1E1B4B', '#C084FC', '#FFFFFF', () => {
+      this.showMoreGameActions(game);
+    });
+  }
+
+  private showMoreGameActions(game: GameRoot): void {
+    WeChatService.showActionSheet(['重置棋盘', '残局求助', '通勤挑战', '我的小岛'], (index) => {
+      if (index === 0) game.clearPlacedTiles();
+      else if (index === 1) game.shareCurrentResidual();
+      else if (index === 2) game.loadCommuteChallenge();
+      else if (index === 3) game.showIslandRoom();
     });
   }
 

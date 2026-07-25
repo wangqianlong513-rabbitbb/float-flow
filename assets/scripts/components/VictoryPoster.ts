@@ -3,6 +3,7 @@ import { WeChatService } from '../wx/WeChatService';
 import { ShareService } from '../wx/ShareService';
 import { ProfileManager } from '../core/ProfileManager';
 import { AdService } from '../wx/AdService';
+import { EngagementService } from '../core/EngagementService';
 
 const { ccclass } = _decorator;
 
@@ -335,7 +336,7 @@ export class VictoryPoster extends Component {
   }
 
   private createBottomActions(parent: Node): void {
-    this.createLabel(parent, 'ShareHint', new Vec3(0, -218, 0), '发给好友，比比谁更少步', 17, '#FDE047', 360, 26);
+    this.createLabel(parent, 'ShareHint', new Vec3(0, -218, 0), '三星晒最美光轨，否则发起少一步挑战', 17, '#FDE047', 390, 26);
 
     // Primary viral CTA: put share in the visual center and make it bigger than monetization.
     const shareAura = this.createNode('ShareAura', new Vec3(0, -260, 0), parent);
@@ -363,17 +364,19 @@ export class VictoryPoster extends Component {
     sg.strokeColor = this.hex('#6EE7B7');
     sg.lineWidth = 3;
     sg.stroke();
-    this.createLabel(shareBtn, 'Text', new Vec3(0, 1, 0), '💬 邀请好友挑战', 22, '#FFFFFF', 330, 42);
+    this.createLabel(shareBtn, 'Text', new Vec3(0, 1, 0), '💬 晒光轨 / 少一步挑战', 22, '#FFFFFF', 350, 42);
 
     shareBtn.on(Node.EventType.TOUCH_END, () => {
-      console.log('[VictoryPoster] Clicked Share to Friends -> Brag!');
+      console.log('[VictoryPoster] Clicked Share to Friends -> Beauty or Challenge!');
       WeChatService.vibrateShort('light');
-      ShareService.sharePoster(
-        { id: this.currentLevelId, name: this.currentLevelName } as any,
-        this.currentLevelName.indexOf('今日光路') !== -1
-          ? `${this.currentMoves}步接通`
-          : `${this.currentStars}星完美光路(${this.currentMoves}步)`
-      );
+      const level = { id: this.currentLevelId, name: this.currentLevelName } as any;
+      const beautyScore = EngagementService.scoreBeautifulRoute(this.currentMoves, 0, false, this.currentStars);
+      if (this.currentStars >= 3 || beautyScore >= 82) {
+        ProfileManager.updateBeautifulRouteBest(beautyScore);
+        ShareService.shareBeautifulRoute(level, this.currentMoves, beautyScore);
+      } else {
+        ShareService.shareFriendChallenge(level, this.currentMoves, this.currentLevelId);
+      }
       WeChatService.showToast('正在调起微信分享...', 'success');
     });
 
