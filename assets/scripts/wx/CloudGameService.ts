@@ -23,6 +23,7 @@ interface MockCloudState {
 }
 
 const MOCK_CLOUD_KEY = 'flow_land_light_cloud_mock';
+const DAILY_RANK_CACHE_KEY = 'flow_land_light_daily_rank_cache';
 
 declare const wx: any;
 
@@ -35,21 +36,30 @@ export class CloudGameService {
   }
 
   static submitDailyChallenge(dateKey: string, score: number, moves: number): DailyLeaderboardResult {
-    this.callCloudMock('submitDailyChallenge', { dateKey, score, moves });
+    void this.fetchDailyLeaderboard(dateKey, score, moves, true);
     return this.getDailyLeaderboard(dateKey, score, moves);
   }
 
   static getDailyLeaderboard(dateKey: string, selfScore = 0, selfMoves = 0): DailyLeaderboardResult {
-    const entries = this.buildMockDailyEntries(dateKey);
+    const cached = this.loadDailyRankCache();
+    const entries = cached?.dateKey === dateKey ? cached.entries.map((entry) => ({ ...entry })) : [];
     if (selfScore > 0) {
-      entries.push({
-        openId: 'self',
-        nickname: '你',
-        avatarText: '我',
-        score: Math.round(selfScore),
-        moves: selfMoves || this.estimateMoves(selfScore),
-        isSelf: true,
-      });
+      const existingSelf = entries.find((entry) => entry.isSelf);
+      if (existingSelf) {
+        if (selfScore > existingSelf.score || (selfScore === existingSelf.score && selfMoves > 0 && selfMoves < existingSelf.moves)) {
+          existingSelf.score = Math.round(selfScore);
+          existingSelf.moves = selfMoves || this.estimateMoves(selfScore);
+        }
+      } else {
+        entries.push({
+          openId: 'self',
+          nickname: '你',
+          avatarText: '我',
+          score: Math.round(selfScore),
+          moves: selfMoves || this.estimateMoves(selfScore),
+          isSelf: true,
+        });
+      }
     }
 
     entries.sort((a, b) => b.score - a.score || a.moves - b.moves);
@@ -59,9 +69,40 @@ export class CloudGameService {
     const nextTarget = selfIndex > 0 ? entries[selfIndex - 1] : undefined;
     const hintText = nextTarget
       ? `再少 ${Math.max(1, selfMoves - nextTarget.moves + 1)} 步，可超越 ${nextTarget.nickname}`
-      : (selfIndex === 0 ? '你暂列好友第 1，快分享守榜！' : '完成今日挑战后解锁好友排名');
+      : (selfIndex === 0
+        ? (entries.length > 1 ? '你暂列好友第 1，快分享守榜！' : '暂无好友成绩，邀请好友来挑战')
+        : '完成今日挑战后解锁好友排名');
 
     return { dateKey, entries, selfRank, beatPercent, nextTarget, hintText };
+  }
+
+  static async fetchDailyLeaderboard(dateKey: string, selfScore = 0, selfMoves = 0, submit = false): Promise<DailyLeaderboardResult> {
+    if (typeof wx === 'undefined' || !wx.cloud || !wx.cloud.callFunction) {
+      return this.getDailyLeaderboard(dateKey, selfScore, selfMoves);
+    }
+    try {
+      const response = await wx.cloud.callFunction({
+        name: 'flowLightGame',
+        data: { action: submit ? 'submitDailyChallenge' : 'getDailyLeaderboard', dateKey, score: selfScore, moves: selfMoves }
+      });
+      const payload = response?.result;
+      if (!payload?.ok || !Array.isArray(payload.entries)) {
+        throw new Error(payload?.code || 'INVALID_DAILY_RANK');
+      }
+      const entries: DailyLeaderboardEntry[] = payload.entries.map((entry: any, index: number) => ({
+        openId: String(entry.openid || `friend_${index}`),
+        nickname: entry.isSelf ? '你' : `好友 ${index + 1}`,
+        avatarText: entry.isSelf ? '我' : `${index + 1}`,
+        score: Math.max(0, Math.floor(Number(entry.score) || 0)),
+        moves: Math.max(0, Math.floor(Number(entry.moves) || 0)),
+        isSelf: !!entry.isSelf,
+      }));
+      this.saveDailyRankCache({ dateKey, entries });
+      return this.getDailyLeaderboard(dateKey, selfScore, selfMoves);
+    } catch (error) {
+      console.warn('[CloudGameService] daily leaderboard fallback:', error);
+      return this.getDailyLeaderboard(dateKey, selfScore, selfMoves);
+    }
   }
 
   static registerResidualAssist(assistId: string, levelId: number): void {
@@ -100,32 +141,28 @@ export class CloudGameService {
     this.callCloudMock('claimResidualRequesterReward', { assistId });
   }
 
-  private static buildMockDailyEntries(dateKey: string): DailyLeaderboardEntry[] {
-    const names = ['阿泽', '小鹿', '江江', '米粒', '小北', '安然', '橙子', 'Leo'];
-    const seed = this.seedFromDate(dateKey);
-    return names.map((name, idx) => {
-      const moves = 3 + ((seed + idx * 7) % 6);
-      const score = 118 - moves * 8 + ((seed + idx * 13) % 9);
-      return {
-        openId: `mock_${idx}`,
-        nickname: name,
-        avatarText: name.substring(0, 1),
-        score,
-        moves,
-      };
-    });
-  }
-
   private static estimateMoves(score: number): number {
     return Math.max(3, Math.min(10, Math.round((118 - score) / 8)));
   }
 
-  private static seedFromDate(dateKey: string): number {
-    let seed = 0;
-    for (let i = 0; i < dateKey.length; i++) {
-      seed = (seed * 31 + dateKey.charCodeAt(i)) % 9973;
+  private static loadDailyRankCache(): { dateKey: string; entries: DailyLeaderboardEntry[] } | null {
+    try {
+      const raw = sys.localStorage.getItem(DAILY_RANK_CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return typeof parsed?.dateKey === 'string' && Array.isArray(parsed?.entries) ? parsed : null;
+    } catch (error) {
+      console.warn('[CloudGameService] failed to load daily rank cache:', error);
+      return null;
     }
-    return seed;
+  }
+
+  private static saveDailyRankCache(cache: { dateKey: string; entries: DailyLeaderboardEntry[] }): void {
+    try {
+      sys.localStorage.setItem(DAILY_RANK_CACHE_KEY, JSON.stringify(cache));
+    } catch (error) {
+      console.warn('[CloudGameService] failed to save daily rank cache:', error);
+    }
   }
 
   private static callCloudMock(action: string, data: Record<string, unknown>): void {

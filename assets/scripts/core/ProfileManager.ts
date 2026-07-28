@@ -8,6 +8,8 @@ export interface UserProfile {
   levelProgress: number; // next playable journey level index, also equals completed count
   claimedSignins: number[]; // indices of days signed in, e.g., [0] if Day 1 is claimed
   lastSigninTimestamp: number; // timestamp of last signin
+  signinStreak?: number;
+  lastSigninDateKey?: string;
   unlockedAchievements: string[]; // achievement keys unlocked
   assistedResiduals?: string[];
   sharedResidualHelps?: ResidualHelpRecord[];
@@ -32,8 +34,15 @@ export interface UserProfile {
   islandDecor?: string[];
   commuteDate?: string;
   commuteCompletedStages?: number[];
+  commuteRewardClaimedDate?: string;
   hintTiers?: Record<string, number>;
   beautifulRouteBest?: number;
+  totalStars?: number;
+  levelBestStars?: Record<string, number>;
+  bulletTimeUses?: number;
+  endlessBestStage?: number;
+  endlessBestScore?: number;
+  grantedAdTransactions?: string[];
 }
 
 export interface ResidualHelpRecord {
@@ -44,7 +53,7 @@ export interface ResidualHelpRecord {
 
 const STORAGE_KEY = 'flow_land_light_profile';
 const XOR_KEY = 77; // Obfuscation XOR key
-const PROFILE_VERSION = 3;
+const PROFILE_VERSION = 4;
 
 export class ProfileManager {
   private static cachedProfile: UserProfile | null = null;
@@ -58,6 +67,8 @@ export class ProfileManager {
       levelProgress: 0,
       claimedSignins: [],
       lastSigninTimestamp: 0,
+      signinStreak: 0,
+      lastSigninDateKey: '',
       unlockedAchievements: [],
       assistedResiduals: [],
       sharedResidualHelps: [],
@@ -82,8 +93,15 @@ export class ProfileManager {
       islandDecor: [],
       commuteDate: '',
       commuteCompletedStages: [],
+      commuteRewardClaimedDate: '',
       hintTiers: {},
-      beautifulRouteBest: 0
+      beautifulRouteBest: 0,
+      totalStars: 0,
+      levelBestStars: {},
+      bulletTimeUses: 0,
+      endlessBestStage: 0,
+      endlessBestScore: 0,
+      grantedAdTransactions: []
     };
   }
 
@@ -161,22 +179,77 @@ export class ProfileManager {
 
   public static isTodaySignedin(): boolean {
     const profile = this.getProfile();
-    if (!profile.lastSigninTimestamp) return false;
-    const lastDate = new Date(profile.lastSigninTimestamp).toDateString();
-    const todayDate = new Date().toDateString();
-    return lastDate === todayDate;
+    return profile.lastSigninDateKey === this.localDateKey(new Date());
   }
 
-  public static claimDailySignin(dayIndex: number, diamondReward: number): boolean {
+  public static getSigninDayIndex(): number {
+    const profile = this.getProfile();
+    if (this.refreshSigninCycle(profile)) {
+      this.saveProfile(profile);
+    }
+    return Math.max(0, Math.min(6, profile.signinStreak || 0));
+  }
+
+  public static claimDailySignin(dayIndex: number, diamondReward: number, fillEnergy = false, decorId = ''): boolean {
     if (this.isTodaySignedin()) {
       return false;
     }
     const profile = this.getProfile();
-    profile.lastSigninTimestamp = Date.now();
-    if (!profile.claimedSignins.includes(dayIndex)) {
-      profile.claimedSignins.push(dayIndex);
+    this.refreshSigninCycle(profile);
+    const expectedDay = Math.max(0, Math.min(6, profile.signinStreak || 0));
+    if (dayIndex !== expectedDay) {
+      return false;
     }
+    profile.lastSigninTimestamp = Date.now();
+    profile.lastSigninDateKey = this.localDateKey(new Date());
+    profile.claimedSignins = Array.from({ length: expectedDay + 1 }, (_, index) => index);
+    profile.signinStreak = expectedDay + 1;
     profile.diamonds += diamondReward;
+    if (fillEnergy) {
+      profile.energy = 10;
+      profile.lastEnergyTimestamp = Date.now();
+    }
+    if (decorId && !(profile.islandDecor || []).includes(decorId)) {
+      profile.islandDecor = profile.islandDecor || [];
+      profile.islandDecor.push(decorId);
+    }
+    this.saveProfile(profile);
+    return true;
+  }
+
+  public static recordJourneyStars(levelId: number, stars: number): number {
+    const profile = this.getProfile();
+    const key = String(levelId);
+    const safeStars = Math.max(0, Math.min(3, Math.floor(stars)));
+    profile.levelBestStars = profile.levelBestStars || {};
+    const previous = Math.max(0, Math.floor(profile.levelBestStars[key] || 0));
+    if (safeStars <= previous) {
+      return 0;
+    }
+    const gained = safeStars - previous;
+    profile.levelBestStars[key] = safeStars;
+    profile.totalStars = Math.max(0, Math.floor(profile.totalStars || 0)) + gained;
+    this.saveProfile(profile);
+    return gained;
+  }
+
+  public static recordBulletTimeUse(): number {
+    const profile = this.getProfile();
+    profile.bulletTimeUses = Math.max(0, Math.floor(profile.bulletTimeUses || 0)) + 1;
+    this.saveProfile(profile);
+    return profile.bulletTimeUses;
+  }
+
+  public static updateEndlessBest(stage: number, score: number): boolean {
+    const profile = this.getProfile();
+    const safeStage = Math.max(0, Math.floor(stage));
+    const safeScore = Math.max(0, Math.floor(score));
+    const improved = safeStage > (profile.endlessBestStage || 0) || safeScore > (profile.endlessBestScore || 0);
+    if (!improved) {
+      return false;
+    }
+    profile.endlessBestStage = Math.max(profile.endlessBestStage || 0, safeStage);
+    profile.endlessBestScore = Math.max(profile.endlessBestScore || 0, safeScore);
     this.saveProfile(profile);
     return true;
   }
@@ -341,6 +414,30 @@ export class ProfileManager {
     return true;
   }
 
+  public static grantRewardedAdDiamonds(transactionId: string, key: string, reward: number, dailyLimit = 1): boolean {
+    if (!transactionId || reward <= 0) {
+      return false;
+    }
+    const profile = this.getProfile();
+    profile.grantedAdTransactions = profile.grantedAdTransactions || [];
+    if (profile.grantedAdTransactions.includes(transactionId)) {
+      return false;
+    }
+    const today = new Date().toDateString();
+    const claimKey = `${today}:${key}`;
+    profile.rewardedAdClaims = profile.rewardedAdClaims || {};
+    const count = Math.max(0, Math.floor(profile.rewardedAdClaims[claimKey] || 0));
+    if (count >= dailyLimit) {
+      return false;
+    }
+    profile.grantedAdTransactions.push(transactionId);
+    profile.grantedAdTransactions = profile.grantedAdTransactions.slice(-100);
+    profile.rewardedAdClaims[claimKey] = count + 1;
+    profile.diamonds += reward;
+    this.saveProfile(profile);
+    return true;
+  }
+
   public static getBlessingLevel(blessingId: string): number {
     const profile = this.getProfile();
     return Math.max(0, Math.floor(profile.blessings?.[blessingId] || 0));
@@ -447,6 +544,17 @@ export class ProfileManager {
     return profile.commuteCompletedStages.length;
   }
 
+  public static claimCommuteReward(dateKey: string, reward: number): boolean {
+    const profile = this.getProfile();
+    if (profile.commuteRewardClaimedDate === dateKey) {
+      return false;
+    }
+    profile.commuteRewardClaimedDate = dateKey;
+    profile.diamonds += Math.max(0, reward);
+    this.saveProfile(profile);
+    return true;
+  }
+
   public static nextHintTier(levelId: number): number {
     const profile = this.getProfile();
     profile.hintTiers = profile.hintTiers || {};
@@ -480,6 +588,12 @@ export class ProfileManager {
     profile.levelProgress = Math.max(0, Number.isFinite(profile.levelProgress) ? Math.floor(profile.levelProgress) : 0);
     profile.claimedSignins = Array.isArray(profile.claimedSignins) ? profile.claimedSignins : [];
     profile.lastSigninTimestamp = Number.isFinite(profile.lastSigninTimestamp) ? profile.lastSigninTimestamp : 0;
+    profile.lastSigninDateKey = typeof profile.lastSigninDateKey === 'string'
+      ? profile.lastSigninDateKey
+      : (profile.lastSigninTimestamp ? this.localDateKey(new Date(profile.lastSigninTimestamp)) : '');
+    profile.signinStreak = Number.isFinite(profile.signinStreak)
+      ? Math.max(0, Math.min(7, Math.floor(profile.signinStreak || 0)))
+      : Math.max(0, Math.min(7, profile.claimedSignins.length));
     profile.unlockedAchievements = Array.isArray(profile.unlockedAchievements) ? profile.unlockedAchievements : [];
     profile.assistedResiduals = Array.isArray(profile.assistedResiduals) ? profile.assistedResiduals : [];
     profile.sharedResidualHelps = Array.isArray(profile.sharedResidualHelps) ? profile.sharedResidualHelps : [];
@@ -507,9 +621,49 @@ export class ProfileManager {
     profile.islandDecor = Array.isArray(profile.islandDecor) ? profile.islandDecor : [];
     profile.commuteDate = typeof profile.commuteDate === 'string' ? profile.commuteDate : '';
     profile.commuteCompletedStages = Array.isArray(profile.commuteCompletedStages) ? profile.commuteCompletedStages : [];
+    profile.commuteRewardClaimedDate = typeof profile.commuteRewardClaimedDate === 'string' ? profile.commuteRewardClaimedDate : '';
     profile.hintTiers = profile.hintTiers && typeof profile.hintTiers === 'object' ? profile.hintTiers : {};
     profile.beautifulRouteBest = Number.isFinite(profile.beautifulRouteBest) ? profile.beautifulRouteBest : 0;
+    profile.levelBestStars = profile.levelBestStars && typeof profile.levelBestStars === 'object' ? profile.levelBestStars : {};
+    profile.totalStars = Number.isFinite(profile.totalStars)
+      ? Math.max(0, Math.floor(profile.totalStars || 0))
+      : Object.values(profile.levelBestStars).reduce((sum, stars) => sum + Math.max(0, Math.min(3, Math.floor(stars || 0))), 0);
+    profile.bulletTimeUses = Number.isFinite(profile.bulletTimeUses) ? Math.max(0, Math.floor(profile.bulletTimeUses || 0)) : 0;
+    profile.endlessBestStage = Number.isFinite(profile.endlessBestStage) ? Math.max(0, Math.floor(profile.endlessBestStage || 0)) : 0;
+    profile.endlessBestScore = Number.isFinite(profile.endlessBestScore) ? Math.max(0, Math.floor(profile.endlessBestScore || 0)) : 0;
+    profile.grantedAdTransactions = Array.isArray(profile.grantedAdTransactions) ? profile.grantedAdTransactions.slice(-100) : [];
+    this.refreshSigninCycle(profile);
     return profile;
+  }
+
+  private static refreshSigninCycle(profile: UserProfile): boolean {
+    const today = this.localDateKey(new Date());
+    if (!profile.lastSigninDateKey || profile.lastSigninDateKey === today) {
+      return false;
+    }
+    const gap = this.dayGap(profile.lastSigninDateKey, today);
+    if (gap > 1 || (profile.signinStreak || 0) >= 7) {
+      profile.signinStreak = 0;
+      profile.claimedSignins = [];
+      return true;
+    }
+    return false;
+  }
+
+  private static localDateKey(date: Date): string {
+    const month = `${date.getMonth() + 1}`.padStart(2, '0');
+    const day = `${date.getDate()}`.padStart(2, '0');
+    return `${date.getFullYear()}${month}${day}`;
+  }
+
+  private static dayGap(fromKey: string, toKey: string): number {
+    const parse = (key: string): number => {
+      if (!/^\d{8}$/.test(key)) return 0;
+      return Date.UTC(Number(key.slice(0, 4)), Number(key.slice(4, 6)) - 1, Number(key.slice(6, 8)));
+    };
+    const from = parse(fromKey);
+    const to = parse(toKey);
+    return from > 0 && to > 0 ? Math.round((to - from) / 86400000) : Number.POSITIVE_INFINITY;
   }
 
   private static applyEnergyRecovery(profile: UserProfile): void {

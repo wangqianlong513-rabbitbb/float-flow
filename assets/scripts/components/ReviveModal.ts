@@ -1,4 +1,4 @@
-import { _decorator, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UITransform, Vec3 } from 'cc';
+import { _decorator, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UITransform, Vec3, view } from 'cc';
 import { WeChatService } from '../wx/WeChatService';
 import { AdService } from '../wx/AdService';
 import { ProfileManager } from '../core/ProfileManager';
@@ -27,10 +27,11 @@ export class ReviveModal extends Component {
 
     // 1. Semi-transparent Backdrop Overlay
     const overlay = this.createNode('Overlay', new Vec3(0, 0, 0), this.node);
-    this.ensureTransform(overlay, 1280, 720);
+    const overlaySize = view.getVisibleSize();
+    this.ensureTransform(overlay, overlaySize.width, overlaySize.height);
     const og = overlay.addComponent(Graphics);
     og.fillColor = new Color(5, 10, 25, 190);
-    og.rect(-640, -360, 1280, 720);
+    og.rect(-overlaySize.width / 2, -overlaySize.height / 2, overlaySize.width, overlaySize.height);
     og.fill();
     overlay.on(Node.EventType.TOUCH_END, () => {
       this.giveUpAndClose();

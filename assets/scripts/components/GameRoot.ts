@@ -175,6 +175,7 @@ export class GameRoot extends Component {
   private commuteStage = -1;
   private activeParticles: ConfettiParticle[] = [];
   private statusToastSerial = 0;
+  private routeHintNode: Node | null = null;
 
 
   public applyTheme(themeIdx: number): void {
@@ -196,7 +197,6 @@ export class GameRoot extends Component {
     console.log('[FloatFlow] GameRoot started');
     this.resetTransientInputState();
     this.ensureRoots();
-    this.loadLevel(0);
   }
 
   protected onDisable(): void {
@@ -554,7 +554,7 @@ export class GameRoot extends Component {
     this.cardSystem = new CardSystem(this.withSkillTiles(this.level.tilePool), this.level.handSize, this.level.fixedHands ?? []);
     this.hand = this.cardSystem.drawInitial();
     this.usedMoves = 0;
-    this.flowEnergy = this.level.bulletTimeEnergy ?? 3;
+    this.flowEnergy = 0;
     this.runnerTimer = 0;
     this.isResolving = false;
     this.bonusCell = null;
@@ -606,7 +606,7 @@ export class GameRoot extends Component {
     this.cardSystem = new CardSystem(this.withSkillTiles(this.level.tilePool), this.level.handSize, this.level.fixedHands ?? []);
     this.hand = this.cardSystem.drawInitial();
     this.usedMoves = 0;
-    this.flowEnergy = this.level.bulletTimeEnergy ?? 3;
+    this.flowEnergy = 0;
     this.runnerTimer = 0;
     this.isResolving = false;
     this.residualAssistId = '';
@@ -764,31 +764,58 @@ export class GameRoot extends Component {
     const now = new Date();
     const dateKey = CloudGameService.getTodayKey();
     const daySeed = now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate();
-    const variant = daySeed % 3;
-    const mirrored = variant === 1;
+    const variant = daySeed % 10;
+    const mirrored = variant % 2 === 1;
     const size = 7;
     const startCol = mirrored ? size - 1 : 0;
     const goalCol = mirrored ? 0 : size - 1;
     const direction = mirrored ? 'left' : 'right';
-    const obstacleCol = mirrored ? 3 : 3;
+    const startRows = [3, 2, 4, 1, 5, 3, 2, 4, 1, 5];
+    const goalRows = [4, 4, 2, 5, 1, 2, 5, 1, 3, 3];
+    const obstacleTemplates: Array<Array<[number, number]>> = [
+      [[3, 3], [2, 3]],
+      [[1, 3], [3, 3], [5, 3]],
+      [[2, 2], [3, 3], [4, 4]],
+      [[1, 4], [2, 4], [4, 2]],
+      [[5, 2], [4, 3], [2, 4]],
+      [[2, 2], [4, 2], [3, 4]],
+      [[1, 3], [2, 3], [4, 3]],
+      [[5, 3], [4, 3], [2, 3]],
+      [[2, 2], [2, 4], [4, 3]],
+      [[4, 2], [4, 4], [2, 3]],
+    ];
+    const handTemplates: TileType[][] = [
+      ['curve', 'straight', 'curve'],
+      ['curve', 'cross', 'straight'],
+      ['straight', 'curve', 'cross'],
+      ['curve', 'curve', 'straight'],
+      ['cross', 'curve', 'straight'],
+      ['straight', 'cross', 'curve'],
+      ['curve', 'straight', 'cross'],
+      ['cross', 'straight', 'curve'],
+      ['curve', 'curve', 'cross'],
+      ['straight', 'curve', 'curve'],
+    ];
+    const startRow = startRows[variant];
+    const goalRow = goalRows[variant];
+    const initialCol = mirrored ? size - 2 : 1;
 
     return {
       id: 800000 + daySeed,
       name: `今日光路 · ${dateKey}`,
       gridSize: [size, size],
-      start: { row: 3, col: startCol, direction, color: 'none', speed: 1, state: 'IDLE' },
-      goals: [{ row: variant === 2 ? 2 : 4, col: goalCol, color: 'none' }],
+      start: { row: startRow, col: startCol, direction, color: 'none', speed: 1, state: 'IDLE' },
+      goals: [{ row: goalRow, col: goalCol, color: 'none' }],
       handSize: 3,
       bulletTimeEnergy: 3,
       runnerStepSeconds: 0.24,
       autoStart: false,
-      obstacles: variant === 0 ? [[3, obstacleCol], [2, obstacleCol]] : [[1, obstacleCol], [3, obstacleCol], [5, obstacleCol]],
-      initialTiles: mirrored
-        ? [{ row: 3, col: 5, tile: { type: 'straight', rotation: 0 } }]
-        : [{ row: 3, col: 1, tile: { type: 'straight', rotation: 0 } }],
+      obstacles: obstacleTemplates[variant],
+      initialTiles: [{ row: startRow, col: initialCol, tile: { type: 'straight', rotation: 0 } }],
+      starCores: variant >= 5 ? [{ row: variant % 2 === 0 ? 0 : 6, col: 3 }] : [],
       tilePool: ['straight', 'curve', 'cross'],
-      fixedHands: variant === 2 ? ['curve', 'cross', 'straight'] : ['curve', 'straight', 'curve'],
-      recommendedMoves: 4,
+      fixedHands: handTemplates[variant],
+      recommendedMoves: 4 + (variant % 3),
       tutorialTip: '今日挑战：接上光路后分享战绩，看看谁能更少步。',
       objective: 'reach_goal',
       versionTag: 'v1.5',
@@ -832,6 +859,10 @@ export class GameRoot extends Component {
   }
 
   public loadLevel(index: number, preserveChances = false, isEndless = false): void {
+    if (this.routeHintNode) {
+      this.routeHintNode.destroy();
+      this.routeHintNode = null;
+    }
     if (this.hintHighlightNode) {
       this.hintHighlightNode.destroy();
       this.hintHighlightNode = null;
@@ -973,11 +1004,11 @@ export class GameRoot extends Component {
       }
     }
 
-    this.runner = { ...this.level!.start, state: this.level!.autoStart ? 'RUNNING' : 'IDLE' };
+    this.runner = { ...this.level!.start, state: 'IDLE' };
     this.cardSystem = new CardSystem(this.withSkillTiles(this.level.tilePool), this.level.handSize, this.level.fixedHands ?? []);
     this.hand = this.cardSystem.drawInitial();
     this.usedMoves = 0;
-    this.flowEnergy = this.level.bulletTimeEnergy ?? 3;
+    this.flowEnergy = !this.isEndlessMode && this.level.id === 4 ? 1 : 0;
     this.runnerTimer = 0;
     this.isResolving = false;
 
@@ -1020,8 +1051,7 @@ export class GameRoot extends Component {
     const objectiveIntro = this.level.objective === 'light_all_goals'
       ? '今日委托：点亮所有灯塔。'
       : (this.level.objective === 'collect_star' ? '今日委托：顺路收集星核。' : '今日委托：把光信送到终点。');
-    const routeChoiceText = this.getActiveBonusCells().length > 0 ? '蓝线稳过，金线贪奖励。' : '';
-    this.setStatus(`${objectiveIntro}${routeChoiceText}${this.level.tutorialTip ?? '拖拽水晶，接住这束光。'}`);
+    this.setStatus(`${objectiveIntro}${this.level.tutorialTip ?? '拖拽水晶，接住这束光。'}`);
     ProfileManager.recordLevelStart(this.level.id);
     AnalyticsService.track('level_start', {
       levelId: this.level.id,
@@ -1122,8 +1152,6 @@ export class GameRoot extends Component {
         }, this);
       }
     });
-
-    this.drawRouteHintLayer();
 
     // 3. Start Point Sleek Cyber Emblem (起点平铺极简金青魔法印章，告别杂乱叠块！)
     if (this.level.start) {
@@ -1227,6 +1255,7 @@ export class GameRoot extends Component {
     hintRoot.layer = Layers.Enum.UI_2D;
     hintRoot.setParent(this.boardRoot);
     hintRoot.setPosition(new Vec3(0, 0, 4));
+    this.routeHintNode = hintRoot;
     const g = hintRoot.addComponent(Graphics);
     this.drawHintPath(g, routeHints.safe ?? [], '#22D3EE', '稳');
     this.drawHintPath(g, routeHints.reward ?? [], '#FDE047', '奖');
@@ -1237,6 +1266,22 @@ export class GameRoot extends Component {
       g.circle(p.x, p.y, 30);
       g.stroke();
     }
+  }
+
+  private showRouteHintLayerTemporarily(duration = 7): void {
+    if (this.routeHintNode) {
+      this.routeHintNode.destroy();
+      this.routeHintNode = null;
+    }
+    this.drawRouteHintLayer();
+    const current = this.routeHintNode;
+    if (!current) return;
+    this.scheduleOnce(() => {
+      if (this.routeHintNode === current) {
+        current.destroy();
+        this.routeHintNode = null;
+      }
+    }, duration);
   }
 
   private getVisibleRouteHints(): { safe?: GridPos[]; reward?: GridPos[]; risk?: GridPos[] } {
@@ -1620,6 +1665,10 @@ export class GameRoot extends Component {
     this.dragCardIndex = index;
     this.dragTile = createTile(type);
     this.hoverCell = null;
+    if (this.runner?.state === 'RUNNING' && this.currentBulletTime > 0) {
+      ProfileManager.recordBulletTimeUse();
+      AnalyticsService.track('bullet_time_use', { levelId: this.level?.id ?? 0, remaining: this.currentBulletTime });
+    }
     director.getScheduler().setTimeScale(0.45);
     this.setStatus('拖到地图上，蓝线能通，红线会掉。');
 
@@ -2262,7 +2311,7 @@ export class GameRoot extends Component {
   }
 
   private handleSuccess(): void {
-    if (!this.runner || !this.level) {
+    if (!this.runner || !this.level || this.runner.state === 'SUCCESS') {
       return;
     }
     this.runner.state = 'SUCCESS';
@@ -2275,7 +2324,7 @@ export class GameRoot extends Component {
 
     if (this.isDailyChallenge) {
       const score = Math.max(10, 100 - this.usedMoves * 8 + this.currentBulletTime * 5);
-      const dateKey = this.level.name.replace('今日光路 · ', '');
+      const dateKey = CloudGameService.getTodayKey();
       const dailyScore = Math.floor(score);
       ProfileManager.updateDailyChallengeBest(dateKey, dailyScore, this.usedMoves);
       ProfileManager.recordLevelResult(this.level.id, true, this.usedMoves);
@@ -2299,6 +2348,7 @@ export class GameRoot extends Component {
       this.endlessStageIndex++;
       const stageScore = 100 + Math.max(0, (this.level.recommendedMoves - this.usedMoves) * 15);
       this.endlessScore += stageScore;
+      ProfileManager.updateEndlessBest(this.endlessStageIndex, this.endlessScore);
       if (this.pendingBonusDiamonds > 0) {
         ProfileManager.addDiamonds(this.pendingBonusDiamonds);
       }
@@ -2313,6 +2363,7 @@ export class GameRoot extends Component {
 
     const stars = this.calculateStars();
     ProfileManager.recordLevelResult(this.level.id, true, this.usedMoves);
+    ProfileManager.recordJourneyStars(this.level.id, stars);
     const engagementSummary = this.applyEngagementSuccessRewards(stars);
     AnalyticsService.track('level_success', { levelId: this.level.id, stars, moves: this.usedMoves, assist: !!this.residualAssistId });
     const reward = stars * 20;
@@ -2488,9 +2539,9 @@ export class GameRoot extends Component {
 
     if (this.commuteStage >= 0) {
       const challenge = EngagementService.getCommuteChallenge();
-      const doneCount = ProfileManager.recordCommuteStage(CloudGameService.getTodayKey(), this.commuteStage);
-      if (doneCount >= challenge.stages.length) {
-        ProfileManager.addDiamonds(challenge.reward);
+      const dateKey = CloudGameService.getTodayKey();
+      const doneCount = ProfileManager.recordCommuteStage(dateKey, this.commuteStage);
+      if (doneCount >= challenge.stages.length && ProfileManager.claimCommuteReward(dateKey, challenge.reward)) {
         ProfileManager.unlockCosmetic('trail_aurora');
         WeChatService.showToast(`${challenge.title}完成 +${challenge.reward} 💎`, 'success');
       }
@@ -2530,9 +2581,27 @@ export class GameRoot extends Component {
     g.fillColor = new Color(253, 224, 71, 28);
     g.circle(0, 40, 70);
     g.fill();
+    this.showFlowCompleteBanner();
     tween(node)
       .to(0.45, { scale: new Vec3(4.4, 4.4, 1) }, { easing: 'quadOut' })
       .call(() => node.destroy())
+      .start();
+  }
+
+  private showFlowCompleteBanner(): void {
+    const banner = new Node('FlowCompleteBanner');
+    banner.layer = Layers.Enum.UI_2D;
+    banner.setParent(this.node);
+    banner.setPosition(new Vec3(0, 100, 92));
+    banner.addComponent(UITransform).setContentSize(460, 100);
+    this.createOverlayLabel(banner, 'Title', new Vec3(0, 20, 1), 'FLOW COMPLETE', 30, '#FFFFFF', 420, 48);
+    this.createOverlayLabel(banner, 'Sub', new Vec3(0, -20, 1), '流光完美接通', 22, '#FDE047', 360, 38);
+    banner.setScale(new Vec3(0.82, 0.82, 1));
+    tween(banner)
+      .to(0.16, { scale: new Vec3(1.08, 1.08, 1) }, { easing: 'backOut' })
+      .delay(0.5)
+      .to(0.18, { scale: new Vec3(0.92, 0.92, 1) }, { easing: 'quadIn' })
+      .call(() => banner.destroy())
       .start();
   }
 
@@ -2660,9 +2729,6 @@ export class GameRoot extends Component {
     if (!this.runner) {
       return;
     }
-    if (this.tryTimeRewind(reason)) {
-      return;
-    }
     WeChatService.vibrateShort('heavy');
     this.runner.state = 'DEAD';
     const preview = this.grid && this.level ? RouteSimulator.simulate(this.grid, this.runner, this.level.goals) : null;
@@ -2674,6 +2740,7 @@ export class GameRoot extends Component {
     this.updateLabels();
 
     if (this.isEndlessMode && !this.isDailyChallenge) {
+      ProfileManager.updateEndlessBest(this.endlessStageIndex, this.endlessScore);
       WeChatService.uploadUserScore(this.endlessStageIndex, this.endlessScore);
       if (this.onShowVictoryPosterCallback) {
         this.onShowVictoryPosterCallback(this.level?.id ?? 9999, `无尽挑战 · 最终战绩`, this.endlessStageIndex, this.endlessScore);
@@ -3555,6 +3622,7 @@ export class GameRoot extends Component {
         this.setStatus(`${tierText}：第 ${firstStep.row + 1} 行，第 ${firstStep.col + 1} 列是关键格。`);
       } else {
         this.setStatus(`${tierText}：第 ${firstStep.row + 1} 行，第 ${firstStep.col + 1} 列，放入【${displayName}】并【${rotText}】`);
+        this.showRouteHintLayerTemporarily();
       }
       WeChatService.showToast(tier <= 1 ? '获得免费一级提示' : '高级提示已解锁', 'success');
 

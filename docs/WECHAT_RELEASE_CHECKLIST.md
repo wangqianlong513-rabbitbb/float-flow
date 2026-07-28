@@ -5,13 +5,13 @@
 - 云函数 `flowLightGame` 已提供脚手架：`cloudfunctions/flowLightGame/index.js`。
 - 云数据库集合：`daily_challenge_scores`、`residual_assists`。
 - 开放数据域目录：`openDataContext`。
-- 广告位：替换 `WeChatService.adUnitId = 'adunit-demo-id'` 为真实激励视频广告位。
+- 广告位：通过 `WeChatService.adUnitId` / `WeChatService.interstitialAdUnitId`，或启动前注入 `globalThis.__FLOW_LIGHT_CONFIG__` 配置真实广告位。
 
 ## 必测链路
 
 - 首页：一键续光、今日挑战、福利中心、主题定制。
 - 分享：今日挑战战绩、残局求助、助攻完成回流、分享领奖。
-- 榜单：今日好友榜 mock 展示、开放数据域好友榜展示、分数上传。
+- 榜单：今日云榜真实成绩、空榜/断网降级、开放数据域好友榜展示、分数上传。
 - 失败：差一步求助优先、广告复活降级入口、放弃后重开。
 - 省电模式：背景、首页、游戏内拖尾/粒子、胜利/失败弹窗降级。
 - 海报：分享海报 imageUrl、保存到相册授权拒绝/允许两种路径。
@@ -33,7 +33,7 @@
 - `level_success` / `level_fail`：关卡成败。
 - `daily_success`：今日挑战完成。
 - `share_residual` / `share_invite`：残局求助与邀请分享。
-- `ad_request` / `ad_completed`：广告请求与完成。
+- `ad_request` / `ad_load` / `ad_ready` / `ad_show` / `ad_start` / `ad_completed` / `ad_cancel` / `ad_error` / `ad_reward`：广告全链路。
 - `theme_unlock` / `theme_apply`：主题解锁与启用。
 - `power_save_toggle`：省电模式开关。
 

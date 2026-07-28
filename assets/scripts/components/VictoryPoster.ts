@@ -1,4 +1,4 @@
-import { _decorator, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UITransform, Vec3 } from 'cc';
+import { _decorator, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UITransform, Vec3, view } from 'cc';
 import { WeChatService } from '../wx/WeChatService';
 import { ShareService } from '../wx/ShareService';
 import { ProfileManager } from '../core/ProfileManager';
@@ -30,10 +30,11 @@ export class VictoryPoster extends Component {
 
     // 1. Semi-transparent Backdrop Overlay
     const overlay = this.createNode('Overlay', new Vec3(0, 0, 0), this.node);
-    this.ensureTransform(overlay, 1280, 720);
+    const overlaySize = view.getVisibleSize();
+    this.ensureTransform(overlay, overlaySize.width, overlaySize.height);
     const og = overlay.addComponent(Graphics);
     og.fillColor = new Color(5, 10, 25, 190);
-    og.rect(-640, -360, 1280, 720);
+    og.rect(-overlaySize.width / 2, -overlaySize.height / 2, overlaySize.width, overlaySize.height);
     og.fill();
     overlay.on(Node.EventType.TOUCH_END, () => {
       this.closePoster();
@@ -400,9 +401,9 @@ export class VictoryPoster extends Component {
 
       AdService.showRewarded('reward_multiplier').then((res) => {
         if (res.completed) {
-          ProfileManager.addDiamonds(baseReward);
-          this.hasClaimedDouble = true;
-          WeChatService.showToast(`双倍领奖成功！晶核 +${baseReward} 💎`, 'success');
+          const granted = ProfileManager.grantRewardedAdDiamonds(res.transactionId || '', `victory_${this.currentLevelId}`, baseReward, 8);
+          this.hasClaimedDouble = this.hasClaimedDouble || granted;
+          WeChatService.showToast(granted ? `双倍领奖成功！晶核 +${baseReward} 💎` : '本次奖励已领取', granted ? 'success' : 'none');
           if (this.doubleRewardTextLabel) {
             this.doubleRewardTextLabel.string = '已领双倍晶核 💎';
             this.doubleRewardTextLabel.color = this.hex('#94A3B8');

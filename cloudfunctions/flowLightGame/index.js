@@ -15,7 +15,7 @@ exports.main = async (event, context) => {
     case 'submitDailyChallenge':
       return submitDailyChallenge(openid, event);
     case 'getDailyLeaderboard':
-      return getDailyLeaderboard(event);
+      return getDailyLeaderboard(openid, event);
     case 'registerResidualAssist':
       return registerResidualAssist(openid, event);
     case 'completeResidualAssist':
@@ -42,10 +42,10 @@ async function submitDailyChallenge(openid, event) {
       data: { _id: id, openid, dateKey, score, moves, updatedAt: now }
     });
   }
-  return getDailyLeaderboard({ dateKey, selfOpenid: openid });
+  return getDailyLeaderboard(openid, { dateKey });
 }
 
-async function getDailyLeaderboard(event) {
+async function getDailyLeaderboard(openid, event) {
   const dateKey = String(event.dateKey || '');
   if (!dateKey) return { ok: false, code: 'BAD_DATE' };
   const result = await db.collection(DAILY)
@@ -59,7 +59,7 @@ async function getDailyLeaderboard(event) {
     openid: item.openid,
     score: item.score,
     moves: item.moves,
-    isSelf: item.openid === event.selfOpenid,
+    isSelf: item.openid === openid,
   }));
   return { ok: true, dateKey, entries };
 }

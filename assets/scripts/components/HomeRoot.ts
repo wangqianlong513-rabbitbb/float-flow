@@ -351,6 +351,10 @@ export class HomeRoot extends Component {
 
     this.drawIsometricBlock(g, cTop, cLeft, cRight, this.hex('#FFFFFF'), 3.2, 36, 86, 50, coreY, 0);
 
+    const decor = ProfileManager.getProfile().islandDecor || [];
+    this.drawIslandDecor(g, decor);
+    this.createLabel(islandRoot, 'RepairProgress', new Vec3(0, -148, 2), `岛屿修复 ${Math.min(3, decor.length)}/3`, 16, '#E0F2FE', 220, 28);
+
     // 点击浮岛进入关卡地图，主按钮则负责一键续玩。
     this.addClick(islandRoot, () => {
       console.log('[HomeRoot] Clicked hero island -> open level map');
@@ -371,17 +375,73 @@ export class HomeRoot extends Component {
     }
   }
 
+  private drawIslandDecor(g: Graphics, decor: string[]): void {
+    if (decor.includes('decor_lighthouse')) {
+      g.fillColor = this.hex('#F8FAFC');
+      g.fillRect(-128, 28, 20, 48);
+      g.fillColor = this.hex('#EF4444');
+      g.fillRect(-130, 45, 24, 10);
+      g.moveTo(-134, 76);
+      g.lineTo(-104, 76);
+      g.lineTo(-119, 92);
+      g.close();
+      g.fill();
+      g.fillColor = new Color(253, 224, 71, 110);
+      g.circle(-119, 88, 24);
+      g.fill();
+    }
+    if (decor.includes('decor_cafe')) {
+      g.fillColor = this.hex('#F59E0B');
+      g.roundRect(72, 4, 58, 38, 5);
+      g.fill();
+      g.fillColor = this.hex('#FEF3C7');
+      g.fillRect(80, 12, 15, 17);
+      g.fillRect(106, 12, 15, 17);
+      g.fillColor = this.hex('#EF4444');
+      g.moveTo(66, 42);
+      g.lineTo(136, 42);
+      g.lineTo(122, 58);
+      g.lineTo(80, 58);
+      g.close();
+      g.fill();
+    }
+    if (decor.includes('decor_star_tree')) {
+      g.fillColor = this.hex('#7C3AED');
+      g.fillRect(110, 68, 10, 32);
+      g.fillColor = this.hex('#34D399');
+      g.circle(115, 111, 25);
+      g.fill();
+      g.fillColor = this.hex('#FDE047');
+      for (let i = 0; i < 5; i++) {
+        const angle = i * Math.PI * 0.4 - Math.PI / 2;
+        const next = angle + Math.PI * 0.2;
+        const radius = i === 0 ? 13 : 13;
+        const inner = 6;
+        if (i === 0) g.moveTo(115 + Math.cos(angle) * radius, 116 + Math.sin(angle) * radius);
+        g.lineTo(115 + Math.cos(next) * inner, 116 + Math.sin(next) * inner);
+        g.lineTo(115 + Math.cos(angle + Math.PI * 0.4) * radius, 116 + Math.sin(angle + Math.PI * 0.4) * radius);
+      }
+      g.close();
+      g.fill();
+    }
+  }
+
   private createSidebarIcons(halfW: number, halfH: number): void {
     // 优化：侧边栏对齐左侧 32px 边界安全区 (X = -halfW + 74)，按钮尺寸从 84 放大到 96 更加易点
     const sidebar = this.createNode('Sidebar', new Vec3(-halfW + 74, halfH * 0.22, 0), this.node);
     this.ensureTransform(sidebar, 96, 360);
 
-    const spacing = halfH * 0.18;
-    const items = [
-      { id: 'daily', name: '签 到', symbol: '🎁', y: spacing, border: '#FDE047', bg: '#7C2D12' },
-      { id: 'rank', name: '排 行', symbol: '🏆', y: 0, border: '#00F0FF', bg: '#1E3A8A' },
-      { id: 'achieve', name: '成 就', symbol: '🎖️', y: -spacing, border: '#C084FC', bg: '#4C1D95' }
-    ];
+    const progress = ProfileManager.getProfile().levelProgress;
+    const unlockedItems = [
+      { id: 'daily', name: '签 到', border: '#FDE047', bg: '#7C2D12', unlockAt: 3 },
+      { id: 'rank', name: '排 行', border: '#00F0FF', bg: '#1E3A8A', unlockAt: 8 },
+      { id: 'achieve', name: '成 就', border: '#C084FC', bg: '#4C1D95', unlockAt: 5 }
+    ].filter((item) => progress >= item.unlockAt);
+    const spacing = Math.min(140, halfH * 0.18);
+    const items = unlockedItems.map((item, index) => ({
+      ...item,
+      y: (unlockedItems.length - 1 - index * 2) * spacing / 2,
+    }));
 
     items.forEach((item) => {
       const btn = this.createNode(`Btn_${item.id}`, new Vec3(0, item.y, 0), sidebar);
@@ -468,95 +528,15 @@ export class HomeRoot extends Component {
       this.addClick(btn, () => {
         console.log(`[HomeRoot] Clicked sidebar item: ${item.name}`);
         if (item.id === 'daily') {
-          const profile = ProfileManager.getProfile();
-          const signedInToday = ProfileManager.isTodaySignedin();
-          const claimedDays = profile.claimedSignins || [0];
-          const nextDayIndex = claimedDays.length;
-
-          const daysConfig = [
-            { day: 1, reward: 50, label: '50 钻石', icon: '💎' },
-            { day: 2, reward: 100, label: '100 钻石', icon: '💎' },
-            { day: 3, reward: 200, label: '200 钻石', icon: '💎' },
-            { day: 4, reward: 0, label: '满管时空能量', icon: '⚡' },
-            { day: 7, reward: 500, label: '500 钻石大礼包', icon: '🎁' },
-          ];
-
-          const lines = daysConfig.map((d, idx) => {
-            const isClaimed = claimedDays.includes(idx);
-            let status = '待解锁 🔒';
-            if (isClaimed) {
-              status = '已领取 ✔';
-            } else if (idx === nextDayIndex) {
-              status = signedInToday ? '明日解锁 🔒' : '今日可领 ⭐';
-            }
-            return `${d.icon}  第 ${d.day} 天:  ${d.label}  ——  [ ${status} ]`;
-          });
-
-          const currentTodayReward = daysConfig[nextDayIndex % daysConfig.length]?.reward || 100;
-          const btnText = signedInToday ? '✨   今 日 已 签 到  (明 日 再 来)' : `✨   立 即 领 取 今 日 ${currentTodayReward} 💎`;
-          const btnBgHex = signedInToday ? '#334155' : '#991B1B';
-          const borderHex = signedInToday ? '#64748B' : '#FDE047';
-
-          this.showPopup('🎁   每 日 签 到 奖 励', lines, btnText, borderHex, btnBgHex, () => {
-            if (ProfileManager.isTodaySignedin()) {
-              WeChatService.showToast('今天已经签到过了，明天再来哦！', 'none');
-              return;
-            }
-            ProfileManager.claimDailySignin(nextDayIndex, currentTodayReward);
-            this.rebuildUI();
-            WeChatService.showToast(`签到成功 +${currentTodayReward} 💎`, 'success');
-          });
+          this.openDailySigninPopup();
         } else if (item.id === 'rank') {
           const profile = ProfileManager.getProfile();
-          const currentLevel = profile.levelProgress + 1;
-          const stars = currentLevel * 3 - 2; // Approximate stars count
           this.showPopup('🏆   微 信 好 友 排 行 榜', [
-            '🥇  微信好友·星辰大师    88关 · 260⭐',
-            `🥈  你 · 流光开拓者    ${currentLevel}关 · ${stars}⭐`,
-            '🥉  微信好友·阳光微风    42关 · 120⭐',
-            '🏅  微信好友·极光旅人    35关 · 98⭐',
-            '🏅  微信好友·暗夜流星    19关 · 50⭐'
+            `你 · 流光开拓者    ${profile.levelProgress}关 · ${profile.totalStars || 0}⭐`,
+            '暂无好友成绩，邀请好友来冲榜'
           ], '💬   邀 好 友 冲 榜  双 方 得 晶 核', '#60A5FA', '#065F46');
         } else if (item.id === 'achieve') {
-          const profile = ProfileManager.getProfile();
-          const unlockedThemeCount = (profile.unlockedThemes || [0]).length;
-          const achievements = [
-            { id: 'first_start', name: '[初次启航] 完成第 1 关', reward: 50, isUnlocked: profile.levelProgress >= 1, progressText: profile.levelProgress >= 1 ? '已达成 ✔' : '进度 0/1' },
-            { id: 'bullet_master', name: '[子弹时间大师] 触发极限减速 50 次', reward: 100, isUnlocked: false, progressText: '进度 38/50' },
-            { id: 'high_star', name: '[高分王者] 累计获得 100 颗星', reward: 200, isUnlocked: profile.levelProgress >= 30, progressText: profile.levelProgress >= 30 ? '已达成 ✔' : `进度 ${Math.min(100, (profile.levelProgress + 1) * 3)}/100` },
-            { id: 'endless', name: '[流光无尽] 无尽模式突破 2000m', reward: 150, isUnlocked: true, progressText: '已达成 ✔' },
-            { id: 'theme_collector', name: '[全图鉴收藏] 解锁 3 种太空流光主题', reward: 300, isUnlocked: unlockedThemeCount >= 3, progressText: unlockedThemeCount >= 3 ? '已达成 ✔' : `进度 ${unlockedThemeCount}/3` },
-          ];
-
-          const claimableItems: { id: string; reward: number }[] = [];
-          const lines: string[] = [];
-
-          achievements.forEach((ach) => {
-            const isClaimed = ProfileManager.isAchievementClaimed(ach.id);
-            if (isClaimed) {
-              lines.push(`🏅  ${ach.name} —— [ 已领取 ✔ ]`);
-            } else if (ach.isUnlocked) {
-              claimableItems.push({ id: ach.id, reward: ach.reward });
-              lines.push(`🏅  ${ach.name} —— [ 领取 ${ach.reward} 💎 ]`);
-            } else {
-              lines.push(`🏅  ${ach.name} —— [ ${ach.progressText} ]`);
-            }
-          });
-
-          const totalUnclaimed = claimableItems.reduce((sum, i) => sum + i.reward, 0);
-          const btnText = totalUnclaimed > 0 ? `🏆   一 键 领 取 (${totalUnclaimed} 💎)` : '🏆   所 有 成 就 已 领 取';
-          const btnBgHex = totalUnclaimed > 0 ? '#4C1D95' : '#1E293B';
-          const borderHex = totalUnclaimed > 0 ? '#C084FC' : '#475569';
-
-          this.showPopup('⭐   荣 誉 勋 章 与 成 就', lines, btnText, borderHex, btnBgHex, () => {
-            if (totalUnclaimed <= 0) {
-              WeChatService.showToast('暂无未领取的成就奖励！', 'none');
-              return;
-            }
-            const claimedAmount = ProfileManager.claimAchievements(claimableItems);
-            this.rebuildUI();
-            WeChatService.showToast(`成功领取成就奖励 +${claimedAmount} 💎`, 'success');
-          });
+          this.openAchievementPopup();
         }
       });
     });
@@ -574,10 +554,11 @@ export class HomeRoot extends Component {
 
     // 1. Backdrop overlay
     const overlay = this.createNode('Overlay', new Vec3(0, 0, 0), this.popupRoot);
-    this.ensureTransform(overlay, 1280, 720);
+    const overlaySize = view.getVisibleSize();
+    this.ensureTransform(overlay, overlaySize.width, overlaySize.height);
     const og = overlay.addComponent(Graphics);
     og.fillColor = new Color(5, 10, 25, 185);
-    og.rect(-640, -360, 1280, 720);
+    og.rect(-overlaySize.width / 2, -overlaySize.height / 2, overlaySize.width, overlaySize.height);
     og.fill();
     this.addClick(overlay, () => {
       this.closePopup();
@@ -587,7 +568,7 @@ export class HomeRoot extends Component {
       }
     });
 
-    const dialogHeight = 500;
+    const dialogHeight = isCheckin ? 650 : 500;
     const halfDialogH = dialogHeight / 2;
 
     // 2. Glassmorphic Dialog Box (宽度 620 符合 86% 规范，圆角 32)
@@ -830,8 +811,11 @@ export class HomeRoot extends Component {
         .start();
     }
 
-    // 2. 次级入口 (Secondary CTA)：极限排位 / 无尽挑战 (高度从 64 提高到 76, 圆角 38)
-    const endlessCard = this.createNode('EndlessCard', new Vec3(0, -56, 0), cardsRoot);
+    // 次级模式随主线进度逐步出现，避免新手首屏同时面对全部系统。
+    const endlessUnlocked = profile.levelProgress >= 10;
+    const dailyUnlocked = profile.levelProgress >= 5;
+    if (endlessUnlocked) {
+      const endlessCard = this.createNode('EndlessCard', new Vec3(0, -56, 0), cardsRoot);
     this.ensureTransform(endlessCard, 460, 76);
     const eg = endlessCard.addComponent(Graphics);
     eg.fillColor = this.hex(eBg);
@@ -867,14 +851,16 @@ export class HomeRoot extends Component {
     eg.fill();
 
     this.createLabel(endlessCard, 'Title', new Vec3(-35, 2, 0), '极限挑战 · 无尽模式', 22, '#FFFFFF', 260, 38); // 字体 22
-    this.createLabel(endlessCard, 'Sub', new Vec3(153, 2, 0), '巅峰 2840m', 16, eBorder, 100, 28); // 字体 16
+    this.createLabel(endlessCard, 'Sub', new Vec3(153, 2, 0), `最佳 ${profile.endlessBestStage || 0} 阶`, 16, eBorder, 100, 28); // 字体 16
 
     this.addClick(endlessCard, () => {
       console.log('[HomeRoot] Clicked Secondary CTA: Endless Mode!');
       if (this.onStartEndlessCallback) this.onStartEndlessCallback();
     });
+    }
 
-    const dailyCard = this.createNode('DailyCard', new Vec3(0, -145, 0), cardsRoot);
+    if (dailyUnlocked) {
+    const dailyCard = this.createNode('DailyCard', new Vec3(0, endlessUnlocked ? -145 : -56, 0), cardsRoot);
     this.ensureTransform(dailyCard, 430, 58);
     const dg = dailyCard.addComponent(Graphics);
     dg.fillColor = this.hex(isGold ? '#451A03' : '#0F172A');
@@ -913,6 +899,7 @@ export class HomeRoot extends Component {
       AnalyticsService.track('home_start_daily');
       if (this.onStartDailyCallback) this.onStartDailyCallback();
     });
+    }
   }
 
   private createFlowMascot(halfW: number, halfH: number): void {
@@ -973,14 +960,17 @@ export class HomeRoot extends Component {
     const isRose = this.currentTheme === 1;
     const isGold = this.currentTheme === 2;
     const profile = ProfileManager.getProfile();
+    const welfareUnlocked = profile.levelProgress >= 3;
     const hasDailyReward = !ProfileManager.isTodaySignedin();
     const hasAchievementReward = profile.levelProgress >= 1 && !ProfileManager.isAchievementClaimed('first_start');
     const hasShareReward = profile.lastShareRewardDate !== CloudGameService.getTodayKey();
     const shouldShowWelfareDot = hasDailyReward || hasShareReward || hasAchievementReward || profile.energy < 10;
 
-    const items = [
-      { id: 'welfare', title: '福 利 中 心', sub: hasDailyReward ? '今日奖励可领' : (profile.energy < 10 ? '补能 / 强化' : '签到 / 强化'), x: -164, w: 300, bg: isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#131C39'), border: isRose ? '#FDE047' : '#FDE047', col: '#FDE68A', dot: shouldShowWelfareDot },
+    const items = welfareUnlocked ? [
+      { id: 'welfare', title: '福 利 中 心', sub: hasDailyReward ? '今日奖励可领' : (profile.energy < 10 ? '补能 / 强化' : '签到 / 强化'), x: -164, w: 300, bg: isRose ? '#4C1D95' : (isGold ? '#7C2D12' : '#131C39'), border: '#FDE047', col: '#FDE68A', dot: shouldShowWelfareDot },
       { id: 'theme', title: '主 题 定 制', sub: '换色与画质', x: 164, w: 300, bg: isRose ? '#581C87' : (isGold ? '#9A3412' : '#1E2A4F'), border: isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#F472B6'), col: '#FBCFE8', dot: false }
+    ] : [
+      { id: 'theme', title: '主 题 定 制', sub: '换色与画质', x: 0, w: 300, bg: isRose ? '#581C87' : (isGold ? '#9A3412' : '#1E2A4F'), border: isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#F472B6'), col: '#FBCFE8', dot: false }
     ];
 
     items.forEach((p, idx) => {
@@ -1057,7 +1047,7 @@ export class HomeRoot extends Component {
     });
   }
 
-  private showDailyLeaderboard(): void {
+  private showDailyLeaderboard(refreshCloud = true): void {
     if (!this.beginExclusivePopup() || !this.popupRoot) return;
     AnalyticsService.track('home_open_daily_rank');
 
@@ -1068,6 +1058,18 @@ export class HomeRoot extends Component {
       profile.dailyChallengeDate === dateKey ? (profile.dailyChallengeBest || 0) : 0,
       profile.dailyChallengeDate === dateKey ? (profile.dailyChallengeBestMoves || 0) : 0
     );
+
+    if (refreshCloud) {
+      void CloudGameService.fetchDailyLeaderboard(
+        dateKey,
+        profile.dailyChallengeDate === dateKey ? (profile.dailyChallengeBest || 0) : 0,
+        profile.dailyChallengeDate === dateKey ? (profile.dailyChallengeBestMoves || 0) : 0
+      ).then(() => {
+        if (dialog.isValid && dialog.parent === this.popupRoot && this.popupRoot?.children.includes(dialog)) {
+          this.showDailyLeaderboard(false);
+        }
+      });
+    }
 
     const overlay = this.createNode('DailyRankOverlay', new Vec3(0, 0, 0), this.popupRoot);
     this.ensureTransform(overlay, view.getVisibleSize().width, view.getVisibleSize().height);
@@ -1111,6 +1113,9 @@ export class HomeRoot extends Component {
       this.createLabel(row, 'Moves', new Vec3(70, 0, 0), `${entry.moves} 步`, 17, '#93C5FD', 90, 28);
       this.createLabel(row, 'Score', new Vec3(186, 0, 0), `${entry.score} 分`, 18, '#34D399', 100, 30);
     });
+    if (result.entries.length === 0) {
+      this.createLabel(dialog, 'Empty', new Vec3(0, 70, 0), '暂无好友成绩，完成挑战后邀请好友来比一局', 18, '#94A3B8', 500, 42);
+    }
 
     const cta = this.createNode('DailyChallengeCta', new Vec3(0, -230, 0), dialog);
     this.ensureTransform(cta, 420, 64);
@@ -1136,10 +1141,11 @@ export class HomeRoot extends Component {
     const hasAchievementReward = profile.levelProgress >= 1 && !ProfileManager.isAchievementClaimed('first_start');
 
     const overlay = this.createNode('Overlay', new Vec3(0, 0, 0), this.popupRoot);
-    this.ensureTransform(overlay, 1280, 720);
+    const overlaySize = view.getVisibleSize();
+    this.ensureTransform(overlay, overlaySize.width, overlaySize.height);
     const og = overlay.addComponent(Graphics);
     og.fillColor = new Color(5, 10, 25, 185);
-    og.rect(-640, -360, 1280, 720);
+    og.rect(-overlaySize.width / 2, -overlaySize.height / 2, overlaySize.width, overlaySize.height);
     og.fill();
     this.addClick(overlay, () => { this.closePopup(); });
 
@@ -1174,9 +1180,8 @@ export class HomeRoot extends Component {
       { id: 'daily', title: signedInToday ? '今日已领' : '每日签到', sub: signedInToday ? '明天继续连签' : '今日钻石可领', action: signedInToday ? '已领' : '领取', icon: '礼', y: 115, border: signedInToday ? '#64748B' : '#FDE047', bg: signedInToday ? '#1E293B' : '#451A03', dot: !signedInToday },
       { id: 'share', title: '分享好友领奖', sub: '每日首分享 +60', action: '分享', icon: '享', y: 45, border: '#86EFAC', bg: '#064E3B', dot: (profile.lastShareRewardDate !== CloudGameService.getTodayKey()) },
       { id: 'energy', title: `时空能量 ${profile.energy}/10`, sub: profile.energy >= 10 ? '能量已满' : '50钻回满', action: profile.energy >= 10 ? '已满' : '补满', icon: '电', y: -25, border: profile.energy >= 10 ? '#38BDF8' : '#FDE047', bg: '#0B1026', dot: profile.energy < 10 },
-      { id: 'hand', title: '强化手牌补给', sub: '广告补给资源', action: '领取', icon: '卡', y: -95, border: '#A78BFA', bg: '#312E81', dot: false },
       { id: 'achieve', title: hasAchievementReward ? '成就奖励可领' : '成就进度', sub: hasAchievementReward ? '初次启航待领' : '查看目标奖励', action: '查看', icon: '奖', y: -165, border: hasAchievementReward ? '#FDE047' : '#C084FC', bg: hasAchievementReward ? '#451A03' : '#2E1065', dot: hasAchievementReward },
-    ];
+    ].filter((card) => card.id !== 'achieve' || profile.levelProgress >= 5);
 
     cards.forEach((card) => {
       const row = this.createNode(`Welfare_${card.id}`, new Vec3(0, card.y, 0), dialog);
@@ -1224,17 +1229,6 @@ export class HomeRoot extends Component {
           } else {
             WeChatService.showToast('晶核不足 50，先去签到或通关领奖！', 'none');
           }
-        } else if (card.id === 'hand') {
-          AdService.showRewarded('redraw_cards').then((res) => {
-            if (res.completed) {
-              const claimed = ProfileManager.claimRewardedAdBonus('welfare_hand', 100, 2);
-              this.closePopup();
-              this.rebuildUI();
-              WeChatService.showToast(claimed ? '强化补给 +100 💎' : '今日强化补给已领完', claimed ? 'success' : 'none');
-            } else {
-              WeChatService.showToast(res.error || '观看完成后领取补给', 'none');
-            }
-          });
         } else if (card.id === 'achieve') {
           this.closePopup();
           this.openAchievementPopup();
@@ -1244,55 +1238,53 @@ export class HomeRoot extends Component {
   }
 
   private openDailySigninPopup(): void {
+    const nextDayIndex = ProfileManager.getSigninDayIndex();
     const profile = ProfileManager.getProfile();
     const signedInToday = ProfileManager.isTodaySignedin();
     const claimedDays = profile.claimedSignins || [];
-    const nextDayIndex = claimedDays.length;
     const daysConfig = [
-      { day: 1, reward: 50, label: '50 钻石', icon: '💎' },
-      { day: 2, reward: 100, label: '100 钻石', icon: '💎' },
-      { day: 3, reward: 200, label: '200 钻石', icon: '💎' },
-      { day: 4, reward: 0, label: '满管时空能量', icon: '⚡' },
-      { day: 7, reward: 500, label: '500 钻石大礼包', icon: '🎁' },
+      { day: 1, reward: 50, label: '50 钻石', fillEnergy: false, decorId: '' },
+      { day: 2, reward: 80, label: '80 钻石', fillEnergy: false, decorId: '' },
+      { day: 3, reward: 120, label: '120 钻石', fillEnergy: false, decorId: '' },
+      { day: 4, reward: 0, label: '时空能量回满', fillEnergy: true, decorId: '' },
+      { day: 5, reward: 180, label: '180 钻石', fillEnergy: false, decorId: '' },
+      { day: 6, reward: 260, label: '260 钻石', fillEnergy: false, decorId: '' },
+      { day: 7, reward: 500, label: '500 钻石 + 星核树', fillEnergy: false, decorId: 'decor_star_tree' },
     ];
     const lines = daysConfig.map((d, idx) => {
       const isClaimed = claimedDays.includes(idx);
       let status = '待解锁 🔒';
       if (isClaimed) status = '已领取 ✔';
       else if (idx === nextDayIndex) status = signedInToday ? '明日解锁 🔒' : '今日可领 ⭐';
-      return `${d.icon}  第 ${d.day} 天:  ${d.label}  ——  [ ${status} ]`;
+      return `第 ${d.day} 天:  ${d.label}  ——  [ ${status} ]`;
     });
-    const currentTodayReward = daysConfig[nextDayIndex % daysConfig.length]?.reward || 100;
-    const btnText = signedInToday ? '✨   今 日 已 签 到  (明 日 再 来)' : `✨   立 即 领 取 今 日 ${currentTodayReward} 💎`;
+    const currentReward = daysConfig[nextDayIndex];
+    const rewardText = currentReward.fillEnergy ? '满能量' : `${currentReward.reward} 钻石`;
+    const btnText = signedInToday ? '✨   今 日 已 签 到  (明 日 再 来)' : `✨   立 即 领 取 ${rewardText}`;
     const btnBgHex = signedInToday ? '#334155' : '#991B1B';
     const borderHex = signedInToday ? '#64748B' : '#FDE047';
     this.showPopup('🎁   每 日 签 到 奖 励', lines, btnText, borderHex, btnBgHex, () => {
       if (ProfileManager.isTodaySignedin()) {
-        AdService.showRewarded('daily_retry').then((res) => {
-          if (res.completed) {
-            const claimed = ProfileManager.claimRewardedAdBonus('daily_retry', 30, 1);
-            this.rebuildUI();
-            WeChatService.showToast(claimed ? '今日额外补签礼 +30 💎' : '今日补签礼已领取', claimed ? 'success' : 'none');
-          } else {
-            WeChatService.showToast(res.error || '观看完成后领取额外补签礼', 'none');
-          }
-        });
+        WeChatService.showToast('今天已经签到，明天继续连签', 'none');
         return;
       }
-      ProfileManager.claimDailySignin(nextDayIndex, currentTodayReward);
+      const claimed = ProfileManager.claimDailySignin(nextDayIndex, currentReward.reward, currentReward.fillEnergy, currentReward.decorId);
       this.rebuildUI();
-      WeChatService.showToast(`签到成功 +${currentTodayReward} 💎`, 'success');
+      WeChatService.showToast(claimed ? `签到成功：${currentReward.label}` : '签到状态已更新，请重试', claimed ? 'success' : 'none');
     });
   }
 
   private openAchievementPopup(): void {
     const profile = ProfileManager.getProfile();
     const unlockedThemeCount = (profile.unlockedThemes || [0]).length;
+    const bulletTimeUses = profile.bulletTimeUses || 0;
+    const totalStars = profile.totalStars || 0;
+    const endlessBestStage = profile.endlessBestStage || 0;
     const achievements = [
       { id: 'first_start', name: '[初次启航] 完成第 1 关', reward: 50, isUnlocked: profile.levelProgress >= 1, progressText: profile.levelProgress >= 1 ? '已达成 ✔' : '进度 0/1' },
-      { id: 'bullet_master', name: '[子弹时间大师] 触发极限减速 50 次', reward: 100, isUnlocked: false, progressText: '进度 38/50' },
-      { id: 'high_star', name: '[高分王者] 累计获得 100 颗星', reward: 200, isUnlocked: profile.levelProgress >= 30, progressText: profile.levelProgress >= 30 ? '已达成 ✔' : `进度 ${Math.min(100, (profile.levelProgress + 1) * 3)}/100` },
-      { id: 'endless', name: '[流光无尽] 无尽模式突破 2000m', reward: 150, isUnlocked: true, progressText: '已达成 ✔' },
+      { id: 'bullet_master', name: '[子弹时间大师] 触发极限减速 50 次', reward: 100, isUnlocked: bulletTimeUses >= 50, progressText: `进度 ${Math.min(50, bulletTimeUses)}/50` },
+      { id: 'high_star', name: '[高分王者] 累计获得 60 颗星', reward: 200, isUnlocked: totalStars >= 60, progressText: `进度 ${Math.min(60, totalStars)}/60` },
+      { id: 'endless', name: '[流光无尽] 连续接通 10 阶段', reward: 150, isUnlocked: endlessBestStage >= 10, progressText: `进度 ${Math.min(10, endlessBestStage)}/10` },
       { id: 'theme_collector', name: '[全图鉴收藏] 解锁 3 种太空流光主题', reward: 300, isUnlocked: unlockedThemeCount >= 3, progressText: unlockedThemeCount >= 3 ? '已达成 ✔' : `进度 ${unlockedThemeCount}/3` },
     ];
     const claimableItems: { id: string; reward: number }[] = [];

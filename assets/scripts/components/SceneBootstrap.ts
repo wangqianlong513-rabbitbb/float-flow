@@ -228,7 +228,7 @@ export class SceneBootstrap extends Component {
   protected onLoad(): void {
     console.log('[FloatFlow] SceneBootstrap onLoad');
     WeChatService.initShareMenu();
-    AdService.init(WeChatService.adUnitId);
+    AdService.init(WeChatService.adUnitId, WeChatService.interstitialAdUnitId);
     view.setDesignResolutionSize(720, 1558, ResolutionPolicy.FIXED_WIDTH);
     const visibleSize = view.getVisibleSize();
     const root = this.node;
@@ -379,7 +379,8 @@ export class SceneBootstrap extends Component {
     const startJourneyLevel = (idx: number, source: 'continue' | 'select' | 'share' = 'select') => {
       const safeIndex = Math.max(0, Math.min(idx, journeyLevelCount - 1));
       const profile = ProfileManager.getProfile();
-      if (profile.energy <= 0) {
+      const isFtueLevel = safeIndex < 5;
+      if (!isFtueLevel && profile.energy <= 0) {
         WeChatService.showModal({
           title: '时空能量耗尽',
           content: '挑战旅途关卡需要 1 点时空能量。去主页点“时空蓄能”，或先玩无尽模式也可以。',
@@ -387,7 +388,9 @@ export class SceneBootstrap extends Component {
         });
         return;
       }
-      ProfileManager.addEnergy(-1);
+      if (!isFtueLevel) {
+        ProfileManager.addEnergy(-1);
+      }
 
       // Auto apply themed scene color based on level index
       if (safeIndex >= 20 && safeIndex < 30) {
@@ -460,6 +463,7 @@ export class SceneBootstrap extends Component {
         WeChatService.showToast(rank.hintText, 'none');
       }
       WeChatService.uploadUserScore(game.getLevelIndex(), score);
+      AdService.onNaturalBreak(ProfileManager.getProfile().levelProgress);
     };
 
     // Connect Home Page to Game Page, Level Select & Settings!
@@ -499,8 +503,10 @@ export class SceneBootstrap extends Component {
       game.loadDailyChallenge();
     };
 
+    let handledInitialDeepLink = WeChatService.hasInitialLaunchQuery();
     WeChatService.checkLaunchQuery(
       (levelId: number) => {
+        handledInitialDeepLink = true;
         console.log(`[SceneBootstrap] Launch from share with levelId=${levelId}`);
         const idx = game.findIndexByLevelId(levelId);
         if (idx >= 0) {
@@ -512,6 +518,7 @@ export class SceneBootstrap extends Component {
         }
       },
       (residualStr: string) => {
+        handledInitialDeepLink = true;
         console.log('[SceneBootstrap] Launch from share with residualStr');
         this.closeAllModals();
         if (this.homePageRoot) this.homePageRoot.active = false;
@@ -520,6 +527,7 @@ export class SceneBootstrap extends Component {
         game.loadResidualFromShare(residualStr);
       },
       (assistId: string) => {
+        handledInitialDeepLink = true;
         console.log(`[SceneBootstrap] Launch from solved residual assistId=${assistId}`);
         const canClaim = CloudGameService.canClaimResidualRequesterReward(assistId);
         const claimed = canClaim && ProfileManager.claimResidualHelpReward(assistId, 60);
@@ -533,6 +541,7 @@ export class SceneBootstrap extends Component {
         gamePage.active = false;
       },
       () => {
+        handledInitialDeepLink = true;
         console.log('[SceneBootstrap] Launch from daily challenge share');
         this.closeAllModals();
         if (this.homePageRoot) this.homePageRoot.active = false;
@@ -541,6 +550,12 @@ export class SceneBootstrap extends Component {
         game.loadDailyChallenge();
       }
     );
+
+    const initialProfile = ProfileManager.getProfile();
+    const hasStartedJourney = Object.values(initialProfile.levelAttempts || {}).some((attempt) => attempt.starts > 0);
+    if (!handledInitialDeepLink && initialProfile.levelProgress === 0 && !hasStartedJourney) {
+      this.scheduleOnce(() => startJourneyLevel(0, 'continue'), 0);
+    }
   }
 
   private createRoot(name: string, position: Vec3, parent?: Node): Node {

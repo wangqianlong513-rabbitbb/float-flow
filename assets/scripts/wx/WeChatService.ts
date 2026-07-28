@@ -3,7 +3,8 @@ import { js, Node } from 'cc';
 declare const wx: any;
 
 export class WeChatService {
-  public static adUnitId: string = 'adunit-demo-id'; // 默认测试 ID，可通过 WeChatService.adUnitId = '...' 动态赋值
+  public static adUnitId: string = '';
+  public static interstitialAdUnitId: string = '';
 
   private static safeDecodeQueryValue(value: string): string {
     try {
@@ -15,6 +16,16 @@ export class WeChatService {
 
   static isWeChatMiniGame(): boolean {
     return typeof wx !== 'undefined';
+  }
+
+  static hasInitialLaunchQuery(): boolean {
+    if (typeof wx === 'undefined' || !wx.getLaunchOptionsSync) return false;
+    try {
+      const query = wx.getLaunchOptionsSync()?.query;
+      return !!query && Object.keys(query).length > 0;
+    } catch (_error) {
+      return false;
+    }
   }
 
   static showToast(title: string, icon: 'none' | 'success' | 'error' = 'none'): void {
@@ -81,52 +92,6 @@ export class WeChatService {
         }
       },
     });
-  }
-
-  static showVideoAd(onSuccess: () => void, onFail?: () => void): void {
-    if (typeof wx !== 'undefined' && wx.createRewardedVideoAd && WeChatService.adUnitId && WeChatService.adUnitId.indexOf('demo') < 0) {
-      try {
-        let videoAd: any = (WeChatService as any)._videoAd;
-        if (!videoAd) {
-          videoAd = wx.createRewardedVideoAd({ adUnitId: WeChatService.adUnitId });
-          (WeChatService as any)._videoAd = videoAd;
-        }
-        videoAd.offClose();
-        videoAd.onClose((res: any) => {
-          if (res && res.isEnded || res === undefined) {
-            onSuccess();
-          } else {
-            WeChatService.showToast('广告中途退出，未获得补给说明。', 'none');
-            if (onFail) onFail();
-          }
-        });
-        videoAd.offError();
-        videoAd.onError((err: any) => {
-          console.log('[VideoAd Error]', err);
-          // 调试及未配置广告位ID时自动发放奖励（模拟测试时注释掉此行）
-          // onSuccess();
-          WeChatService.showToast(`广告拉取失败: ${err.errMsg || err.errCode}`, 'none');
-          if (onFail) onFail();
-        });
-        videoAd.show().catch((err: any) => {
-          videoAd.load().then(() => videoAd.show()).catch((loadErr: any) => {
-            // 调试及未配置广告位ID时自动发放奖励（模拟测试时注释掉此行）
-            // onSuccess();
-            WeChatService.showToast('广告加载异常，请稍后再试', 'none');
-            if (onFail) onFail();
-          });
-        });
-        return;
-      } catch (e) {
-        // 调试及未配置广告位ID时自动发放奖励（模拟测试时注释掉此行）
-        // onSuccess();
-        WeChatService.showToast('广告组件拉起异常', 'none');
-        if (onFail) onFail();
-        return;
-      }
-    }
-    // 非微信环境或开发环境下，直接发放补给奖励
-    onSuccess();
   }
 
   static vibrateShort(type: 'light' | 'medium' | 'heavy' = 'light'): void {

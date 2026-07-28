@@ -1,4 +1,4 @@
-import { _decorator, Button, Color, Component, EventTouch, Graphics, Label, Layers, Node, UITransform, Vec3 } from 'cc';
+import { _decorator, Button, Color, Component, EventTouch, Graphics, Label, Layers, Node, UITransform, Vec3, view } from 'cc';
 import { ProfileManager } from '../core/ProfileManager';
 import { WeChatService } from '../wx/WeChatService';
 import { AnalyticsService } from '../wx/AnalyticsService';
@@ -13,8 +13,6 @@ export class SettingsModal extends Component {
 
   private activeTab = 0; // 0: Theme, 1: Gameplay Rules, 2: About
   private selectedTheme = ProfileManager.getProfile().selectedTheme || 0; // 0: Icefield, 1: Violet Dusk, 2: Sunset Glow
-  private bulletTimeSpeed = 1; // 0: Slow (25%), 1: Normal (50%), 2: Fast (100%)
-  private selectedQuality = 2; // 0: Smooth, 1: Balanced, 2: HD
   private powerSaveMode = ProfileManager.isPowerSaveMode();
 
   private dialogNode: Node | null = null;
@@ -29,10 +27,11 @@ export class SettingsModal extends Component {
 
     // 1. Semi-transparent Backdrop Overlay
     const overlay = this.createNode('Overlay', new Vec3(0, 0, 0), this.node);
-    this.ensureTransform(overlay, 1280, 720);
+    const overlaySize = view.getVisibleSize();
+    this.ensureTransform(overlay, overlaySize.width, overlaySize.height);
     const og = overlay.addComponent(Graphics);
     og.fillColor = new Color(5, 10, 25, 180);
-    og.rect(-640, -360, 1280, 720);
+    og.rect(-overlaySize.width / 2, -overlaySize.height / 2, overlaySize.width, overlaySize.height);
     og.fill();
     this.addClick(overlay, () => {
       this.closeModal();
@@ -263,76 +262,7 @@ export class SettingsModal extends Component {
       });
     });
 
-    // Bullet Time Sensitivity Row Container (Y = -65)
-    const btRow = this.createNode('BTRow', new Vec3(0, -65, 0), parent);
-    this.ensureTransform(btRow, 580, 52);
-    const btG = btRow.addComponent(Graphics);
-    btG.fillColor = this.hex('#1E293B');
-    ((btG.fillColor) as ((any)) as any).a = 150;
-    btG.roundRect(-290, -26, 580, 52, 14);
-    btG.fill();
-    btG.strokeColor = this.hex('#334155');
-    btG.lineWidth = 1.2;
-    btG.stroke();
-
-    this.createLabel(btRow, 'SliderLabel', new Vec3(-185, 0, 0), '子弹时间速率', 18, '#93C5FD', 160, 28);
-    const speeds = ['慢速 (25%)', '适中 (50%)', '极速 (100%)'];
-    const speedXs = [-40, 95, 230];
-    speeds.forEach((sp, i) => {
-      const isSel = this.bulletTimeSpeed === i;
-      const btn = this.createNode(`Speed_${i}`, new Vec3(speedXs[i], 0, 0), btRow);
-      this.ensureTransform(btn, 124, 40);
-      const bg = btn.addComponent(Graphics);
-      bg.fillColor = isSel ? this.hex('#2563EB') : this.hex('#0F172A');
-      bg.roundRect(-62, -20, 124, 40, 12);
-      bg.fill();
-      bg.strokeColor = isSel ? this.hex('#00F0FF') : this.hex('#334155');
-      bg.lineWidth = 1.5;
-      bg.stroke();
-      this.createLabel(btn, 'Text', new Vec3(0, 1, 0), sp, 16, isSel ? '#FFFFFF' : '#94A3B8', 118, 28);
-      this.addClick(btn, () => {
-        this.bulletTimeSpeed = i;
-        this.renderContent();
-      });
-    });
-
-    const qRow = this.createNode('QRow', new Vec3(0, -120, 0), parent);
-    this.ensureTransform(qRow, 580, 48);
-    const qG = qRow.addComponent(Graphics);
-    qG.fillColor = this.hex('#1E293B');
-    ((qG.fillColor) as ((any)) as any).a = 150;
-    qG.roundRect(-290, -24, 580, 48, 14);
-    qG.fill();
-    qG.strokeColor = this.hex('#334155');
-    qG.lineWidth = 1.2;
-    qG.stroke();
-
-    this.createLabel(qRow, 'QualityLabel', new Vec3(-185, 0, 0), '视网膜渲染画质', 18, '#93C5FD', 160, 28);
-    const qualities = ['流畅 (60fps)', '均衡 (HD)', '极清 (Retina)'];
-    qualities.forEach((q, i) => {
-      const isSel = this.selectedQuality === i;
-      const btn = this.createNode(`Qual_${i}`, new Vec3(speedXs[i], 0, 0), qRow);
-      this.ensureTransform(btn, 124, 40);
-      const bg = btn.addComponent(Graphics);
-      bg.fillColor = isSel ? this.hex('#4C1D95') : this.hex('#0F172A');
-      bg.roundRect(-62, -20, 124, 40, 12);
-      bg.fill();
-      bg.strokeColor = isSel ? this.hex('#E879F9') : this.hex('#334155');
-      bg.lineWidth = 1.5;
-      bg.stroke();
-      this.createLabel(btn, 'Text', new Vec3(0, 1, 0), q, 16, isSel ? '#FFFFFF' : '#94A3B8', 118, 28);
-      this.addClick(btn, () => {
-        this.selectedQuality = i;
-        if (i === 0 && !this.powerSaveMode) {
-          this.powerSaveMode = true;
-          ProfileManager.setPowerSaveMode(true);
-          if (this.onPowerSaveChangedCallback) this.onPowerSaveChangedCallback(true);
-        }
-        this.renderContent();
-      });
-    });
-
-    const pRow = this.createNode('PowerSaveRow', new Vec3(0, -176, 0), parent);
+    const pRow = this.createNode('PowerSaveRow', new Vec3(0, -90, 0), parent);
     this.ensureTransform(pRow, 580, 48);
     const pG = pRow.addComponent(Graphics);
     pG.fillColor = this.hex(this.powerSaveMode ? '#14532D' : '#1E293B');
@@ -378,7 +308,7 @@ export class SettingsModal extends Component {
 
     const rules = [
       '• 放置接光：拖拽/点击水晶，铺出从起点到终点的光路。',
-      '• 子弹时间：光路卡住会减速，给你补路和调整的机会。',
+      '• 子弹时间：流光跑动时拖起手牌会减速，争取补路时间。',
       '• 撤回清盘：撤回退一步，清盘重拿手牌，救回死局。',
       '• 能量补给：闯关耗 1 能量，不够时到福利中心补满。'
     ];
@@ -408,28 +338,12 @@ export class SettingsModal extends Component {
     g.lineWidth = 2;
     g.stroke();
 
-    this.createLabel(aboutBox, 'Emblem', new Vec3(0, 75, 0), '浮 岛 浮 光 (Float & Flow)', 28, '#00F0FF', 500, 40);
+    this.createLabel(aboutBox, 'Emblem', new Vec3(0, 75, 0), '浮 岛 流 光 (Float & Flow)', 28, '#00F0FF', 500, 40);
     this.createLabel(aboutBox, 'Sub', new Vec3(0, 35, 0), '创意等距浮岛路线规划与流光引导解谜游戏', 18, '#93C5FD', 520, 30);
     this.createLabel(aboutBox, 'Ver', new Vec3(0, -10, 0), '当前版本: v1.0.0  |  Cocos 引擎开发', 16, '#CBD5E1', 500, 26);
     this.createLabel(aboutBox, 'Team', new Vec3(0, -45, 0), '核心特色: 唯美几何调色板 · 动态光路规划 · 极限子弹救场', 16, '#FDE047', 520, 26);
     this.createLabel(aboutBox, 'Copy', new Vec3(0, -80, 0), '© 2026 浮岛浮光 制作组. All Rights Reserved.', 15, '#64748B', 400, 22);
 
-    const resetBtn = this.createNode('ResetBtn', new Vec3(0, -145, 0), parent);
-    this.ensureTransform(resetBtn, 220, 46);
-    const rg = resetBtn.addComponent(Graphics);
-    rg.fillColor = this.hex('#3F1D2A');
-    ((rg.fillColor) as any).a = 190;
-    rg.roundRect(-110, -23, 220, 46, 16);
-    rg.fill();
-    rg.strokeColor = this.hex('#7F1D1D');
-    rg.lineWidth = 1.6;
-    rg.stroke();
-    this.createLabel(resetBtn, 'Text', new Vec3(0, 1, 0), '重置进度', 18, '#FCA5A5', 180, 32);
-
-    this.addClick(resetBtn, () => {
-      console.log('[SettingsModal] Clicked Reset Progress!');
-      this.closeModal();
-    });
   }
 
   private drawIsometricBlock(
