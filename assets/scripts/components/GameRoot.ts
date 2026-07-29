@@ -29,6 +29,7 @@ import { ProfileManager } from '../core/ProfileManager';
 import { CloudGameService } from '../wx/CloudGameService';
 import { AnalyticsService } from '../wx/AnalyticsService';
 import { AdService } from '../wx/AdService';
+import { getUiPalette } from '../ui/UiTheme';
 
 export interface FailureShareSummary {
   levelId: number;
@@ -146,7 +147,7 @@ export class GameRoot extends Component {
   private maxBulletTime = 3.0;
   private currentBulletTime = 3.0;
   private isResolving = false;
-  private currentTheme = 0; // 0: Icefield, 1: Violet Dusk, 2: Sunset Glow
+  private currentTheme = 0; // 0: Icefield, 1: Starport Mist, 2: Corona Dawn
   private isEndlessMode = false;
   private isDailyChallenge = false;
   private residualAssistId = '';
@@ -915,7 +916,7 @@ export class GameRoot extends Component {
       const copied = JSON.parse(JSON.stringify(baseLevel)) as LevelConfig;
       if (safeIndex >= this.levels.length) {
         copied.id = safeIndex + 1;
-        copied.name = `暮色镜像 · ${baseLevel.name}`;
+        copied.name = `星港镜像 · ${baseLevel.name}`;
         const cols = copied.gridSize[1];
 
         // Mirror start position and flip direction
@@ -955,7 +956,7 @@ export class GameRoot extends Component {
         }
 
         this.level = copied;
-        this.currentTheme = 1; // Auto Theme 1 (Violet Dusk) for Chapter 2
+        this.currentTheme = 1; // Auto Theme 1 (Starport Mist) for Chapter 2
       } else {
         this.level = copied;
         this.currentTheme = safeIndex >= 20 ? 2 : (safeIndex >= 10 ? 1 : 0);
@@ -1095,15 +1096,16 @@ export class GameRoot extends Component {
     const shadowG = shadowNode.addComponent(Graphics);
     const isRose = this.currentTheme === 1;
     const isGold = this.currentTheme === 2;
+    const palette = getUiPalette(this.currentTheme);
 
     // Aurora field under the island
-    shadowG.fillColor = this.hex(isRose ? '#3B0764' : (isGold ? '#451A03' : '#0284C7'));
-    ((shadowG.fillColor) as ((any)) as any).a = 110;
+    shadowG.fillColor = this.hex(isRose ? '#123A67' : (isGold ? '#0F766E' : '#0284C7'));
+    ((shadowG.fillColor) as ((any)) as any).a = isRose ? 82 : 110;
     shadowG.ellipse(0, 0, 260, 120);
     shadowG.fill();
     // Core glow
-    shadowG.fillColor = this.hex(isRose ? '#A855F7' : (isGold ? '#EA580C' : '#38BDF8'));
-    ((shadowG.fillColor) as ((any)) as any).a = 140;
+    shadowG.fillColor = this.hex(isRose ? palette.cyan : (isGold ? palette.gold : '#38BDF8'));
+    ((shadowG.fillColor) as ((any)) as any).a = isRose ? 96 : 140;
     shadowG.ellipse(0, 0, 180, 80);
     shadowG.fill();
 
@@ -1118,15 +1120,15 @@ export class GameRoot extends Component {
         this.drawTopDownTile(graphics, this.hex('#3B1428'), this.hex('#FF3B30'), 2.5, this.tileWidth, this.tileHeight, 0, 0, 6);
       } else {
         const isEven = (pos.row + pos.col) % 2 === 0;
-        let topCol = isEven ? this.hex('#1E3A8A') : this.hex('#2563EB');
-        let strokeCol = isEven ? this.hex('#38BDF8') : this.hex('#60A5FA');
+        let topCol = isEven ? this.hex('#1A3278') : this.hex('#2456C8');
+        let strokeCol = isEven ? this.hex('#22C7E8') : this.hex('#4F8FE8');
 
         if (isRose) {
-          topCol = isEven ? this.hex('#581C87') : this.hex('#7E22CE');
-          strokeCol = isEven ? this.hex('#C084FC') : this.hex('#E879F9');
+          topCol = isEven ? this.hex('#24336F') : this.hex('#3155B8');
+          strokeCol = isEven ? this.hex('#5EC7FF') : this.hex('#8BB6FF');
         } else if (isGold) {
-          topCol = isEven ? this.hex('#7C2D12') : this.hex('#C2410C');
-          strokeCol = isEven ? this.hex('#FDE047') : this.hex('#FFAB40');
+          topCol = isEven ? this.hex('#23426D') : this.hex('#2C7A7B');
+          strokeCol = isEven ? this.hex('#5DE6D6') : this.hex('#FFD76A');
         }
 
         this.drawTopDownTile(graphics, topCol, strokeCol, 2.2, this.tileWidth, this.tileHeight, 0, 0, 6);
@@ -1530,9 +1532,12 @@ export class GameRoot extends Component {
     const totalSlots = this.hand.length + (showPlusSlot ? 1 : 0);
 
     // Responsive compact sizing guaranteeing 100% fits inside sapphire glass tray (-346 to +346) with 0 overflow!
-    if (totalSlots <= 3) {
-      this.cardWidth = 164;
-      this.cardHeight = 148;
+    if (totalSlots <= 2) {
+      this.cardWidth = 184;
+      this.cardHeight = 154;
+    } else if (totalSlots <= 3) {
+      this.cardWidth = 170;
+      this.cardHeight = 150;
     } else if (totalSlots === 4) {
       // 3 hand cards + 1 plus slot -> width 144px each, spacing 158px -> total span from -309 to +309!
       this.cardWidth = 144;
@@ -1571,7 +1576,7 @@ export class GameRoot extends Component {
       const label = labelNode.addComponent(Label);
       label.string = getTileDisplayName(type);
       label.fontSize = Math.max(15, Math.floor((this.cardWidth / 196) * 20));
-      label.color = this.hex('#FFFFFF');
+      label.color = this.hex('#EAF6FF');
 
       card.on(Node.EventType.TOUCH_START, (event: EventTouch) => this.onCardTouchStart(event, index), this);
       card.on(Node.EventType.TOUCH_MOVE, (event: EventTouch) => this.onCardTouchMove(event), this);
@@ -1587,14 +1592,21 @@ export class GameRoot extends Component {
       plusSlot.setPosition(new Vec3(startX + this.hand.length * spacing, 0, 0));
       plusSlot.addComponent(UITransform).setContentSize(this.cardWidth, this.cardHeight);
       const pg = plusSlot.addComponent(Graphics);
-      pg.fillColor = new Color(30, 58, 138, 200);
+      const palette = getUiPalette(this.currentTheme);
+      pg.fillColor = this.hex(palette.panelSoft);
+      ((pg.fillColor) as any).a = 218;
       pg.roundRect(-this.cardWidth / 2, -this.cardHeight / 2, this.cardWidth, this.cardHeight, 18);
       pg.fill();
-      pg.strokeColor = new Color(96, 165, 250, 230);
-      pg.lineWidth = 2.5;
+      pg.fillColor = new Color(255, 255, 255, 34);
+      pg.roundRect(-this.cardWidth / 2 + 7, this.cardHeight / 2 - 15, this.cardWidth - 14, 8, 4);
+      pg.fill();
+      pg.strokeColor = this.hex(palette.cyan);
+      ((pg.strokeColor) as any).a = 210;
+      pg.lineWidth = 2.0;
+      pg.roundRect(-this.cardWidth / 2, -this.cardHeight / 2, this.cardWidth, this.cardHeight, 18);
       pg.stroke();
-      pg.strokeColor = this.hex('#FFFFFF');
-      pg.lineWidth = 4.0;
+      pg.strokeColor = new Color(255, 255, 255, 168);
+      pg.lineWidth = 3.5;
       const plusArm = Math.min(20, Math.floor(this.cardWidth * 0.15));
       pg.moveTo(-plusArm, 0);
       pg.lineTo(plusArm, 0);
@@ -1615,22 +1627,29 @@ export class GameRoot extends Component {
     const g = this.bottomDeckGraphics;
     const slotCount = Math.max(1, totalSlots);
     const contentWidth = (slotCount - 1) * spacing + this.cardWidth;
-    const deckW = Math.min(692, Math.max(360, contentWidth + 96));
+    const minDeckW = slotCount <= 2 ? 520 : 390;
+    const deckW = Math.min(692, Math.max(minDeckW, contentWidth + 104));
     const deckH = 176;
+    const palette = getUiPalette(this.currentTheme);
     const transform = g.node.getComponent(UITransform);
     transform?.setContentSize(deckW, deckH);
 
     g.clear();
-    g.fillColor = this.hex('#1E3A8A');
-    ((g.fillColor) as any).a = 155;
+    g.fillColor = this.hex(palette.panel);
+    ((g.fillColor) as any).a = 150;
     g.roundRect(-deckW / 2, -deckH / 2, deckW, deckH, 28);
     g.fill();
-    g.fillColor = this.hex('#4C1D95');
-    ((g.fillColor) as any).a = 110;
+    g.fillColor = this.hex(palette.blue);
+    ((g.fillColor) as any).a = 18;
     g.roundRect(-deckW / 2 + 8, -deckH / 2 + 8, deckW - 16, deckH - 16, 22);
     g.fill();
-    g.strokeColor = this.hex('#60A5FA');
-    g.lineWidth = 2.8;
+    g.fillColor = new Color(255, 255, 255, 24);
+    g.roundRect(-deckW / 2 + 18, deckH / 2 - 18, deckW - 36, 8, 4);
+    g.fill();
+    g.strokeColor = this.hex(palette.cyan);
+    ((g.strokeColor) as any).a = 190;
+    g.lineWidth = 2.2;
+    g.roundRect(-deckW / 2, -deckH / 2, deckW, deckH, 28);
     g.stroke();
   }
 
@@ -3205,45 +3224,64 @@ export class GameRoot extends Component {
 
   private drawCard(graphics: Graphics, type: TileType, selected = false): void {
     graphics.clear();
-    // Glassmorphic card base plate (vibrant royal blue / sapphire plate, NO GREY!)
-    graphics.fillColor = new Color(37, 99, 235, 235);
+    const palette = getUiPalette(this.currentTheme);
+    const tileCol = this.tileColor(type);
+    const border = selected ? this.hex(palette.gold) : this.hex(palette.cyan);
+
+    // Glassmorphic card base plate: readable but calmer than the board tiles.
+    graphics.fillColor = this.hex(palette.panelSoft);
+    ((graphics.fillColor) as any).a = selected ? 255 : 246;
     graphics.roundRect(-this.cardWidth / 2, -this.cardHeight / 2, this.cardWidth, this.cardHeight, 18);
     graphics.fill();
-    graphics.strokeColor = this.hex(selected ? '#FDE047' : '#00F0FF');
-    graphics.lineWidth = selected ? 4.8 : 2.5;
+    graphics.fillColor = new Color(tileCol.r, tileCol.g, tileCol.b, selected ? 100 : 78);
+    graphics.roundRect(-this.cardWidth / 2 + 6, -this.cardHeight / 2 + 6, this.cardWidth - 12, this.cardHeight - 12, 14);
+    graphics.fill();
+    graphics.strokeColor = border;
+    ((graphics.strokeColor) as any).a = selected ? 255 : 232;
+    graphics.lineWidth = selected ? 4.2 : 2.0;
+    graphics.roundRect(-this.cardWidth / 2, -this.cardHeight / 2, this.cardWidth, this.cardHeight, 18);
     graphics.stroke();
 
-    // Royal indigo label pill strip at bottom (NO GREY!)
-    graphics.fillColor = this.hex('#1E3A8A');
+    // Label strip keeps card names legible without making the whole card look disabled.
+    graphics.fillColor = this.hex(palette.panel);
+    ((graphics.fillColor) as any).a = 238;
     graphics.roundRect(-this.cardWidth / 2 + 6, -this.cardHeight / 2 + 6, this.cardWidth - 12, 26, 8);
     graphics.fill();
 
-    // Bottom right count badge pill (vibrant violet)
-    graphics.fillColor = this.hex('#4C1D95');
+    // Bottom right charge badge.
+    graphics.fillColor = this.hex(palette.violet);
+    ((graphics.fillColor) as any).a = selected ? 210 : 165;
     graphics.roundRect(this.cardWidth / 2 - 36, -this.cardHeight / 2 + 36, 30, 20, 10);
     graphics.fill();
-    graphics.strokeColor = this.hex('#A78BFA');
+    graphics.strokeColor = this.hex(palette.violet);
+    ((graphics.strokeColor) as any).a = 180;
     graphics.lineWidth = 1.5;
+    graphics.roundRect(this.cardWidth / 2 - 36, -this.cardHeight / 2 + 36, 30, 20, 10);
     graphics.stroke();
 
-    // Top cyber accent line
-    graphics.strokeColor = this.hex('#00E5FF');
-    graphics.lineWidth = 3;
+    // Top specular line and selected glow.
+    graphics.strokeColor = new Color(255, 255, 255, selected ? 138 : 96);
+    graphics.lineWidth = 2.2;
     graphics.moveTo(-this.cardWidth / 2 + 15, this.cardHeight / 2 - 2);
     graphics.lineTo(this.cardWidth / 2 - 15, this.cardHeight / 2 - 2);
     graphics.stroke();
+    if (selected) {
+      graphics.fillColor = new Color(border.r, border.g, border.b, 24);
+      graphics.roundRect(-this.cardWidth / 2 - 5, -this.cardHeight / 2 - 5, this.cardWidth + 10, this.cardHeight + 10, 22);
+      graphics.fill();
+    }
 
     // Glowing backdrop aura behind the crystal inside the card
-    const topCol = this.tileColor(type);
-    graphics.fillColor = new Color(topCol.r, topCol.g, topCol.b, 110);
-    graphics.circle(0, 14, 34);
+    const topCol = tileCol;
+    graphics.fillColor = new Color(topCol.r, topCol.g, topCol.b, selected ? 178 : 148);
+    graphics.circle(0, 18, 40);
     graphics.fill();
-    graphics.fillColor = new Color(255, 255, 255, 75);
-    graphics.circle(0, 14, 20);
+    graphics.fillColor = new Color(255, 255, 255, 92);
+    graphics.circle(0, 18, 24);
     graphics.fill();
 
     // Big bright 3D isometric crystal in upper area (offsetY = 14, brighter side walls)
-    this.drawIsometricPlatform(graphics, topCol, this.darken(topCol, 0.75), this.darken(topCol, 0.9), this.hex('#FFFFFF'), 3, 14, 76, 44, 14);
+    this.drawIsometricPlatform(graphics, topCol, this.darken(topCol, 0.78), this.darken(topCol, 0.96), this.hex('#EAF6FF'), 3.2, 15, 88, 52, 18);
   }
 
   private darken(color: Color, factor: number): Color {

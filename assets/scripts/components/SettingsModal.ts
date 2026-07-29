@@ -2,6 +2,7 @@ import { _decorator, Button, Color, Component, EventTouch, Graphics, Label, Laye
 import { ProfileManager } from '../core/ProfileManager';
 import { WeChatService } from '../wx/WeChatService';
 import { AnalyticsService } from '../wx/AnalyticsService';
+import { getUiPalette } from '../ui/UiTheme';
 
 const { ccclass } = _decorator;
 
@@ -12,7 +13,7 @@ export class SettingsModal extends Component {
   public onPowerSaveChangedCallback?: (enabled: boolean) => void;
 
   private activeTab = 0; // 0: Theme, 1: Gameplay Rules, 2: About
-  private selectedTheme = ProfileManager.getProfile().selectedTheme || 0; // 0: Icefield, 1: Violet Dusk, 2: Sunset Glow
+  private selectedTheme = ProfileManager.getProfile().selectedTheme || 0; // 0: Icefield, 1: Starport Mist, 2: Corona Dawn
   private powerSaveMode = ProfileManager.isPowerSaveMode();
 
   private dialogNode: Node | null = null;
@@ -76,11 +77,10 @@ export class SettingsModal extends Component {
     if (!dg) dg = this.dialogNode.addComponent(Graphics);
     dg.clear();
 
-    const isRose = this.selectedTheme === 1;
-    const isGold = this.selectedTheme === 2;
-    const borderCol = isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#3B82F6');
+    const palette = getUiPalette(this.selectedTheme);
+    const borderCol = this.selectedTheme === 2 ? palette.gold : palette.cyan;
 
-    dg.fillColor = this.hex('#0B132B');
+    dg.fillColor = this.hex(palette.panel);
     ((dg.fillColor) as ((any)) as any).a = 245;
     dg.roundRect(-340, -270, 680, 540, 24);
     dg.fill();
@@ -113,9 +113,8 @@ export class SettingsModal extends Component {
     cg.fillColor = this.hex('#1E293B');
     cg.circle(0, 0, 18);
     cg.fill();
-    const isRose = this.selectedTheme === 1;
-    const isGold = this.selectedTheme === 2;
-    cg.strokeColor = this.hex(isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#60A5FA'));
+    const palette = getUiPalette(this.selectedTheme);
+    cg.strokeColor = this.hex(this.selectedTheme === 2 ? palette.gold : palette.cyan);
     cg.lineWidth = 1.8;
     cg.stroke();
     this.createLabel(closeBtn, 'Icon', new Vec3(0, 1, 0), '✖', 18, '#FFFFFF', 36, 36);
@@ -132,10 +131,9 @@ export class SettingsModal extends Component {
     const tabs = ['主 题', '玩 法', '关 于'];
     const tabXs = [-200, 0, 200];
 
-    const isRose = this.selectedTheme === 1;
-    const isGold = this.selectedTheme === 2;
-    const activeBg = isRose ? '#581C87' : (isGold ? '#7C2D12' : '#2563EB');
-    const activeBorder = isRose ? '#C4B5FD' : (isGold ? '#FBBF24' : '#00F0FF');
+    const palette = getUiPalette(this.selectedTheme);
+    const activeBg = palette.panelSoft;
+    const activeBorder = this.selectedTheme === 2 ? palette.gold : palette.cyan;
 
     tabs.forEach((name, idx) => {
       const isSelected = this.activeTab === idx;
@@ -191,8 +189,8 @@ export class SettingsModal extends Component {
 
     const themes = [
       { name: '极光冰原', desc: '默认解锁', top: '#2563EB', side: '#1E3A8A', border: '#00F0FF', cost: 0 },
-      { name: '暮色罗兰', desc: '300晶核解锁', top: '#7C3AED', side: '#581C87', border: '#C4B5FD', cost: 300 },
-      { name: '落日余晖', desc: '分享/500晶核', top: '#C2410C', side: '#7C2D12', border: '#FBBF24', cost: 500 }
+      { name: '星港晨雾', desc: '300晶核解锁', top: '#3D7DDE', side: '#13233F', border: '#5DE6FF', cost: 300 },
+      { name: '日冕晨光', desc: '分享/500晶核', top: '#F6A44D', side: '#1D2A3B', border: '#FFD76A', cost: 500 }
     ];
 
     const cardXs = [-200, 0, 200];
@@ -229,7 +227,7 @@ export class SettingsModal extends Component {
         const lock = this.createNode('LockBadge', new Vec3(65, 50, 0), card);
         this.ensureTransform(lock, 38, 24);
         const lg = lock.addComponent(Graphics);
-        lg.fillColor = this.hex('#451A03');
+        lg.fillColor = this.hex('#1D2A3B');
         lg.roundRect(-19, -12, 38, 24, 10);
         lg.fill();
         lg.strokeColor = this.hex('#FDE047');

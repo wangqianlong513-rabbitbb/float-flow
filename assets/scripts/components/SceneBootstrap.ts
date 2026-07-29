@@ -1,4 +1,4 @@
-import { _decorator, Button, Color, Component, Graphics, Label, Layers, Node, ResolutionPolicy, tween, UITransform, Vec3, view } from 'cc';
+import { _decorator, Button, Color, Component, EventTouch, Graphics, Label, Layers, Node, ResolutionPolicy, tween, UITransform, Vec3, view } from 'cc';
 import { GameRoot } from './GameRoot';
 import type { FailureShareSummary } from './GameRoot';
 import { HomeRoot } from './HomeRoot';
@@ -11,6 +11,7 @@ import { ProfileManager } from '../core/ProfileManager';
 import { AdService } from '../wx/AdService';
 import { CloudGameService } from '../wx/CloudGameService';
 import { AnalyticsService } from '../wx/AnalyticsService';
+import { getUiPalette } from '../ui/UiTheme';
 
 declare const wx: any;
 
@@ -24,16 +25,25 @@ export class SceneBootstrap extends Component {
   private settingsModalRootNode: Node | null = null;
   private reviveModalRootNode: Node | null = null;
   private victoryPosterRootNode: Node | null = null;
+  private gameActionSheetRootNode: Node | null = null;
   private bgGraphicsNode: Graphics | null = null;
-  private currentTheme = ProfileManager.getProfile().selectedTheme || 0; // 0: Icefield, 1: Violet Dusk, 2: Sunset Glow
+  private currentTheme = ProfileManager.getProfile().selectedTheme || 0; // 0: Icefield, 1: Starport Mist, 2: Corona Dawn
   private powerSaveMode = ProfileManager.isPowerSaveMode();
 
   private closeAllModals(): void {
     if (this.settingsModalRootNode) this.settingsModalRootNode.active = false;
     if (this.reviveModalRootNode) this.reviveModalRootNode.active = false;
     if (this.victoryPosterRootNode) this.victoryPosterRootNode.active = false;
+    this.closeGameActionSheet();
     const home = this.homePageRoot?.getComponent(HomeRoot);
     if (home) home.closePopup();
+  }
+
+  private closeGameActionSheet(): void {
+    if (this.gameActionSheetRootNode?.isValid) {
+      this.gameActionSheetRootNode.destroy();
+    }
+    this.gameActionSheetRootNode = null;
   }
 
   private openExclusiveModal(modalRoot: Node | null): void {
@@ -49,37 +59,37 @@ export class SceneBootstrap extends Component {
     g.clear();
 
     if (themeIdx === 1) {
-      // Theme 1: Violet Dusk (暮色罗兰 - Deep Amethyst Twilight)
-      g.fillColor = this.hex('#0E0818');
+      // Theme 1 keeps the cool premium feel without pushing into heavy purple.
+      g.fillColor = this.hex('#081224');
       g.rect(-1280, -1280, 2560, 2560);
       g.fill();
-      g.fillColor = this.hex('#4C1D95');
-      ((g.fillColor) as ((any)) as any).a = 55;
+      g.fillColor = this.hex('#0E7490');
+      ((g.fillColor) as ((any)) as any).a = 58;
       g.circle(0, 320, 500);
       g.fill();
-      g.fillColor = this.hex('#6B21A8');
-      ((g.fillColor) as ((any)) as any).a = 45;
+      g.fillColor = this.hex('#2563EB');
+      ((g.fillColor) as ((any)) as any).a = 42;
       g.circle(450, 180, 480);
       g.fill();
-      g.fillColor = this.hex('#831843');
-      ((g.fillColor) as ((any)) as any).a = 35;
+      g.fillColor = this.hex('#38BDF8');
+      ((g.fillColor) as ((any)) as any).a = 22;
       g.circle(-350, -150, 420);
       g.fill();
     } else if (themeIdx === 2) {
-      // Theme 2: Sunset Glow (落日余晖 - Deep Terracotta Dusk)
-      g.fillColor = this.hex('#120808');
+      // Theme 2 uses warm sunrise accents on a blue-black base, avoiding muddy orange/brown.
+      g.fillColor = this.hex('#101726');
       g.rect(-1280, -1280, 2560, 2560);
       g.fill();
-      g.fillColor = this.hex('#7C2D12');
-      ((g.fillColor) as ((any)) as any).a = 55;
+      g.fillColor = this.hex('#0F766E');
+      ((g.fillColor) as ((any)) as any).a = 48;
       g.circle(0, 320, 500);
       g.fill();
-      g.fillColor = this.hex('#9A3412');
-      ((g.fillColor) as ((any)) as any).a = 45;
+      g.fillColor = this.hex('#F59E0B');
+      ((g.fillColor) as ((any)) as any).a = 34;
       g.circle(450, 180, 480);
       g.fill();
-      g.fillColor = this.hex('#B45309');
-      ((g.fillColor) as ((any)) as any).a = 35;
+      g.fillColor = this.hex('#2563EB');
+      ((g.fillColor) as ((any)) as any).a = 26;
       g.circle(-350, -150, 420);
       g.fill();
     } else {
@@ -134,7 +144,7 @@ export class SceneBootstrap extends Component {
 
   private drawBackgroundDecorations(graphics: Graphics, themeIdx: number): void {
     // 5. Center Nebula Aura
-    graphics.fillColor = themeIdx === 1 ? this.hex('#3B0764') : (themeIdx === 2 ? this.hex('#451A03') : this.hex('#312E81'));
+    graphics.fillColor = themeIdx === 1 ? this.hex('#0E7490') : (themeIdx === 2 ? this.hex('#0F766E') : this.hex('#312E81'));
     ((graphics.fillColor) as ((any)) as any).a = 80;
     graphics.circle(0, 0, 450);
     graphics.fill();
@@ -162,9 +172,9 @@ export class SceneBootstrap extends Component {
       let leftCol = this.hex(s.colLeft);
       let rightCol = this.hex(s.colRight);
       if (themeIdx === 1) {
-        topCol = this.hex('#7C3AED'); leftCol = this.hex('#581C87'); rightCol = this.hex('#3B0764');
+        topCol = this.hex('#3D7DDE'); leftCol = this.hex('#24539C'); rightCol = this.hex('#132B55');
       } else if (themeIdx === 2) {
-        topCol = this.hex('#C2410C'); leftCol = this.hex('#9A3412'); rightCol = this.hex('#7C2D12');
+        topCol = this.hex('#F6A44D'); leftCol = this.hex('#2C7A7B'); rightCol = this.hex('#1D2A3B');
       }
       ((topCol) as ((any)) as any).a = s.a; ((leftCol) as ((any)) as any).a = s.a; ((rightCol) as ((any)) as any).a = s.a;
 
@@ -208,7 +218,7 @@ export class SceneBootstrap extends Component {
       const x = Math.sin(i * 997) * 620;
       const y = Math.cos(i * 631) * 360;
       const radius = 1.2 + (i % 3) * 0.8;
-      graphics.fillColor = themeIdx === 1 ? (i % 2 === 0 ? this.hex('#E879F9') : this.hex('#FFFFFF')) : (themeIdx === 2 ? (i % 2 === 0 ? this.hex('#FDE047') : this.hex('#FFFFFF')) : (i % 4 === 0 ? this.hex('#00F0FF') : (i % 3 === 0 ? this.hex('#F472B6') : this.hex('#FFFFFF'))));
+      graphics.fillColor = themeIdx === 1 ? (i % 2 === 0 ? this.hex('#5DE6FF') : this.hex('#FFFFFF')) : (themeIdx === 2 ? (i % 2 === 0 ? this.hex('#FFD76A') : this.hex('#EFFFFB')) : (i % 4 === 0 ? this.hex('#00F0FF') : (i % 3 === 0 ? this.hex('#F472B6') : this.hex('#FFFFFF'))));
       ((graphics.fillColor) as ((any)) as any).a = 160 + (i % 5) * 18;
       graphics.circle(x, y, radius);
       graphics.fill();
@@ -263,7 +273,6 @@ export class SceneBootstrap extends Component {
     const boardRoot = this.createRoot('BoardRoot', new Vec3(0, boardCenterY, 0), gamePage);
     const previewRoot = this.createRoot('PreviewRoot', new Vec3(0, boardCenterY, 0), gamePage);
     const runnerRoot = this.createRoot('RunnerRoot', new Vec3(0, boardCenterY, 0), gamePage);
-    const cardRoot = this.createRoot('CardRoot', new Vec3(0, -halfH + 260, 0), gamePage); // 下移至 -halfH + 260 消除底部空白
     const uiRoot = this.createRoot('UI', new Vec3(0, 0, 0), gamePage);
 
     // 1. Top Navigation Bar with embedded Level Label (never overlaps iOS notch or WeChat top capsule!)
@@ -286,6 +295,7 @@ export class SceneBootstrap extends Component {
 
     // 2. Bottom Card Deck Background tightly matching CardRoot at Y = -halfH + 260
     const bottomDeckGraphics = this.createBottomDeck(uiRoot, new Vec3(0, -halfH + 260, 0));
+    const cardRoot = this.createRoot('CardRoot', new Vec3(0, -halfH + 260, 1), uiRoot); // 水晶卡片必须在托盘上层，避免被托盘遮罩压暗。
 
     // 3. 状态胶囊 与 提示文本：把时空缓冲从按钮行上移，避免底部工具区拥挤。
     const tipPill = this.createRoot('TipPill', new Vec3(0, -halfH + 495, 0), uiRoot); // 下移
@@ -383,7 +393,7 @@ export class SceneBootstrap extends Component {
       if (!isFtueLevel && profile.energy <= 0) {
         WeChatService.showModal({
           title: '时空能量耗尽',
-          content: '挑战旅途关卡需要 1 点时空能量。去主页点“时空蓄能”，或先玩无尽模式也可以。',
+          content: '挑战旅途关卡需要 1 点时空能量。去主页点底部“福利-补能”，或点击顶部能量旁的“+”补充；也可以先玩无尽模式。',
           confirmText: '我知道了'
         });
         return;
@@ -394,9 +404,9 @@ export class SceneBootstrap extends Component {
 
       // Auto apply themed scene color based on level index
       if (safeIndex >= 20 && safeIndex < 30) {
-        this.applyTheme(2); // Theme 2: Sunset Glow for destiny chapter.
+        this.applyTheme(2); // Theme 2: Corona Dawn for the final chapter.
       } else if (safeIndex >= 10 && safeIndex < 20) {
-        this.applyTheme(1); // Theme 1: Violet Dusk
+        this.applyTheme(1); // Theme 1: Starport Mist
       } else {
         this.applyTheme(0); // Theme 0: Icefield
       }
@@ -585,18 +595,21 @@ export class SceneBootstrap extends Component {
     node.setPosition(position);
     this.ensureTransform(node, 510, 80);
     const graphics = node.addComponent(Graphics);
+    const palette = getUiPalette(this.currentTheme);
 
     // Glassmorphic top navigation panel (leaving right side clear for WeChat Capsule)
-    graphics.fillColor = this.hex('#0D162C');
-    ((graphics.fillColor) as ((any)) as any).a = 220;
+    graphics.fillColor = this.hex(palette.panel);
+    ((graphics.fillColor) as ((any)) as any).a = 190;
     graphics.roundRect(-335, -40, 510, 80, 26);
     graphics.fill();
-    graphics.strokeColor = this.hex('#00F0FF');
+    graphics.strokeColor = this.hex(palette.cyan);
+    ((graphics.strokeColor) as any).a = 210;
     graphics.lineWidth = 2.0;
+    graphics.roundRect(-335, -40, 510, 80, 26);
     graphics.stroke();
 
     // Top nav only keeps navigation and level title; gameplay tools live in the thumb-friendly bottom toolbar.
-    const levelLabel = this.createLabel(node, 'LevelLabel', new Vec3(-20, 0, 0), '旅途模式 · 5-12', 22, '#FFFFFF', 360, 40);
+    const levelLabel = this.createLabel(node, 'LevelLabel', new Vec3(-20, 0, 0), '旅途模式 · 5-12', 22, palette.text, 360, 40);
 
     // Clickable Pause / Return to Home button!
     const homeReturnBtn = new Node('HomeReturnBtn');
@@ -605,11 +618,14 @@ export class SceneBootstrap extends Component {
     homeReturnBtn.setPosition(new Vec3(-272, 0, 0));
     this.ensureTransform(homeReturnBtn, 106, 50);
     const hBg = homeReturnBtn.addComponent(Graphics);
-    hBg.fillColor = this.hex('#1E293B');
+    hBg.fillColor = this.hex(palette.panelSoft);
+    ((hBg.fillColor) as any).a = 210;
     hBg.roundRect(-53, -25, 106, 50, 16);
     hBg.fill();
     hBg.strokeColor = this.hex('#60A5FA');
-    hBg.lineWidth = 2.4;
+    ((hBg.strokeColor) as any).a = 210;
+    hBg.lineWidth = 2.0;
+    hBg.roundRect(-53, -25, 106, 50, 16);
     hBg.stroke();
     this.createLabel(homeReturnBtn, 'Text', new Vec3(0, 1, 0), '|| 主页', 21, '#FFFFFF', 100, 38);
 
@@ -636,18 +652,24 @@ export class SceneBootstrap extends Component {
     node.setPosition(position);
     this.ensureTransform(node, 692, 176);
     const graphics = node.addComponent(Graphics);
+    const palette = getUiPalette(this.currentTheme);
 
     // Luminous Sapphire Glassmorphic Tray
-    graphics.fillColor = this.hex('#1E3A8A');
-    ((graphics.fillColor) as any).a = 155;
+    graphics.fillColor = this.hex(palette.panel);
+    ((graphics.fillColor) as any).a = 150;
     graphics.roundRect(-346, -88, 692, 176, 28);
     graphics.fill();
-    graphics.fillColor = this.hex('#4C1D95');
-    ((graphics.fillColor) as any).a = 110;
+    graphics.fillColor = this.hex(palette.blue);
+    ((graphics.fillColor) as any).a = 18;
     graphics.roundRect(-338, -80, 676, 160, 22);
     graphics.fill();
-    graphics.strokeColor = this.hex('#60A5FA');
-    graphics.lineWidth = 2.8;
+    graphics.fillColor = new Color(255, 255, 255, 24);
+    graphics.roundRect(-328, 70, 656, 8, 4);
+    graphics.fill();
+    graphics.strokeColor = this.hex(palette.cyan);
+    ((graphics.strokeColor) as any).a = 190;
+    graphics.lineWidth = 2.2;
+    graphics.roundRect(-346, -88, 692, 176, 28);
     graphics.stroke();
     return graphics;
   }
@@ -673,31 +695,127 @@ export class SceneBootstrap extends Component {
     root.setParent(parent);
     root.setPosition(position);
     this.ensureTransform(root, 560, 56);
+    const palette = getUiPalette(this.currentTheme);
 
-    this.createSideActionButton(root, 'PreviewBtn', new Vec3(-210, 0, 0), 110, '预览', '#0D162C', '#00F0FF', '#A5F3FC', () => {
+    this.createSideActionButton(root, 'PreviewBtn', new Vec3(-210, 0, 0), 110, '预览', palette.panel, palette.cyan, '#A5F3FC', () => {
       game.showRoutePreview();
     });
 
-    this.createSideActionButton(root, 'UndoBtn', new Vec3(-70, 0, 0), 110, '撤回', '#0D162C', '#38BDF8', '#38BDF8', () => {
+    this.createSideActionButton(root, 'UndoBtn', new Vec3(-70, 0, 0), 110, '撤回', palette.panel, '#38BDF8', '#38BDF8', () => {
       game.undoLastMove();
     });
 
-    this.createSideActionButton(root, 'HintBtn', new Vec3(70, 0, 0), 110, '提示', '#172554', '#EAB308', '#FFFFFF', () => {
+    this.createSideActionButton(root, 'HintBtn', new Vec3(70, 0, 0), 110, '提示', palette.panelSoft, '#EAB308', '#FFFFFF', () => {
       game.showGameplayHint();
     });
 
-    this.createSideActionButton(root, 'MoreBtn', new Vec3(210, 0, 0), 110, '更多', '#1E1B4B', '#C084FC', '#FFFFFF', () => {
+    this.createSideActionButton(root, 'MoreBtn', new Vec3(210, 0, 0), 110, '更多', palette.panelSoft, palette.violet, '#FFFFFF', () => {
       this.showMoreGameActions(game);
     });
   }
 
   private showMoreGameActions(game: GameRoot): void {
-    WeChatService.showActionSheet(['重置棋盘', '残局求助', '通勤挑战', '我的小岛'], (index) => {
-      if (index === 0) game.clearPlacedTiles();
-      else if (index === 1) game.shareCurrentResidual();
-      else if (index === 2) game.loadCommuteChallenge();
-      else if (index === 3) game.showIslandRoom();
+    if (!this.gamePageRoot) {
+      return;
+    }
+    this.closeGameActionSheet();
+
+    const visibleSize = view.getVisibleSize();
+    const halfH = visibleSize.height / 2;
+    const palette = getUiPalette(this.currentTheme);
+    const root = this.createRoot('GameMoreDrawer', new Vec3(0, 0, 0), this.gamePageRoot);
+    this.ensureTransform(root, visibleSize.width, visibleSize.height);
+    root.setSiblingIndex(this.gamePageRoot.children.length - 1);
+    this.gameActionSheetRootNode = root;
+
+    const overlay = this.createRoot('DrawerOverlay', new Vec3(0, 0, 0), root);
+    this.ensureTransform(overlay, visibleSize.width, visibleSize.height);
+    const og = overlay.addComponent(Graphics);
+    og.fillColor = new Color(5, 10, 25, 132);
+    og.rect(-visibleSize.width / 2, -visibleSize.height / 2, visibleSize.width, visibleSize.height);
+    og.fill();
+    this.addClick(overlay, () => this.closeGameActionSheet());
+
+    const sheetH = 400;
+    const sheet = this.createRoot('DrawerSheet', new Vec3(0, -halfH + sheetH / 2, 1), root);
+    this.ensureTransform(sheet, 688, sheetH);
+    const sg = sheet.addComponent(Graphics);
+    sg.fillColor = this.hex(palette.panel);
+    ((sg.fillColor) as any).a = 248;
+    sg.roundRect(-344, -sheetH / 2, 688, sheetH, 32);
+    sg.fill();
+    sg.fillColor = this.hex(palette.panelSoft);
+    ((sg.fillColor) as any).a = 96;
+    sg.roundRect(-328, -sheetH / 2 + 16, 656, sheetH - 32, 26);
+    sg.fill();
+    sg.strokeColor = this.hex(palette.cyan);
+    ((sg.strokeColor) as any).a = 180;
+    sg.lineWidth = 2.2;
+    sg.roundRect(-344, -sheetH / 2, 688, sheetH, 32);
+    sg.stroke();
+    sheet.on(Node.EventType.TOUCH_END, (event: EventTouch) => {
+      event.propagationStopped = true;
     });
+
+    this.createLabel(sheet, 'Title', new Vec3(0, 150, 2), '更多操作', 26, palette.text, 360, 40);
+    this.createLabel(sheet, 'Hint', new Vec3(0, 122, 2), '低频操作收在这里，保持棋盘专注', 15, palette.muted, 460, 24);
+
+    const actions = [
+      { icon: '↻', title: '重置棋盘', desc: '清空已放置手牌', border: '#38BDF8', run: () => game.clearPlacedTiles() },
+      { icon: '💬', title: '残局求助', desc: '分享给好友帮你接光', border: '#15B86A', run: () => game.shareCurrentResidual() },
+      { icon: '☀', title: '通勤挑战', desc: '来一局短时挑战', border: '#FFD447', run: () => game.loadCommuteChallenge() },
+      { icon: '◈', title: '我的小岛', desc: '查看收藏与装扮', border: '#C084FC', run: () => game.showIslandRoom() },
+    ];
+
+    actions.forEach((action, index) => {
+      const y = 62 - index * 60;
+      const row = this.createRoot(`DrawerAction_${index}`, new Vec3(0, y, 2), sheet);
+      this.ensureTransform(row, 600, 50);
+      const rg = row.addComponent(Graphics);
+      rg.fillColor = this.hex(palette.panelSoft);
+      ((rg.fillColor) as any).a = 230;
+      rg.roundRect(-300, -25, 600, 50, 16);
+      rg.fill();
+      const border = this.hex(action.border);
+      border.a = index === 0 ? 140 : 185;
+      rg.strokeColor = border;
+      rg.lineWidth = 1.6;
+      rg.roundRect(-300, -25, 600, 50, 16);
+      rg.stroke();
+
+      rg.fillColor = new Color(border.r, border.g, border.b, 38);
+      rg.circle(-258, 0, 20);
+      rg.fill();
+      this.createLabel(row, 'Icon', new Vec3(-258, 1, 1), action.icon, 18, action.border, 40, 32);
+      this.createLabel(row, 'Title', new Vec3(-92, 8, 1), action.title, 19, palette.text, 250, 24);
+      this.createLabel(row, 'Desc', new Vec3(-92, -12, 1), action.desc, 13, palette.muted, 250, 20);
+      this.createLabel(row, 'Chevron', new Vec3(264, 0, 1), '›', 24, action.border, 34, 36);
+      this.addClick(row, () => {
+        this.closeGameActionSheet();
+        action.run();
+      });
+    });
+
+    const cancel = this.createRoot('DrawerCancel', new Vec3(0, -176, 2), sheet);
+    this.ensureTransform(cancel, 600, 42);
+    const cg = cancel.addComponent(Graphics);
+    cg.fillColor = this.hex('#0D162C');
+    ((cg.fillColor) as any).a = 230;
+    cg.roundRect(-300, -21, 600, 42, 18);
+    cg.fill();
+    cg.strokeColor = this.hex('#475569');
+    cg.lineWidth = 1.4;
+    cg.roundRect(-300, -21, 600, 42, 18);
+    cg.stroke();
+    this.createLabel(cancel, 'Text', new Vec3(0, 1, 1), '取消', 18, '#CBD5E1', 300, 30);
+    this.addClick(cancel, () => this.closeGameActionSheet());
+
+    if (!this.powerSaveMode) {
+      sheet.setPosition(new Vec3(0, -halfH - sheetH / 2, 1));
+      tween(sheet)
+        .to(0.22, { position: new Vec3(0, -halfH + sheetH / 2, 1) }, { easing: 'backOut' })
+        .start();
+    }
   }
 
   private createSideActionButton(parent: Node, name: string, pos: Vec3, width: number, labelStr: string, bgHex: string, borderHex: string, textHex: string, onClick: () => void): void {
@@ -709,11 +827,13 @@ export class SceneBootstrap extends Component {
 
     const g = node.addComponent(Graphics);
     g.fillColor = this.hex(bgHex);
-    ((g.fillColor) as any).a = 230;
+    ((g.fillColor) as any).a = labelStr === '提示' ? 220 : 190;
     g.roundRect(-width / 2, -26, width, 52, 20);
     g.fill();
     g.strokeColor = this.hex(borderHex);
-    g.lineWidth = 2.0;
+    ((g.strokeColor) as any).a = labelStr === '提示' ? 210 : 150;
+    g.lineWidth = labelStr === '提示' ? 2.0 : 1.6;
+    g.roundRect(-width / 2, -26, width, 52, 20);
     g.stroke();
 
     this.createLabel(node, 'Text', new Vec3(0, 1, 0), labelStr, 17, textHex, width - 8, 36);
@@ -757,15 +877,28 @@ export class SceneBootstrap extends Component {
     node.setPosition(position);
     const width = 540; // 540 宽度
     const height = 72; // 72 高度符合 8pt
+    const palette = getUiPalette(this.currentTheme);
     this.ensureTransform(node, width, height);
 
     const graphics = node.addComponent(Graphics);
-    // Vibrant Neon Cyan/Blue Hero Button
-    graphics.fillColor = this.hex('#00E5FF');
-    graphics.roundRect(-width / 2, -height / 2, width, height, 36); // 36 圆角符合 8pt
+    graphics.fillColor = this.hex(palette.cyan);
+    ((graphics.fillColor) as any).a = 56;
+    graphics.roundRect(-width / 2 - 10, -height / 2 - 7, width + 20, height + 14, 43);
+    graphics.fill();
+    graphics.fillColor = this.hex('#0891B2');
+    graphics.roundRect(-width / 2, -height / 2, width, height, 36);
+    graphics.fill();
+    graphics.fillColor = this.hex(palette.cyan);
+    ((graphics.fillColor) as any).a = 232;
+    graphics.roundRect(-width / 2 + 10, -height / 2 + 8, width - 20, height - 16, 30);
+    graphics.fill();
+    graphics.fillColor = new Color(255, 255, 255, 58);
+    graphics.roundRect(-width / 2 + 22, height / 2 - 16, width - 44, 8, 4);
     graphics.fill();
     graphics.strokeColor = this.hex('#FFFFFF');
-    graphics.lineWidth = 3.5;
+    ((graphics.strokeColor) as any).a = 225;
+    graphics.lineWidth = 3.0;
+    graphics.roundRect(-width / 2, -height / 2, width, height, 36);
     graphics.stroke();
 
     const labelNode = new Node('Label');
@@ -776,7 +909,7 @@ export class SceneBootstrap extends Component {
     const label = labelNode.addComponent(Label);
     label.string = text;
     label.fontSize = 28; // H3 (28px)
-    label.color = this.hex('#080E24');
+    label.color = this.hex('#071126');
 
     this.addClick(node, onClick);
 
@@ -800,11 +933,12 @@ export class SceneBootstrap extends Component {
     this.ensureTransform(node, width, height);
 
     const graphics = node.addComponent(Graphics);
-    // Sleek Cyber Violet Secondary Button
-    graphics.fillColor = this.hex('#1E1B4B');
+    const palette = getUiPalette(this.currentTheme);
+    // Sleek secondary button, tuned by the current theme palette.
+    graphics.fillColor = this.hex(palette.panelSoft);
     graphics.roundRect(-width / 2, -height / 2, width, height, 32); // 32 圆角符合 8pt
     graphics.fill();
-    const sBorder = this.hex('#A78BFA');
+    const sBorder = this.hex(this.currentTheme === 2 ? palette.gold : palette.blue);
     sBorder.a = 150; // Soften stroke
     graphics.strokeColor = sBorder;
     graphics.lineWidth = 2.0; // 2px 描边

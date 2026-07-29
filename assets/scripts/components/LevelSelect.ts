@@ -1,6 +1,7 @@
 import { _decorator, Button, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UITransform, Vec3, view } from 'cc';
 import { WeChatService } from '../wx/WeChatService';
 import { ProfileManager } from '../core/ProfileManager';
+import { getUiPalette } from '../ui/UiTheme';
 
 declare const wx: any;
 
@@ -15,7 +16,7 @@ export class LevelSelect extends Component {
   private currentChapter = 0; // 0/1/2 = journey chapters, each chapter has 10 levels.
   private gridRoot: Node | null = null;
   private tabsRoot: Node | null = null;
-  private currentTheme = 0; // 0: Icefield, 1: Violet Dusk, 2: Sunset Glow
+  private currentTheme = 0; // 0: Icefield, 1: Starport Mist, 2: Corona Dawn
 
   protected onLoad(): void {
     console.log('[FloatFlow] LevelSelect onLoad');
@@ -81,15 +82,14 @@ export class LevelSelect extends Component {
 
     const tabs = [
       { name: '冰原 1-10', idx: 0, isEndless: false },
-      { name: '暮色 11-20', idx: 1, isEndless: false },
-      { name: '命运 21-30', idx: 2, isEndless: false },
+      { name: '星港 11-20', idx: 1, isEndless: false },
+      { name: '晨光 21-30', idx: 2, isEndless: false },
       { name: '★ 无尽', idx: 3, isEndless: true }
     ];
 
-    const isRose = this.currentTheme === 1;
-    const isGold = this.currentTheme === 2;
-    const activeBg = isRose ? '#581C87' : (isGold ? '#7C2D12' : '#2563EB');
-    const activeBorder = isRose ? '#C4B5FD' : (isGold ? '#FBBF24' : '#00F0FF');
+    const palette = getUiPalette(this.currentTheme);
+    const activeBg = palette.panelSoft;
+    const activeBorder = this.currentTheme === 2 ? palette.gold : palette.cyan;
 
     const tabXs = [-258, -86, 86, 258];
     tabs.forEach((tab, i) => {
@@ -107,11 +107,11 @@ export class LevelSelect extends Component {
         g.lineWidth = 3.0;
         g.stroke();
       } else if (tab.isEndless) {
-        g.fillColor = this.hex(isRose ? '#3B0764' : (isGold ? '#451A03' : '#4C1D95'));
+        g.fillColor = this.hex(this.currentTheme === 2 ? '#1D2A3B' : palette.panelSoft);
         ((g.fillColor) as any).a = 220;
         g.roundRect(-83, -28, 166, 56, 18);
         g.fill();
-        g.strokeColor = this.hex(isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#A78BFA'));
+        g.strokeColor = this.hex(this.currentTheme === 2 ? palette.gold : palette.blue);
         g.lineWidth = 2.4;
         g.stroke();
       } else {
@@ -124,7 +124,7 @@ export class LevelSelect extends Component {
         g.stroke();
       }
 
-      const textColor = isSelected ? '#FFFFFF' : (tab.isEndless ? (isGold ? '#FDE047' : '#F472B6') : '#CBD5E1');
+      const textColor = isSelected ? '#FFFFFF' : (tab.isEndless ? (this.currentTheme === 2 ? palette.gold : palette.blue) : '#CBD5E1');
       this.createLabel(tabNode, 'Text', new Vec3(0, 1, 0), tab.name, 16, textColor, 158, 36);
 
       this.addClick(tabNode, () => {
@@ -144,10 +144,11 @@ export class LevelSelect extends Component {
     if (!this.gridRoot) return;
     this.gridRoot.destroyAllChildren();
 
+    const palette = getUiPalette(this.currentTheme);
     const isRose = this.currentTheme === 1;
     const isGold = this.currentTheme === 2;
-    const activeBorder = isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#FDE047');
-    const compBorder = isRose ? '#C4B5FD' : (isGold ? '#FBBF24' : '#00F0FF');
+    const activeBorder = this.currentTheme === 2 ? palette.gold : palette.cyan;
+    const compBorder = this.currentTheme === 2 ? palette.violet : palette.blue;
 
     const { halfH } = this.getBounds();
     const colXs = [-176, 176];
@@ -242,13 +243,13 @@ export class LevelSelect extends Component {
           let rightCol = status === 'ACTIVE' ? this.hex('#B45309') : this.hex('#0F172A');
 
           if (isRose) {
-            topCol = status === 'ACTIVE' ? this.hex('#6D28D9') : (levelNum % 2 === 0 ? this.hex('#4C1D95') : this.hex('#581C87'));
-            leftCol = status === 'ACTIVE' ? this.hex('#4C1D95') : this.hex('#312E81');
-            rightCol = status === 'ACTIVE' ? this.hex('#3B0764') : this.hex('#1E1B4B');
+            topCol = status === 'ACTIVE' ? this.hex('#3D7DDE') : (levelNum % 2 === 0 ? this.hex('#25418A') : this.hex('#2D61C9'));
+            leftCol = status === 'ACTIVE' ? this.hex('#24539C') : this.hex('#132B55');
+            rightCol = status === 'ACTIVE' ? this.hex('#13233F') : this.hex('#081224');
           } else if (isGold) {
-            topCol = status === 'ACTIVE' ? this.hex('#B45309') : (levelNum % 2 === 0 ? this.hex('#7C2D12') : this.hex('#9A3412'));
-            leftCol = status === 'ACTIVE' ? this.hex('#7C2D12') : this.hex('#451A03');
-            rightCol = status === 'ACTIVE' ? this.hex('#451A03') : this.hex('#260C08');
+            topCol = status === 'ACTIVE' ? this.hex('#F6A44D') : (levelNum % 2 === 0 ? this.hex('#2C7A7B') : this.hex('#2F83FF'));
+            leftCol = status === 'ACTIVE' ? this.hex('#A76328') : this.hex('#215C63');
+            rightCol = status === 'ACTIVE' ? this.hex('#1D2A3B') : this.hex('#101726');
           }
 
           this.drawIsometricBlock(g, topCol, leftCol, rightCol, this.hex(compBorder), 2.2, 16, 74, 42, 6, 0);
@@ -301,9 +302,8 @@ export class LevelSelect extends Component {
     this.ensureTransform(navRoot, 510, 68);
     const g = navRoot.addComponent(Graphics);
 
-    const isRose = this.currentTheme === 1;
-    const isGold = this.currentTheme === 2;
-    const borderCol = isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#3B82F6');
+    const palette = getUiPalette(this.currentTheme);
+    const borderCol = this.currentTheme === 2 ? palette.gold : palette.cyan;
 
     g.fillColor = this.hex('#0D162C');
     ((g.fillColor) as any).a = 230;
@@ -330,7 +330,7 @@ export class LevelSelect extends Component {
       if (this.onReturnHomeCallback) this.onReturnHomeCallback();
     });
 
-    const chapterTitles = ['关卡选择 · 冰原章节', '关卡选择 · 暮色章节', '关卡选择 · 命运章节'];
+    const chapterTitles = ['关卡选择 · 冰原章节', '关卡选择 · 星港章节', '关卡选择 · 晨光章节'];
     const title = chapterTitles[this.currentChapter] || chapterTitles[0];
     this.createLabel(navRoot, 'Title', new Vec3(-80, 1, 0), title, 22, '#FFFFFF', 210, 42);
 
@@ -355,9 +355,8 @@ export class LevelSelect extends Component {
     this.ensureTransform(footerRoot, 700, 54);
     const g = footerRoot.addComponent(Graphics);
 
-    const isRose = this.currentTheme === 1;
-    const isGold = this.currentTheme === 2;
-    const borderCol = isRose ? '#A78BFA' : (isGold ? '#FCD34D' : '#3B82F6');
+    const palette = getUiPalette(this.currentTheme);
+    const borderCol = this.currentTheme === 2 ? palette.gold : palette.cyan;
 
     g.fillColor = this.hex('#0D162C');
     ((g.fillColor) as any).a = 230;
