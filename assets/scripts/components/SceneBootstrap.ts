@@ -77,36 +77,36 @@ export class SceneBootstrap extends Component {
       g.fill();
     } else if (themeIdx === 2) {
       // Theme 2 uses warm sunrise accents on a blue-black base, avoiding muddy orange/brown.
-      g.fillColor = this.hex('#101726');
+      g.fillColor = this.hex('#0B1424');
       g.rect(-1280, -1280, 2560, 2560);
       g.fill();
       g.fillColor = this.hex('#0F766E');
-      ((g.fillColor) as ((any)) as any).a = 48;
+      ((g.fillColor) as ((any)) as any).a = 56;
       g.circle(0, 320, 500);
       g.fill();
-      g.fillColor = this.hex('#F59E0B');
-      ((g.fillColor) as ((any)) as any).a = 34;
+      g.fillColor = this.hex('#FBBF24');
+      ((g.fillColor) as ((any)) as any).a = 22;
       g.circle(450, 180, 480);
       g.fill();
       g.fillColor = this.hex('#2563EB');
-      ((g.fillColor) as ((any)) as any).a = 26;
+      ((g.fillColor) as ((any)) as any).a = 30;
       g.circle(-350, -150, 420);
       g.fill();
     } else {
-      // Theme 0: Icefield (极光冰原 - Sapphire/Cyan)
-      g.fillColor = this.hex('#101E4A');
+      // Theme 0: premium icefield blue/cyan, with purple removed from the default home impression.
+      g.fillColor = this.hex('#071329');
       g.rect(-1280, -1280, 2560, 2560);
       g.fill();
-      g.fillColor = this.hex('#0083B0');
-      ((g.fillColor) as ((any)) as any).a = 140;
+      g.fillColor = this.hex('#0E7490');
+      ((g.fillColor) as ((any)) as any).a = 118;
       g.circle(0, 320, 500);
       g.fill();
-      g.fillColor = this.hex('#6B21A8');
-      ((g.fillColor) as ((any)) as any).a = 130;
+      g.fillColor = this.hex('#2563EB');
+      ((g.fillColor) as ((any)) as any).a = 64;
       g.circle(450, 180, 480);
       g.fill();
-      g.fillColor = this.hex('#00F0FF');
-      ((g.fillColor) as ((any)) as any).a = 70;
+      g.fillColor = this.hex('#67E8F9');
+      ((g.fillColor) as ((any)) as any).a = 54;
       g.circle(-350, -150, 420);
       g.fill();
     }
@@ -144,37 +144,41 @@ export class SceneBootstrap extends Component {
 
   private drawBackgroundDecorations(graphics: Graphics, themeIdx: number): void {
     // 5. Center Nebula Aura
-    graphics.fillColor = themeIdx === 1 ? this.hex('#0E7490') : (themeIdx === 2 ? this.hex('#0F766E') : this.hex('#312E81'));
-    ((graphics.fillColor) as ((any)) as any).a = 80;
+    graphics.fillColor = themeIdx === 1 ? this.hex('#0E7490') : (themeIdx === 2 ? this.hex('#0F766E') : this.hex('#0B5C8A'));
+    ((graphics.fillColor) as ((any)) as any).a = 72;
     graphics.circle(0, 0, 450);
     graphics.fill();
 
     // 6. Distant Floating Isometric Shards
     const shards = [
-      { x: -500, y: 240, size: 55, colTop: '#3B82F6', colLeft: '#1D4ED8', colRight: '#1E3A8A', a: 130, h: 26 },
-      { x: 540, y: 200, size: 45, colTop: '#A855F7', colLeft: '#6B21A8', colRight: '#4C1D95', a: 120, h: 22 },
-      { x: -540, y: -40, size: 42, colTop: '#00F0FF', colLeft: '#0083B0', colRight: '#004D61', a: 140, h: 20 },
-      { x: 560, y: -60, size: 60, colTop: '#EC4899', colLeft: '#BE185D', colRight: '#831843', a: 110, h: 28 },
-      { x: -440, y: -250, size: 50, colTop: '#60A5FA', colLeft: '#2563EB', colRight: '#1D4ED8', a: 125, h: 24 },
-      { x: 490, y: -230, size: 52, colTop: '#C084FC', colLeft: '#7E22CE', colRight: '#581C87', a: 130, h: 26 },
-      { x: -290, y: 290, size: 36, colTop: '#F472B6', colLeft: '#DB2777', colRight: '#9D174D', a: 105, h: 16 },
-      { x: 330, y: 270, size: 38, colTop: '#38BDF8', colLeft: '#0284C7', colRight: '#0369A1', a: 115, h: 18 },
-      { x: -590, y: 100, size: 32, colTop: '#818CF8', colLeft: '#4F46E5', colRight: '#3730A3', a: 100, h: 15 },
-      { x: 590, y: 80, size: 34, colTop: '#34D399', colLeft: '#059669', colRight: '#047857', a: 110, h: 16 },
-      { x: -220, y: -280, size: 44, colTop: '#E879F9', colLeft: '#A21CAF', colRight: '#701A75', a: 120, h: 20 },
-      { x: 240, y: -270, size: 46, colTop: '#60A5FA', colLeft: '#3B82F6', colRight: '#1D4ED8', a: 125, h: 22 },
+      { x: -500, y: 240, size: 55, colTop: '#3B82F6', colLeft: '#1D4ED8', colRight: '#1E3A8A', a: 118, h: 26 },
+      { x: 540, y: 200, size: 45, colTop: '#38BDF8', colLeft: '#0284C7', colRight: '#075985', a: 104, h: 22 },
+      { x: -540, y: -40, size: 42, colTop: '#67E8F9', colLeft: '#0891B2', colRight: '#164E63', a: 126, h: 20 },
+      { x: 560, y: -60, size: 60, colTop: '#2DD4BF', colLeft: '#0F766E', colRight: '#134E4A', a: 94, h: 28 },
+      { x: -440, y: -250, size: 50, colTop: '#60A5FA', colLeft: '#2563EB', colRight: '#1D4ED8', a: 112, h: 24 },
+      { x: 490, y: -230, size: 52, colTop: '#93C5FD', colLeft: '#3B82F6', colRight: '#1E3A8A', a: 106, h: 26 },
+      { x: -290, y: 290, size: 36, colTop: '#FDE68A', colLeft: '#D97706', colRight: '#92400E', a: 74, h: 16 },
+      { x: 330, y: 270, size: 38, colTop: '#38BDF8', colLeft: '#0284C7', colRight: '#0369A1', a: 105, h: 18 },
+      { x: -590, y: 100, size: 32, colTop: '#7DD3FC', colLeft: '#0EA5E9', colRight: '#075985', a: 94, h: 15 },
+      { x: 590, y: 80, size: 34, colTop: '#34D399', colLeft: '#059669', colRight: '#047857', a: 100, h: 16 },
+      { x: -220, y: -280, size: 44, colTop: '#22D3EE', colLeft: '#0891B2', colRight: '#164E63', a: 104, h: 20 },
+      { x: 240, y: -270, size: 46, colTop: '#60A5FA', colLeft: '#3B82F6', colRight: '#1D4ED8', a: 112, h: 22 },
     ];
 
-    for (const s of shards) {
+    shards.forEach((s, idx) => {
       const halfW = s.size;
       const halfH = s.size * 0.5;
       let topCol = this.hex(s.colTop);
       let leftCol = this.hex(s.colLeft);
       let rightCol = this.hex(s.colRight);
       if (themeIdx === 1) {
-        topCol = this.hex('#3D7DDE'); leftCol = this.hex('#24539C'); rightCol = this.hex('#132B55');
+        topCol = this.hex(idx % 3 === 0 ? '#5DE6FF' : '#3D7DDE');
+        leftCol = this.hex('#24539C');
+        rightCol = this.hex('#132B55');
       } else if (themeIdx === 2) {
-        topCol = this.hex('#F6A44D'); leftCol = this.hex('#2C7A7B'); rightCol = this.hex('#1D2A3B');
+        topCol = this.hex(idx % 4 === 0 ? '#FFD76A' : (idx % 2 === 0 ? '#5DE6D6' : '#3B82F6'));
+        leftCol = this.hex(idx % 4 === 0 ? '#B7791F' : '#2C7A7B');
+        rightCol = this.hex('#1D2A3B');
       }
       ((topCol) as ((any)) as any).a = s.a; ((leftCol) as ((any)) as any).a = s.a; ((rightCol) as ((any)) as any).a = s.a;
 
@@ -211,7 +215,7 @@ export class SceneBootstrap extends Component {
       graphics.lineTo(s.x - halfW, s.y);
       graphics.close();
       graphics.stroke();
-    }
+    });
 
     // 7. Starfield particles & cyber sparkles
     for (let i = 0; i < 45; i++) {
@@ -391,10 +395,11 @@ export class SceneBootstrap extends Component {
       const profile = ProfileManager.getProfile();
       const isFtueLevel = safeIndex < 5;
       if (!isFtueLevel && profile.energy <= 0) {
-        WeChatService.showModal({
-          title: '时空能量耗尽',
-          content: '挑战旅途关卡需要 1 点时空能量。去主页点底部“福利-补能”，或点击顶部能量旁的“+”补充；也可以先玩无尽模式。',
-          confirmText: '我知道了'
+        this.showEnergyEmptyDialog(() => {
+          this.closeAllModals();
+          levelSelectRoot.active = false;
+          gamePage.active = false;
+          homePage.active = true;
         });
         return;
       }
@@ -480,8 +485,9 @@ export class SceneBootstrap extends Component {
     home.onBeforeOpenPopup = () => {
       this.closeAllModals();
     };
-    home.onOpenSettingsCallback = () => {
-      console.log('[SceneBootstrap] Open Settings Modal!');
+    home.onOpenSettingsCallback = (entry: 'settings' | 'theme' = 'settings') => {
+      console.log(`[SceneBootstrap] Open ${entry === 'theme' ? 'Theme Gallery' : 'Settings'} Modal!`);
+      settingsModal.openAs(entry);
       this.openExclusiveModal(settingsModalRoot);
     };
     home.onOpenLevelSelectCallback = () => {
@@ -565,6 +571,108 @@ export class SceneBootstrap extends Component {
     const hasStartedJourney = Object.values(initialProfile.levelAttempts || {}).some((attempt) => attempt.starts > 0);
     if (!handledInitialDeepLink && initialProfile.levelProgress === 0 && !hasStartedJourney) {
       this.scheduleOnce(() => startJourneyLevel(0, 'continue'), 0);
+    }
+  }
+
+  private showEnergyEmptyDialog(onGoHome: () => void): void {
+    const visibleSize = view.getVisibleSize();
+    const palette = getUiPalette(this.currentTheme);
+    const root = this.createRoot('EnergyEmptyDialog', new Vec3(0, 0, 20), this.node);
+    this.ensureTransform(root, visibleSize.width, visibleSize.height);
+
+    const overlay = this.createRoot('Overlay', new Vec3(0, 0, 0), root);
+    this.ensureTransform(overlay, visibleSize.width, visibleSize.height);
+    const og = overlay.addComponent(Graphics);
+    og.fillColor = new Color(5, 10, 25, 168);
+    og.rect(-visibleSize.width / 2, -visibleSize.height / 2, visibleSize.width, visibleSize.height);
+    og.fill();
+    this.addClick(overlay, () => root.destroy());
+
+    const dialog = this.createRoot('Dialog', new Vec3(0, 0, 2), root);
+    this.ensureTransform(dialog, 600, 380);
+    const dg = dialog.addComponent(Graphics);
+    dg.fillColor = this.hex(palette.panel);
+    ((dg.fillColor) as any).a = 248;
+    dg.roundRect(-300, -190, 600, 380, 30);
+    dg.fill();
+    dg.fillColor = this.hex(palette.panelSoft);
+    ((dg.fillColor) as any).a = 76;
+    dg.roundRect(-284, -174, 568, 348, 24);
+    dg.fill();
+    dg.fillColor = new Color(255, 255, 255, 24);
+    dg.roundRect(-264, 158, 528, 8, 4);
+    dg.fill();
+    dg.strokeColor = this.hex(palette.gold);
+    ((dg.strokeColor) as any).a = 210;
+    dg.lineWidth = 2.4;
+    dg.roundRect(-300, -190, 600, 380, 30);
+    dg.stroke();
+    dialog.on(Node.EventType.TOUCH_END, (event: EventTouch) => {
+      event.propagationStopped = true;
+    });
+
+    const icon = this.createRoot('EnergyIcon', new Vec3(0, 116, 3), dialog);
+    this.ensureTransform(icon, 86, 86);
+    const ig = icon.addComponent(Graphics);
+    ig.fillColor = this.hex(palette.gold);
+    ((ig.fillColor) as any).a = 45;
+    ig.circle(0, 0, 42);
+    ig.fill();
+    ig.strokeColor = this.hex(palette.gold);
+    ig.lineWidth = 2.4;
+    ig.circle(0, 0, 34);
+    ig.stroke();
+    ig.fillColor = this.hex(palette.gold);
+    ig.moveTo(8, 26);
+    ig.lineTo(-14, -2);
+    ig.lineTo(0, -2);
+    ig.lineTo(-8, -28);
+    ig.lineTo(18, 6);
+    ig.lineTo(4, 6);
+    ig.close();
+    ig.fill();
+
+    this.createLabel(dialog, 'Title', new Vec3(0, 58, 3), '时空能量不足', 28, palette.text, 420, 42);
+    this.createLabel(dialog, 'Body', new Vec3(0, 10, 3), '旅途关卡需要 1 点能量。回首页点底部「福利-补能」，或点击顶部能量旁的「+」补充。', 18, palette.muted, 500, 62);
+    this.createLabel(dialog, 'Tip', new Vec3(0, -42, 3), '也可以先玩无尽模式，不消耗旅途能量。', 16, palette.cyan, 500, 30);
+
+    const goHome = this.createRoot('GoHomeBtn', new Vec3(-112, -126, 3), dialog);
+    this.ensureTransform(goHome, 230, 58);
+    const hg = goHome.addComponent(Graphics);
+    hg.fillColor = this.hex(palette.gold);
+    hg.roundRect(-115, -29, 230, 58, 24);
+    hg.fill();
+    hg.strokeColor = this.hex('#FFFFFF');
+    ((hg.strokeColor) as any).a = 190;
+    hg.lineWidth = 2.0;
+    hg.roundRect(-115, -29, 230, 58, 24);
+    hg.stroke();
+    this.createLabel(goHome, 'Text', new Vec3(0, 1, 1), '去福利补能', 20, '#071126', 200, 36);
+    this.addClick(goHome, () => {
+      root.destroy();
+      onGoHome();
+    });
+
+    const cancel = this.createRoot('CancelBtn', new Vec3(132, -126, 3), dialog);
+    this.ensureTransform(cancel, 190, 58);
+    const cg = cancel.addComponent(Graphics);
+    cg.fillColor = this.hex(palette.panelSoft);
+    ((cg.fillColor) as any).a = 230;
+    cg.roundRect(-95, -29, 190, 58, 24);
+    cg.fill();
+    cg.strokeColor = this.hex(palette.cyan);
+    ((cg.strokeColor) as any).a = 160;
+    cg.lineWidth = 1.8;
+    cg.roundRect(-95, -29, 190, 58, 24);
+    cg.stroke();
+    this.createLabel(cancel, 'Text', new Vec3(0, 1, 1), '稍后再说', 19, palette.text, 160, 36);
+    this.addClick(cancel, () => root.destroy());
+
+    if (!this.powerSaveMode) {
+      dialog.setScale(new Vec3(0.92, 0.92, 1));
+      tween(dialog)
+        .to(0.22, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
+        .start();
     }
   }
 
@@ -709,7 +817,7 @@ export class SceneBootstrap extends Component {
       game.showGameplayHint();
     });
 
-    this.createSideActionButton(root, 'MoreBtn', new Vec3(210, 0, 0), 110, '更多', palette.panelSoft, palette.violet, '#FFFFFF', () => {
+    this.createSideActionButton(root, 'MoreBtn', new Vec3(210, 0, 0), 110, '更多', palette.panelSoft, palette.cyan, '#FFFFFF', () => {
       this.showMoreGameActions(game);
     });
   }
@@ -736,58 +844,58 @@ export class SceneBootstrap extends Component {
     og.fill();
     this.addClick(overlay, () => this.closeGameActionSheet());
 
-    const sheetH = 400;
+    const sheetH = 360;
     const sheet = this.createRoot('DrawerSheet', new Vec3(0, -halfH + sheetH / 2, 1), root);
-    this.ensureTransform(sheet, 688, sheetH);
+    this.ensureTransform(sheet, 660, sheetH);
     const sg = sheet.addComponent(Graphics);
     sg.fillColor = this.hex(palette.panel);
     ((sg.fillColor) as any).a = 248;
-    sg.roundRect(-344, -sheetH / 2, 688, sheetH, 32);
+    sg.roundRect(-330, -sheetH / 2, 660, sheetH, 32);
     sg.fill();
     sg.fillColor = this.hex(palette.panelSoft);
     ((sg.fillColor) as any).a = 96;
-    sg.roundRect(-328, -sheetH / 2 + 16, 656, sheetH - 32, 26);
+    sg.roundRect(-314, -sheetH / 2 + 16, 628, sheetH - 32, 26);
     sg.fill();
     sg.strokeColor = this.hex(palette.cyan);
     ((sg.strokeColor) as any).a = 180;
     sg.lineWidth = 2.2;
-    sg.roundRect(-344, -sheetH / 2, 688, sheetH, 32);
+    sg.roundRect(-330, -sheetH / 2, 660, sheetH, 32);
     sg.stroke();
     sheet.on(Node.EventType.TOUCH_END, (event: EventTouch) => {
       event.propagationStopped = true;
     });
 
-    this.createLabel(sheet, 'Title', new Vec3(0, 150, 2), '更多操作', 26, palette.text, 360, 40);
-    this.createLabel(sheet, 'Hint', new Vec3(0, 122, 2), '低频操作收在这里，保持棋盘专注', 15, palette.muted, 460, 24);
+    this.createLabel(sheet, 'Title', new Vec3(0, 128, 2), '更多操作', 25, palette.text, 360, 38);
+    this.createLabel(sheet, 'Hint', new Vec3(0, 101, 2), '低频操作收在这里，保持棋盘专注', 14, palette.muted, 460, 22);
 
     const actions = [
-      { icon: '↻', title: '重置棋盘', desc: '清空已放置手牌', border: '#38BDF8', run: () => game.clearPlacedTiles() },
-      { icon: '💬', title: '残局求助', desc: '分享给好友帮你接光', border: '#15B86A', run: () => game.shareCurrentResidual() },
-      { icon: '☀', title: '通勤挑战', desc: '来一局短时挑战', border: '#FFD447', run: () => game.loadCommuteChallenge() },
-      { icon: '◈', title: '我的小岛', desc: '查看收藏与装扮', border: '#C084FC', run: () => game.showIslandRoom() },
+      { icon: '助', title: '残局求助', desc: '分享给好友帮你接光', border: '#22C55E', run: () => game.shareCurrentResidual() },
+      { icon: '勤', title: '通勤挑战', desc: '来一局短时挑战', border: palette.gold, run: () => game.loadCommuteChallenge() },
+      { icon: '岛', title: '我的小岛', desc: '查看收藏与装扮', border: palette.cyan, run: () => game.showIslandRoom() },
+      { icon: '清', title: '重置棋盘', desc: '清空已放置手牌', border: '#64748B', run: () => game.clearPlacedTiles() },
     ];
 
     actions.forEach((action, index) => {
-      const y = 62 - index * 60;
+      const y = 48 - index * 54;
       const row = this.createRoot(`DrawerAction_${index}`, new Vec3(0, y, 2), sheet);
-      this.ensureTransform(row, 600, 50);
+      this.ensureTransform(row, 582, 46);
       const rg = row.addComponent(Graphics);
       rg.fillColor = this.hex(palette.panelSoft);
-      ((rg.fillColor) as any).a = 230;
-      rg.roundRect(-300, -25, 600, 50, 16);
+      ((rg.fillColor) as any).a = index === actions.length - 1 ? 184 : 214;
+      rg.roundRect(-291, -23, 582, 46, 15);
       rg.fill();
       const border = this.hex(action.border);
-      border.a = index === 0 ? 140 : 185;
+      border.a = index === actions.length - 1 ? 105 : 168;
       rg.strokeColor = border;
-      rg.lineWidth = 1.6;
-      rg.roundRect(-300, -25, 600, 50, 16);
+      rg.lineWidth = 1.4;
+      rg.roundRect(-291, -23, 582, 46, 15);
       rg.stroke();
 
       rg.fillColor = new Color(border.r, border.g, border.b, 38);
       rg.circle(-258, 0, 20);
       rg.fill();
       this.createLabel(row, 'Icon', new Vec3(-258, 1, 1), action.icon, 18, action.border, 40, 32);
-      this.createLabel(row, 'Title', new Vec3(-92, 8, 1), action.title, 19, palette.text, 250, 24);
+      this.createLabel(row, 'Title', new Vec3(-92, 8, 1), action.title, 18, palette.text, 250, 24);
       this.createLabel(row, 'Desc', new Vec3(-92, -12, 1), action.desc, 13, palette.muted, 250, 20);
       this.createLabel(row, 'Chevron', new Vec3(264, 0, 1), '›', 24, action.border, 34, 36);
       this.addClick(row, () => {
@@ -796,16 +904,16 @@ export class SceneBootstrap extends Component {
       });
     });
 
-    const cancel = this.createRoot('DrawerCancel', new Vec3(0, -176, 2), sheet);
-    this.ensureTransform(cancel, 600, 42);
+    const cancel = this.createRoot('DrawerCancel', new Vec3(0, -154, 2), sheet);
+    this.ensureTransform(cancel, 582, 40);
     const cg = cancel.addComponent(Graphics);
     cg.fillColor = this.hex('#0D162C');
     ((cg.fillColor) as any).a = 230;
-    cg.roundRect(-300, -21, 600, 42, 18);
+    cg.roundRect(-291, -20, 582, 40, 18);
     cg.fill();
     cg.strokeColor = this.hex('#475569');
     cg.lineWidth = 1.4;
-    cg.roundRect(-300, -21, 600, 42, 18);
+    cg.roundRect(-291, -20, 582, 40, 18);
     cg.stroke();
     this.createLabel(cancel, 'Text', new Vec3(0, 1, 1), '取消', 18, '#CBD5E1', 300, 30);
     this.addClick(cancel, () => this.closeGameActionSheet());

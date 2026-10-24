@@ -1,4 +1,4 @@
-import { _decorator, Button, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UIOpacity, UITransform, Vec3, view } from 'cc';
+import { _decorator, BlockInputEvents, Button, Color, Component, EventTouch, Graphics, Label, Layers, Node, tween, UIOpacity, UITransform, Vec3, view } from 'cc';
 import { WeChatService } from '../wx/WeChatService';
 import { ProfileManager } from '../core/ProfileManager';
 import { CloudGameService } from '../wx/CloudGameService';
@@ -16,7 +16,7 @@ export class HomeRoot extends Component {
   public onStartJourneyCallback?: () => void;
   public onStartEndlessCallback?: () => void;
   public onStartDailyCallback?: () => void;
-  public onOpenSettingsCallback?: () => void;
+  public onOpenSettingsCallback?: (entry?: 'settings' | 'theme') => void;
   public onOpenLevelSelectCallback?: () => void;
   public onBeforeOpenPopup?: () => void;
 
@@ -86,6 +86,12 @@ export class HomeRoot extends Component {
     return getUiPalette(this.currentTheme);
   }
 
+  private getCurrentThemeName(): string {
+    if (this.currentTheme === 1) return '星港晨雾';
+    if (this.currentTheme === 2) return '日冕晨光';
+    return '极光冰原';
+  }
+
   private colorWithAlpha(hex: string, alpha: number): Color {
     const color = this.hex(hex);
     color.a = alpha;
@@ -115,6 +121,19 @@ export class HomeRoot extends Component {
     og.fill();
     this.addClick(overlay, onClose);
     return overlay;
+  }
+
+  private blockTouchThrough(node: Node): void {
+    if (!node.getComponent(BlockInputEvents)) {
+      node.addComponent(BlockInputEvents);
+    }
+    const stop = (event: EventTouch) => {
+      event.propagationStopped = true;
+    };
+    node.on(Node.EventType.TOUCH_START, stop, this);
+    node.on(Node.EventType.TOUCH_MOVE, stop, this);
+    node.on(Node.EventType.TOUCH_END, stop, this);
+    node.on(Node.EventType.TOUCH_CANCEL, stop, this);
   }
 
   private animatePopup(dialog: Node): void {
@@ -159,6 +178,10 @@ export class HomeRoot extends Component {
     this.popupRoot = this.createNode('PopupRoot', new Vec3(0, 0, 0), this.node);
     this.ensureTransform(this.popupRoot, vs.width, vs.height);
     this.popupRoot.active = false;
+
+    if (!ProfileManager.isHealthNoticeAccepted()) {
+      this.scheduleOnce(() => this.showHealthAdvisoryPopup(false), 0.2);
+    }
   }
 
   private addClick(node: Node, onClick: () => void): void {
@@ -166,6 +189,18 @@ export class HomeRoot extends Component {
     if (!btn) btn = node.addComponent(Button);
     btn.transition = Button.Transition.SCALE;
     btn.zoomScale = 0.92;
+    node.on(Node.EventType.TOUCH_START, (event: EventTouch) => {
+      event.propagationStopped = true;
+    }, this);
+    node.on(Node.EventType.TOUCH_MOVE, (event: EventTouch) => {
+      event.propagationStopped = true;
+    }, this);
+    node.on(Node.EventType.TOUCH_END, (event: EventTouch) => {
+      event.propagationStopped = true;
+    }, this);
+    node.on(Node.EventType.TOUCH_CANCEL, (event: EventTouch) => {
+      event.propagationStopped = true;
+    }, this);
     node.off(Button.EventType.CLICK);
     node.on(Button.EventType.CLICK, onClick, this);
   }
@@ -226,15 +261,17 @@ export class HomeRoot extends Component {
 
     this.addClick(settingsBtn, () => {
       console.log('[HomeRoot] Click Settings');
-      if (this.onOpenSettingsCallback) this.onOpenSettingsCallback();
+      if (this.onOpenSettingsCallback) this.onOpenSettingsCallback('settings');
     });
 
     const profile = ProfileManager.getProfile();
     // 2. 晶核资源胶囊 (X = -102, 宽度 180, 高度 56, 间距 16px)
-    this.createResourcePill(topBar, 'DiamondPill', new Vec3(-102, 0, 0), `${profile.diamonds} +`, dBorder, dBg, 180, 'diamond');
+    const diamondPill = this.createResourcePill(topBar, 'DiamondPill', new Vec3(-102, 0, 0), `${profile.diamonds} +`, dBorder, dBg, 180, 'diamond');
+    this.addClick(diamondPill, () => this.showWelfareCenter());
 
     // 3. 能量资源胶囊 (X = 94, 宽度 180, 高度 56, 间距 16px, 最右侧边缘到 +184)
-    this.createResourcePill(topBar, 'EnergyPill', new Vec3(94, 0, 0), `${profile.energy}/10 +`, eBorder, eBg, 180, 'energy');
+    const energyPill = this.createResourcePill(topBar, 'EnergyPill', new Vec3(94, 0, 0), `${profile.energy}/10 +`, eBorder, eBg, 180, 'energy');
+    this.addClick(energyPill, () => this.showWelfareCenter());
   }
 
   private drawGearIcon(g: Graphics, x: number, y: number, radius: number): void {
@@ -260,7 +297,7 @@ export class HomeRoot extends Component {
     }
   }
 
-  private createResourcePill(parent: Node, name: string, pos: Vec3, text: string, borderHex: string, bgHex: string, width: number, iconType: 'diamond' | 'energy'): void {
+  private createResourcePill(parent: Node, name: string, pos: Vec3, text: string, borderHex: string, bgHex: string, width: number, iconType: 'diamond' | 'energy'): Node {
     const pill = this.createNode(name, pos, parent);
     this.ensureTransform(pill, width, 56); // 56px 高度
     const g = pill.addComponent(Graphics);
@@ -310,6 +347,7 @@ export class HomeRoot extends Component {
     }
 
     this.createLabel(pill, 'Text', new Vec3(14, 1, 0), text, 21, '#FFFFFF', width - 56, 44); // 字体 21
+    return pill;
   }
 
   private createTitleSection(halfH: number): void {
@@ -334,7 +372,7 @@ export class HomeRoot extends Component {
     ag.circle(0, 4, 42);
     ag.fill();
 
-    this.createLabel(titleRoot, 'MainTitle', new Vec3(0, 14, 0), '浮 岛 流 光', 60, '#FFFFFF', 540, 72);
+    this.createLabel(titleRoot, 'MainTitle', new Vec3(0, 14, 0), '浮 岛 浮 光', 60, '#FFFFFF', 540, 72);
     this.createLabel(titleRoot, 'SubTitle', new Vec3(0, -36, 0), '═══  F L O A T   &   F L O W  ═══', 18, subCol, 500, 34);
   }
 
@@ -364,10 +402,10 @@ export class HomeRoot extends Component {
       const y = (c + r) * (tileH / 2) - 40;
       const isCenter = r === 1 && c === 1;
 
-      let topCol = isCenter ? this.hex('#4C1D95') : ((r + c) % 2 === 0 ? this.hex('#2563EB') : this.hex('#3B82F6'));
-      let leftCol = isCenter ? this.hex('#312E81') : ((r + c) % 2 === 0 ? this.hex('#1E40AF') : this.hex('#1D4ED8'));
-      let rightCol = isCenter ? this.hex('#1E1B4B') : ((r + c) % 2 === 0 ? this.hex('#1E3A8A') : this.hex('#1E40AF'));
-      let strokeCol = isCenter ? this.hex('#E879F9') : ((r + c) % 2 === 0 ? this.hex('#60A5FA') : this.hex('#93C5FD'));
+      let topCol = isCenter ? this.hex('#22D3EE') : ((r + c) % 2 === 0 ? this.hex('#2563EB') : this.hex('#0EA5E9'));
+      let leftCol = isCenter ? this.hex('#0F766E') : ((r + c) % 2 === 0 ? this.hex('#1E40AF') : this.hex('#0369A1'));
+      let rightCol = isCenter ? this.hex('#164E63') : ((r + c) % 2 === 0 ? this.hex('#1E3A8A') : this.hex('#075985'));
+      let strokeCol = isCenter ? this.hex('#A5F3FC') : ((r + c) % 2 === 0 ? this.hex('#60A5FA') : this.hex('#67E8F9'));
 
       if (isRose) {
         topCol = isCenter ? this.hex('#25418A') : ((r + c) % 2 === 0 ? this.hex('#2D61C9') : this.hex('#3D7DDE'));
@@ -475,6 +513,71 @@ export class HomeRoot extends Component {
     }
   }
 
+  private drawSidebarGlyph(g: Graphics, id: string, accentHex: string, palette: UiPalette): void {
+    const centerY = 10;
+    const accent = this.hex(accentHex);
+    const softCyan = this.hex(palette.cyan);
+    const gold = this.hex(palette.gold);
+
+    g.strokeColor = accent;
+    g.fillColor = this.colorWithAlpha(accentHex, 46);
+    g.lineWidth = 2.2;
+
+    if (id === 'daily') {
+      g.roundRect(-15, centerY - 13, 30, 26, 7);
+      g.fill();
+      g.stroke();
+      g.strokeColor = gold;
+      g.lineWidth = 2;
+      g.moveTo(-8, centerY + 17);
+      g.lineTo(-8, centerY + 10);
+      g.moveTo(8, centerY + 17);
+      g.lineTo(8, centerY + 10);
+      g.stroke();
+      g.strokeColor = softCyan;
+      g.lineWidth = 1.4;
+      g.moveTo(-8, centerY + 2);
+      g.lineTo(8, centerY + 2);
+      g.moveTo(-8, centerY - 6);
+      g.lineTo(8, centerY - 6);
+      g.stroke();
+    } else if (id === 'rank') {
+      g.moveTo(-16, centerY - 10);
+      g.lineTo(-7, centerY + 2);
+      g.lineTo(2, centerY - 2);
+      g.lineTo(14, centerY + 12);
+      g.stroke();
+      g.fillColor = gold;
+      g.circle(14, centerY + 12, 4);
+      g.fill();
+      g.strokeColor = softCyan;
+      g.lineWidth = 1.5;
+      g.moveTo(-17, centerY - 14);
+      g.lineTo(17, centerY - 14);
+      g.stroke();
+      g.fillColor = this.colorWithAlpha(palette.cyan, 52);
+      g.roundRect(-17, centerY - 14, 34, 6, 3);
+      g.fill();
+    } else {
+      const outer = 15;
+      const inner = 7;
+      for (let i = 0; i < 10; i++) {
+        const angle = -Math.PI / 2 + i * Math.PI / 5;
+        const radius = i % 2 === 0 ? outer : inner;
+        const x = Math.cos(angle) * radius;
+        const y = centerY + Math.sin(angle) * radius;
+        if (i === 0) g.moveTo(x, y);
+        else g.lineTo(x, y);
+      }
+      g.close();
+      g.fill();
+      g.stroke();
+      g.fillColor = gold;
+      g.circle(0, centerY, 4.5);
+      g.fill();
+    }
+  }
+
   private createSidebarIcons(halfW: number, halfH: number): void {
     const sidebar = this.createNode('Sidebar', new Vec3(-halfW + 62, halfH * 0.2, 0), this.node);
     this.ensureTransform(sidebar, 84, 330);
@@ -482,9 +585,9 @@ export class HomeRoot extends Component {
     const progress = ProfileManager.getProfile().levelProgress;
     const palette = this.getPalette();
     const unlockedItems = [
-      { id: 'daily', name: '签 到', border: palette.gold, bg: '#1D2A3B', unlockAt: 3 },
-      { id: 'rank', name: '排 行', border: palette.cyan, bg: '#1E3A8A', unlockAt: 8 },
-      { id: 'achieve', name: '成 就', border: palette.blue, bg: '#13233F', unlockAt: 5 }
+      { id: 'daily', name: '签 到', border: palette.gold, bg: palette.panelSoft, unlockAt: 3 },
+      { id: 'rank', name: '排 行', border: palette.cyan, bg: palette.panelSoft, unlockAt: 8 },
+      { id: 'achieve', name: '成 就', border: palette.blue, bg: palette.panelSoft, unlockAt: 5 }
     ].filter((item) => progress >= item.unlockAt);
     const spacing = Math.min(126, halfH * 0.16);
     const items = unlockedItems.map((item, index) => ({
@@ -515,55 +618,7 @@ export class HomeRoot extends Component {
       g.circle(0, 10, 26);
       g.stroke();
 
-      // Draw custom graphics on the circular badge instead of Emoji
-      const centerY = 10;
-      if (item.id === 'daily') {
-        g.fillColor = this.hex('#FF4D4D');
-        g.strokeColor = Color.WHITE;
-        g.lineWidth = 1.6;
-        g.roundRect(-15, centerY - 14, 30, 24, 4);
-        g.fill();
-        g.stroke();
-        
-        g.fillColor = this.hex('#FFD700');
-        g.fillRect(-3, centerY - 14, 6, 24);
-        g.fillRect(-15, centerY - 5, 30, 6);
-        
-        g.strokeColor = this.hex('#FFD700');
-        g.circle(-5, centerY + 13, 5);
-        g.stroke();
-        g.circle(5, centerY + 13, 5);
-        g.stroke();
-      } else if (item.id === 'rank') {
-        g.fillColor = this.hex('#FFD700');
-        g.strokeColor = Color.WHITE;
-        g.lineWidth = 1.6;
-        
-        // Trophy cup
-        g.moveTo(-11, centerY + 11);
-        g.lineTo(11, centerY + 11);
-        g.lineTo(7, centerY - 3);
-        g.lineTo(-7, centerY - 3);
-        g.close();
-        g.fill();
-        g.stroke();
-        
-        // Stem
-        g.fillRect(-2, centerY - 8, 4, 5);
-        // Base
-        g.fillRect(-9, centerY - 11, 18, 3);
-      } else if (item.id === 'achieve') {
-        g.fillColor = this.hex('#C084FC');
-        g.strokeColor = Color.WHITE;
-        g.lineWidth = 1.6;
-        g.circle(0, centerY + 2, 13);
-        g.fill();
-        g.stroke();
-
-        g.fillColor = this.hex('#FFD700');
-        g.circle(0, centerY + 2, 6);
-        g.fill();
-      }
+      this.drawSidebarGlyph(g, item.id, item.border, palette);
 
       // Clean single-line label below the badge
       this.createLabel(btn, 'Label', new Vec3(0, -32, 0), item.name.replace(' ', ''), 15, item.border, 78, 24);
@@ -607,9 +662,9 @@ export class HomeRoot extends Component {
     this.ensureTransform(dialog, dialogW, dialogH);
     const dg = dialog.addComponent(Graphics);
     this.drawGlassPanel(dg, dialogW, dialogH, 30, palette.cyan, palette.panel, 228, 2.0);
-    dialog.on(Node.EventType.TOUCH_END, (event: EventTouch) => { event.propagationStopped = true; });
+    this.blockTouchThrough(dialog);
 
-    this.createLabel(dialog, 'Title', new Vec3(0, halfDialogH - 48, 1), '🏆 微信好友排行榜', 27, palette.text, 430, 42);
+    this.createLabel(dialog, 'Title', new Vec3(0, halfDialogH - 48, 1), '微信好友排行榜', 27, palette.text, 430, 42);
     this.createLabel(dialog, 'Self', new Vec3(0, halfDialogH - 92, 1), `你 · 流光开拓者    ${profile.levelProgress}关 · ${profile.totalStars || 0}★`, 17, '#FDE68A', 520, 28);
 
     const closeBtn = this.createNode('CloseBtn', new Vec3(260, halfDialogH - 48, 1), dialog);
@@ -625,10 +680,35 @@ export class HomeRoot extends Component {
     this.addClick(closeBtn, () => this.closePopup());
 
     if (WeChatService.isWeChatMiniGame()) {
+      const loading = this.createNode('FriendRankLoadingState', new Vec3(0, 20, 1), dialog);
+      this.ensureTransform(loading, 540, 250);
+      const lg = loading.addComponent(Graphics);
+      this.drawGlassPanel(lg, 540, 250, 24, palette.cyan, palette.panelSoft, 128, 1.2);
+      lg.strokeColor = this.colorWithAlpha(palette.cyan, 130);
+      lg.lineWidth = 1.8;
+      lg.circle(0, 62, 38);
+      lg.stroke();
+      lg.strokeColor = this.colorWithAlpha(palette.gold, 180);
+      lg.lineWidth = 2.0;
+      lg.moveTo(-18, 62);
+      lg.lineTo(-6, 50);
+      lg.lineTo(7, 74);
+      lg.lineTo(20, 54);
+      lg.stroke();
+      this.createLabel(loading, 'Title', new Vec3(0, 6, 1), '正在同步好友榜...', 22, palette.text, 420, 34);
+      this.createLabel(loading, 'Sub', new Vec3(0, -28, 1), '若暂无好友上榜，邀请好友点亮第一束流光', 16, palette.muted, 500, 28);
       const container = this.createNode('SubContextContainer', new Vec3(0, 20, 1), dialog);
       this.ensureTransform(container, 540, 250);
+      this.blockTouchThrough(container);
       this.subContextContainer = container;
       WeChatService.showFriendLeaderboard(container);
+      const touchShield = this.createNode('RankTouchShield', new Vec3(0, 20, 4), dialog);
+      this.ensureTransform(touchShield, 540, 250);
+      const shieldG = touchShield.addComponent(Graphics);
+      shieldG.fillColor = new Color(255, 255, 255, 1);
+      shieldG.rect(-270, -125, 540, 250);
+      shieldG.fill();
+      this.blockTouchThrough(touchShield);
     } else {
       const empty = this.createNode('EmptyState', new Vec3(0, 14, 1), dialog);
       this.ensureTransform(empty, 520, 180);
@@ -640,7 +720,13 @@ export class HomeRoot extends Component {
       eg.lineWidth = 1.8;
       eg.circle(0, 48, 42);
       eg.stroke();
-      this.createLabel(empty, 'Icon', new Vec3(0, 49, 1), '💬', 28, '#FFFFFF', 64, 44);
+      eg.strokeColor = this.colorWithAlpha('#FFFFFF', 190);
+      eg.lineWidth = 2;
+      eg.moveTo(-16, 50);
+      eg.lineTo(-5, 38);
+      eg.lineTo(8, 62);
+      eg.lineTo(20, 43);
+      eg.stroke();
       this.createLabel(empty, 'Title', new Vec3(0, -10, 1), '暂无好友成绩', 23, palette.text, 420, 34);
       this.createLabel(empty, 'Sub', new Vec3(0, -42, 1), '邀请好友来比通关数，双方都能获得晶核', 16, palette.muted, 500, 28);
     }
@@ -655,7 +741,7 @@ export class HomeRoot extends Component {
     cg.lineWidth = 2.2;
     cg.roundRect(-215, -32, 430, 64, 28);
     cg.stroke();
-    this.createLabel(cta, 'Text', new Vec3(0, 1, 1), '💬 邀好友冲榜，双方得晶核', 20, '#FFFFFF', 390, 38);
+    this.createLabel(cta, 'Text', new Vec3(0, 1, 1), '邀好友冲榜，双方得晶核', 20, '#FFFFFF', 390, 38);
     this.addClick(cta, () => {
       if (typeof wx !== 'undefined' && wx.shareAppMessage) {
         wx.shareAppMessage({ title: '我在《浮岛流光》向你发起好友冲榜挑战，敢来比比谁通关更多吗？' });
@@ -985,8 +1071,11 @@ export class HomeRoot extends Component {
     dg.fill();
     const todayKey = CloudGameService.getTodayKey();
     const hasPlayedDaily = profile.dailyChallengeDate === todayKey && (profile.dailyChallengeBest || 0) > 0;
-    this.createLabel(dailyCard, 'Title', new Vec3(-18, 1, 0), '今日 30 秒光路挑战', 18, '#FFFFFF', 238, 30);
-    this.createLabel(dailyCard, 'Sub', new Vec3(106, 1, 0), hasPlayedDaily ? '看排名' : '晒战绩', 14, '#FDE047', 70, 24);
+    const dailySub = hasPlayedDaily
+      ? `${profile.dailyChallengeBestMoves || '--'}步 · 看榜`
+      : '同题比步';
+    this.createLabel(dailyCard, 'Title', new Vec3(-34, 1, 0), '每日一束光', 19, '#FFFFFF', 210, 30);
+    this.createLabel(dailyCard, 'Sub', new Vec3(104, 1, 0), dailySub, 14, '#FDE047', 104, 24);
     const rankBtn = this.createNode('DailyRankBtn', new Vec3(168, 0, 1), dailyCard);
     this.ensureTransform(rankBtn, 44, 38);
     const rg = rankBtn.addComponent(Graphics);
@@ -1064,9 +1153,9 @@ export class HomeRoot extends Component {
   }
 
   private createBottomFeatureRow(halfH: number): void {
-    // 收敛商业化入口：首屏只保留福利中心 + 主题定制，减少新手压迫感。
+    // 软著截图需要能在首页直接打开健康忠告和全部形象/系统图鉴。
     const pillsRoot = this.createNode('FeatureRowRoot', new Vec3(0, -halfH + 112, 0), this.node);
-    this.ensureTransform(pillsRoot, 540, 62);
+    this.ensureTransform(pillsRoot, 620, 62);
 
     const palette = this.getPalette();
     const profile = ProfileManager.getProfile();
@@ -1076,12 +1165,38 @@ export class HomeRoot extends Component {
     const hasShareReward = profile.lastShareRewardDate !== CloudGameService.getTodayKey();
     const shouldShowWelfareDot = hasDailyReward || hasShareReward || hasAchievementReward || profile.energy < 10;
 
-    const items = welfareUnlocked ? [
-      { id: 'welfare', title: '福利', sub: hasDailyReward ? '今日可领' : (profile.energy < 10 ? '补能' : '奖励'), x: -126, w: 224, bg: palette.panel, border: palette.gold, col: '#FDE68A', dot: shouldShowWelfareDot },
-      { id: 'theme', title: '主题', sub: '画质 / 换色', x: 126, w: 224, bg: palette.panelSoft, border: this.currentTheme === 2 ? palette.violet : palette.blue, col: this.currentTheme === 2 ? '#FFF8E8' : '#DBEAFE', dot: false }
+    const themeSub = this.getCurrentThemeName();
+    const canUnlockTheme = (!ProfileManager.isThemeUnlocked(1) && profile.diamonds >= 300) ||
+      (!ProfileManager.isThemeUnlocked(2) && profile.diamonds >= 500);
+    type FeatureItem = {
+      id: 'welfare' | 'health' | 'gallery' | 'theme';
+      title: string;
+      sub: string;
+      x: number;
+      w: number;
+      bg: string;
+      border: string;
+      col: string;
+      dot: boolean;
+    };
+    const itemW = welfareUnlocked ? 132 : 168;
+    const spacing = welfareUnlocked ? 150 : 188;
+    const itemXs = welfareUnlocked ? [-225, -75, 75, 225] : [-188, 0, 188];
+    const seedItems: Omit<FeatureItem, 'x' | 'w'>[] = welfareUnlocked ? [
+      { id: 'welfare', title: '福利', sub: hasDailyReward ? '今日可领' : (profile.energy < 10 ? '补能' : '奖励'), bg: palette.panel, border: palette.gold, col: '#FDE68A', dot: shouldShowWelfareDot },
+      { id: 'health', title: '健康', sub: '忠告', bg: palette.panelSoft, border: '#6EE7B7', col: '#BBF7D0', dot: !ProfileManager.isHealthNoticeAccepted() },
+      { id: 'gallery', title: '图鉴', sub: '角色系统', bg: palette.panelSoft, border: palette.blue, col: '#DBEAFE', dot: false },
+      { id: 'theme', title: '主题', sub: themeSub, bg: palette.panelSoft, border: this.currentTheme === 2 ? palette.gold : palette.cyan, col: this.currentTheme === 2 ? '#FFF8E8' : '#DBEAFE', dot: canUnlockTheme },
     ] : [
-      { id: 'theme', title: '主题', sub: '画质 / 换色', x: 0, w: 224, bg: palette.panelSoft, border: this.currentTheme === 2 ? palette.violet : palette.blue, col: this.currentTheme === 2 ? '#FFF8E8' : '#DBEAFE', dot: false }
+      { id: 'health', title: '健康', sub: '忠告', bg: palette.panelSoft, border: '#6EE7B7', col: '#BBF7D0', dot: !ProfileManager.isHealthNoticeAccepted() },
+      { id: 'gallery', title: '图鉴', sub: '角色系统', bg: palette.panelSoft, border: palette.blue, col: '#DBEAFE', dot: false },
+      { id: 'theme', title: '主题', sub: themeSub, bg: palette.panelSoft, border: this.currentTheme === 2 ? palette.gold : palette.cyan, col: this.currentTheme === 2 ? '#FFF8E8' : '#DBEAFE', dot: canUnlockTheme },
     ];
+    const items: FeatureItem[] = seedItems.map((item, index) => ({
+      ...item,
+      x: itemXs[index] ?? (index - (seedItems.length - 1) / 2) * spacing,
+      w: itemW,
+    }));
 
     items.forEach((p, idx) => {
       const node = this.createNode(`FeatureMini_${idx}`, new Vec3(p.x, 0, 0), pillsRoot);
@@ -1103,7 +1218,7 @@ export class HomeRoot extends Component {
       g.lineTo(p.w / 2 - 18, 27);
       g.stroke();
 
-      const iconX = -72;
+      const iconX = p.w <= 150 ? -43 : -72;
       if (p.id === 'welfare') {
         g.fillColor = this.hex('#F59E0B');
         g.strokeColor = Color.WHITE;
@@ -1114,6 +1229,29 @@ export class HomeRoot extends Component {
         g.fillColor = this.hex('#FDE047');
         g.fillRect(iconX - 3, -13, 6, 27);
         g.fillRect(iconX - 16, -5, 32, 7);
+      } else if (p.id === 'health') {
+        g.fillColor = this.hex('#10B981');
+        g.strokeColor = Color.WHITE;
+        g.lineWidth = 1.6;
+        g.circle(iconX, 0, 15);
+        g.fill();
+        g.stroke();
+        g.strokeColor = Color.WHITE;
+        g.lineWidth = 4;
+        g.moveTo(iconX - 9, 0);
+        g.lineTo(iconX + 9, 0);
+        g.moveTo(iconX, -9);
+        g.lineTo(iconX, 9);
+        g.stroke();
+      } else if (p.id === 'gallery') {
+        g.fillColor = this.hex('#38BDF8');
+        g.strokeColor = Color.WHITE;
+        g.lineWidth = 1.5;
+        g.circle(iconX - 8, 5, 9);
+        g.circle(iconX + 8, 5, 9);
+        g.circle(iconX, -10, 9);
+        g.fill();
+        g.stroke();
       } else {
         g.fillColor = this.hex('#EC4899');
         g.strokeColor = Color.WHITE;
@@ -1132,18 +1270,29 @@ export class HomeRoot extends Component {
         g.fill();
       }
 
-      this.createLabel(node, 'Title', new Vec3(22, 10, 0), p.title, 17, '#FFFFFF', 124, 24);
-      this.createLabel(node, 'Sub', new Vec3(22, -12, 0), p.sub, 13, p.col, 124, 18);
+      const labelW = p.w - 52;
+      const titleLabel = this.createLabel(node, 'Title', new Vec3(24, 10, 0), p.title, p.w <= 150 ? 16 : 18, '#FFFFFF', labelW, 26);
+      const subLabel = this.createLabel(node, 'Sub', new Vec3(24, -13, 0), p.sub, p.w <= 150 ? 11 : 13, p.col, labelW, 20);
+      titleLabel.overflow = Label.Overflow.NONE;
+      subLabel.overflow = Label.Overflow.NONE;
       if (p.dot) this.createRedDot(node, new Vec3(p.w / 2 - 18, 23, 1));
 
       this.addClick(node, () => {
-      console.log(`[HomeRoot] Clicked bottom feature: ${p.title}`);
-      if (p.id === 'theme') {
-          if (this.onOpenSettingsCallback) this.onOpenSettingsCallback();
+        console.log(`[HomeRoot] Clicked bottom feature: ${p.title}`);
+        if (p.id === 'health') {
+          this.showHealthAdvisoryPopup(true);
           return;
-      }
-      AnalyticsService.track('home_open_welfare');
-      this.showWelfareCenter();
+        }
+        if (p.id === 'gallery') {
+          this.showSystemGalleryPopup();
+          return;
+        }
+        if (p.id === 'theme') {
+          if (this.onOpenSettingsCallback) this.onOpenSettingsCallback('theme');
+          return;
+        }
+        AnalyticsService.track('home_open_welfare');
+        this.showWelfareCenter();
       });
 
       if (p.id === 'welfare' && p.dot && !this.powerSaveMode) {
@@ -1155,6 +1304,185 @@ export class HomeRoot extends Component {
           .start();
       }
     });
+  }
+
+  private showHealthAdvisoryPopup(manual: boolean): void {
+    if (!this.beginExclusivePopup() || !this.popupRoot) return;
+
+    const palette = this.getPalette();
+    this.createPopupOverlay(this.popupRoot, () => this.closePopup(), manual ? 148 : 176);
+
+    const dialog = this.createNode('HealthAdvisoryDialog', new Vec3(0, -6, 0), this.popupRoot);
+    this.ensureTransform(dialog, 620, 520);
+    const g = dialog.addComponent(Graphics);
+    this.drawGlassPanel(g, 620, 520, 32, '#6EE7B7', palette.panel, 235, 2.4);
+    dialog.on(Node.EventType.TOUCH_END, (event: EventTouch) => {
+      event.propagationStopped = true;
+    });
+
+    this.createLabel(dialog, 'Title', new Vec3(0, 210, 1), '游戏健康忠告', 30, '#BBF7D0', 420, 44);
+    this.createLabel(dialog, 'Sub', new Vec3(0, 174, 1), '抵制不良游戏，拒绝盗版游戏。注意自我保护，谨防受骗上当。', 17, palette.text, 560, 28);
+
+    const lines = [
+      '适度游戏益脑，沉迷游戏伤身。请合理安排时间，享受健康生活。',
+      '本游戏为休闲益智小游戏，建议每次连续体验不超过 30 分钟。',
+      '未成年人应在监护人指导下使用，并遵守当地网络游戏相关规定。',
+      '如在移动、乘车或光线较暗环境中游玩，请注意安全并保护视力。',
+    ];
+
+    lines.forEach((text, index) => {
+      const row = this.createNode(`HealthLine_${index}`, new Vec3(0, 104 - index * 66, 1), dialog);
+      this.ensureTransform(row, 550, 54);
+      const rg = row.addComponent(Graphics);
+      rg.fillColor = this.colorWithAlpha(index === 0 ? '#064E3B' : palette.panelSoft, index === 0 ? 225 : 190);
+      rg.roundRect(-275, -27, 550, 54, 18);
+      rg.fill();
+      rg.strokeColor = this.colorWithAlpha(index === 0 ? '#6EE7B7' : '#334155', index === 0 ? 210 : 130);
+      rg.lineWidth = index === 0 ? 2.0 : 1.2;
+      rg.stroke();
+      this.createLabel(row, 'Index', new Vec3(-242, 0, 1), `${index + 1}`, 18, '#BBF7D0', 36, 30);
+      this.createLabel(row, 'Text', new Vec3(22, 0, 1), text, 16, '#EAF7FF', 478, 38);
+    });
+
+    const heroBtn = this.createNode('AcceptHealthBtn', new Vec3(0, -208, 1), dialog);
+    this.ensureTransform(heroBtn, 430, 66);
+    const hg = heroBtn.addComponent(Graphics);
+    hg.fillColor = this.hex('#10B981');
+    hg.roundRect(-215, -33, 430, 66, 28);
+    hg.fill();
+    hg.strokeColor = this.hex('#BBF7D0');
+    hg.lineWidth = 2.4;
+    hg.stroke();
+    this.createLabel(heroBtn, 'Text', new Vec3(0, 1, 1), manual ? '返 回 首 页' : '我 已 知 晓，健 康 开 始', 20, '#FFFFFF', 380, 40);
+    this.addClick(heroBtn, () => {
+      ProfileManager.setHealthNoticeAccepted(true);
+      this.closePopup();
+      if (!manual) this.rebuildUI();
+    });
+
+    this.animatePopup(dialog);
+  }
+
+  private showSystemGalleryPopup(): void {
+    if (!this.beginExclusivePopup() || !this.popupRoot) return;
+
+    const palette = this.getPalette();
+    this.createPopupOverlay(this.popupRoot, () => this.closePopup(), 148);
+
+    const dialog = this.createNode('SystemGalleryDialog', new Vec3(0, -8, 0), this.popupRoot);
+    this.ensureTransform(dialog, 650, 680);
+    const g = dialog.addComponent(Graphics);
+    this.drawGlassPanel(g, 650, 680, 34, palette.blue, palette.panel, 235, 2.4);
+    dialog.on(Node.EventType.TOUCH_END, (event: EventTouch) => {
+      event.propagationStopped = true;
+    });
+
+    this.createLabel(dialog, 'Title', new Vec3(0, 292, 1), '角色形象与系统图鉴', 29, palette.text, 460, 42);
+    this.createLabel(dialog, 'Sub', new Vec3(0, 258, 1), '软著材料截图页：集中展示所有可体验形象、装扮与水晶系统。', 15, palette.gold, 590, 24);
+
+    const closeBtn = this.createNode('CloseBtn', new Vec3(286, 292, 1), dialog);
+    this.ensureTransform(closeBtn, 42, 42);
+    const closeG = closeBtn.addComponent(Graphics);
+    closeG.fillColor = this.colorWithAlpha(palette.panelSoft, 230);
+    closeG.circle(0, 0, 18);
+    closeG.fill();
+    closeG.strokeColor = this.colorWithAlpha(palette.blue, 180);
+    closeG.lineWidth = 1.6;
+    closeG.stroke();
+    this.createLabel(closeBtn, 'Icon', new Vec3(0, 1, 1), 'X', 16, palette.text, 32, 32);
+    this.addClick(closeBtn, () => this.closePopup());
+
+    this.createLabel(dialog, 'RunnerTitle', new Vec3(-220, 216, 1), '一、主角形象', 19, '#BBF7D0', 180, 28);
+    const runners = [
+      { name: '默认流光', color: '#F8FEFF', desc: '初始水晶球' },
+      { name: '光猫', color: '#F9A8D4', desc: '好友助攻解锁' },
+      { name: '纸飞机', color: '#BAE6FD', desc: '短时挑战解锁' },
+    ];
+    runners.forEach((item, index) => {
+      const x = -208 + index * 208;
+      const card = this.createNode(`RunnerCard_${index}`, new Vec3(x, 166, 1), dialog);
+      this.ensureTransform(card, 182, 84);
+      const cg = card.addComponent(Graphics);
+      cg.fillColor = this.colorWithAlpha(palette.panelSoft, 205);
+      cg.roundRect(-91, -42, 182, 84, 20);
+      cg.fill();
+      cg.strokeColor = this.colorWithAlpha(item.color, 210);
+      cg.lineWidth = 1.8;
+      cg.stroke();
+      const body = this.hex(item.color);
+      cg.fillColor = new Color(body.r, body.g, body.b, 70);
+      cg.circle(-55, 10, 25);
+      cg.fill();
+      cg.fillColor = new Color(body.r, body.g, body.b, 225);
+      cg.circle(-55, 10, 15);
+      cg.fill();
+      cg.fillColor = this.hex('#FFFFFF');
+      cg.circle(-55, 10, 7);
+      cg.fill();
+      this.createLabel(card, 'Name', new Vec3(24, 13, 1), item.name, 17, '#FFFFFF', 100, 24);
+      this.createLabel(card, 'Desc', new Vec3(24, -13, 1), item.desc, 12, palette.muted, 110, 20);
+    });
+
+    this.createLabel(dialog, 'TrailTitle', new Vec3(-220, 96, 1), '二、光轨与浮岛装扮', 19, '#BBF7D0', 230, 28);
+    const cosmetics = [
+      { name: '默认光轨', color: '#F8FEFF' },
+      { name: '极光光轨', color: '#67E8F9' },
+      { name: '樱花光轨', color: '#FDA4AF' },
+      { name: '霓虹光轨', color: '#C084FC' },
+      { name: '灯塔摆件', color: '#FDE047' },
+      { name: '咖啡馆摆件', color: '#F59E0B' },
+      { name: '星核树摆件', color: '#34D399' },
+    ];
+    cosmetics.forEach((item, index) => {
+      const col = index % 4;
+      const row = Math.floor(index / 4);
+      const chip = this.createNode(`Cosmetic_${index}`, new Vec3(-234 + col * 156, 54 - row * 42, 1), dialog);
+      this.ensureTransform(chip, 138, 32);
+      const cg = chip.addComponent(Graphics);
+      cg.fillColor = this.colorWithAlpha(palette.panelSoft, 200);
+      cg.roundRect(-69, -16, 138, 32, 14);
+      cg.fill();
+      cg.strokeColor = this.colorWithAlpha(item.color, 190);
+      cg.lineWidth = 1.3;
+      cg.stroke();
+      cg.fillColor = this.hex(item.color);
+      cg.circle(-50, 0, 7);
+      cg.fill();
+      this.createLabel(chip, 'Text', new Vec3(16, 0, 1), item.name, 13, '#EAF7FF', 100, 22);
+    });
+
+    this.createLabel(dialog, 'CrystalTitle', new Vec3(-220, -34, 1), '三、可体验水晶系统', 19, '#BBF7D0', 230, 28);
+    const crystals = [
+      ['直线水晶', '#06B6D4'], ['折角镜', '#10B981'], ['十字水晶', '#60A5FA'], ['崩塌晶体', '#F59E0B'],
+      ['加速晶体', '#F472B6'], ['镜像水晶', '#C084FC'], ['生长水晶', '#84CC16'], ['跃迁水晶', '#FB7185'],
+      ['黑洞水晶', '#F97316'], ['分光水晶', '#FACC15'], ['红色染晶', '#EF4444'], ['蓝色染晶', '#3B82F6'],
+      ['红色能量门', '#EF4444'], ['蓝色能量门', '#3B82F6'], ['时间水晶', '#22D3EE'], ['星光水晶', '#FDE047'],
+      ['刷新水晶', '#34D399'], ['万能水晶', '#FDE68A'],
+    ];
+    crystals.forEach(([name, color], index) => {
+      const col = index % 3;
+      const row = Math.floor(index / 3);
+      const chip = this.createNode(`Crystal_${index}`, new Vec3(-202 + col * 202, -76 - row * 35, 1), dialog);
+      this.ensureTransform(chip, 178, 28);
+      const cg = chip.addComponent(Graphics);
+      cg.fillColor = this.colorWithAlpha('#0F172A', 218);
+      cg.roundRect(-89, -14, 178, 28, 12);
+      cg.fill();
+      cg.strokeColor = this.colorWithAlpha(color, 180);
+      cg.lineWidth = 1.2;
+      cg.stroke();
+      cg.fillColor = this.hex(color);
+      cg.moveTo(-70, 9);
+      cg.lineTo(-58, 0);
+      cg.lineTo(-70, -9);
+      cg.lineTo(-82, 0);
+      cg.close();
+      cg.fill();
+      this.createLabel(chip, 'Text', new Vec3(16, 0, 1), name, 13, '#EAF7FF', 128, 20);
+    });
+
+    this.createLabel(dialog, 'Footer', new Vec3(0, -304, 1), '截图建议：本页可作为“所有角色形象、全部系统与主要特点”的集中说明图。', 14, palette.gold, 600, 24);
+    this.animatePopup(dialog);
   }
 
   private showDailyLeaderboard(refreshCloud = true): void {
@@ -1190,8 +1518,11 @@ export class HomeRoot extends Component {
     this.drawGlassPanel(g, 600, 500, 30, '#34D399', palette.panel, 228, 2.0);
     dialog.on(Node.EventType.TOUCH_END, (event: EventTouch) => { event.propagationStopped = true; });
 
-    this.createLabel(dialog, 'Title', new Vec3(0, 202, 0), '今日光路 · 好友榜', 27, palette.text, 420, 42);
-    this.createLabel(dialog, 'Hint', new Vec3(0, 168, 0), result.hintText, 17, '#FDE047', 520, 30);
+    const selfMoves = profile.dailyChallengeDate === dateKey && profile.dailyChallengeBestMoves
+      ? `你今天 ${profile.dailyChallengeBestMoves} 步 · ${result.hintText}`
+      : '同一道题，同一副手牌，比谁更少步';
+    this.createLabel(dialog, 'Title', new Vec3(0, 202, 0), '每日一束光 · 好友榜', 27, palette.text, 420, 42);
+    this.createLabel(dialog, 'Hint', new Vec3(0, 168, 0), selfMoves, 17, '#FDE047', 540, 30);
 
     result.entries.slice(0, 6).forEach((entry, idx) => {
       const y = 108 - idx * 52;
@@ -1223,9 +1554,15 @@ export class HomeRoot extends Component {
       eg.lineWidth = 1.8;
       eg.circle(0, 35, 38);
       eg.stroke();
-      this.createLabel(empty, 'Icon', new Vec3(0, 36, 1), '💬', 28, '#FFFFFF', 60, 44);
+      eg.strokeColor = this.colorWithAlpha('#FFFFFF', 190);
+      eg.lineWidth = 2;
+      eg.moveTo(-14, 35);
+      eg.lineTo(-3, 24);
+      eg.lineTo(9, 48);
+      eg.lineTo(20, 30);
+      eg.stroke();
       this.createLabel(empty, 'Title', new Vec3(0, -18, 1), '暂无好友成绩', 22, palette.text, 420, 32);
-      this.createLabel(empty, 'Sub', new Vec3(0, -48, 1), '完成挑战后邀请好友来比一局，双方都能拿晶核', 16, palette.muted, 500, 28);
+      this.createLabel(empty, 'Sub', new Vec3(0, -48, 1), '完成后发给好友：同题比步数，少一步就有炫耀点', 16, palette.muted, 500, 28);
     }
 
     const cta = this.createNode('DailyChallengeCta', new Vec3(0, -188, 0), dialog);
@@ -1237,7 +1574,7 @@ export class HomeRoot extends Component {
     cg.strokeColor = this.hex('#86EFAC');
     cg.lineWidth = 2.4;
     cg.stroke();
-    this.createLabel(cta, 'Text', new Vec3(0, 1, 0), result.selfRank > 0 ? '再挑战冲榜，赢晶核' : '立即挑战，解锁排名', 21, '#FFFFFF', 360, 38);
+    this.createLabel(cta, 'Text', new Vec3(0, 1, 0), result.selfRank > 0 ? '再接一束，少一步上榜' : '开始今日这一束光', 21, '#FFFFFF', 360, 38);
     this.addClick(cta, () => {
       this.closePopup();
       if (this.onStartDailyCallback) this.onStartDailyCallback();
@@ -1261,8 +1598,8 @@ export class HomeRoot extends Component {
     this.drawGlassPanel(dg, 620, 510, 32, '#FDE047', palette.panel, 230, 2.2);
     dialog.on(Node.EventType.TOUCH_END, (e: EventTouch) => { e.propagationStopped = true; });
 
-    this.createLabel(dialog, 'Title', new Vec3(0, 208, 0), '🎁 福利中心', 27, palette.text, 420, 42);
-    this.createLabel(dialog, 'Sub', new Vec3(0, 174, 0), '奖励、补能、强化都收在这里，先玩再领不打扰', 16, '#FDE68A', 520, 28);
+    this.createLabel(dialog, 'Title', new Vec3(0, 208, 0), '福利中心', 27, palette.text, 420, 42);
+    this.createLabel(dialog, 'Sub', new Vec3(0, 174, 0), '奖励、补能、强化都收在这里，先玩再领不打扰', 16, palette.gold, 520, 28);
 
     const closeBtn = this.createNode('CloseBtn', new Vec3(270, 208, 0), dialog);
     this.ensureTransform(closeBtn, 42, 42);
@@ -1277,22 +1614,29 @@ export class HomeRoot extends Component {
     this.addClick(closeBtn, () => { this.closePopup(); });
 
     const cards = [
-      { id: 'daily', title: signedInToday ? '今日已领' : '每日签到', sub: signedInToday ? '明天继续连签' : '今日钻石可领', action: signedInToday ? '已领' : '领取', icon: '礼', y: 115, border: signedInToday ? '#64748B' : palette.gold, bg: signedInToday ? palette.panelSoft : '#1D2A3B', dot: !signedInToday },
-      { id: 'share', title: '分享好友领奖', sub: '每日首分享 +60', action: '分享', icon: '享', y: 45, border: '#86EFAC', bg: (profile.lastShareRewardDate !== CloudGameService.getTodayKey()) ? '#064E3B' : palette.panelSoft, dot: (profile.lastShareRewardDate !== CloudGameService.getTodayKey()) },
-      { id: 'energy', title: `时空能量 ${profile.energy}/10`, sub: profile.energy >= 10 ? '能量已满' : '50钻回满', action: profile.energy >= 10 ? '已满' : '补满', icon: '电', y: -25, border: profile.energy >= 10 ? '#38BDF8' : palette.gold, bg: profile.energy >= 10 ? palette.panelSoft : '#1D2A3B', dot: profile.energy < 10 },
-      { id: 'achieve', title: hasAchievementReward ? '成就奖励可领' : '成就进度', sub: hasAchievementReward ? '初次启航待领' : '查看目标奖励', action: '查看', icon: '奖', y: -165, border: hasAchievementReward ? palette.gold : palette.blue, bg: hasAchievementReward ? '#1D2A3B' : palette.panelSoft, dot: hasAchievementReward },
-    ].filter((card) => card.id !== 'achieve' || profile.levelProgress >= 5);
+      { id: 'daily', title: signedInToday ? '今日已领' : '每日签到', sub: signedInToday ? '明天继续连签' : '今日钻石可领', action: signedInToday ? '已领' : '领取', icon: '礼', y: 115, border: signedInToday ? '#64748B' : palette.gold, bg: signedInToday ? palette.panelSoft : '#17233A', dot: !signedInToday },
+      { id: 'share', title: '分享好友领奖', sub: '每日首分享 +60', action: '分享', icon: '享', y: 45, border: '#6EE7B7', bg: palette.panelSoft, dot: (profile.lastShareRewardDate !== CloudGameService.getTodayKey()) },
+      { id: 'energy', title: `时空能量 ${profile.energy}/10`, sub: profile.energy >= 10 ? '能量已满' : '50钻回满', action: profile.energy >= 10 ? '已满' : '补满', icon: '电', y: -25, border: profile.energy >= 10 ? '#38BDF8' : palette.gold, bg: palette.panelSoft, dot: profile.energy < 10 },
+      { id: 'achieve', title: hasAchievementReward ? '成就奖励可领' : '成就进度', sub: hasAchievementReward ? '初次启航待领' : '查看目标奖励', action: '查看', icon: '奖', y: -165, border: hasAchievementReward ? palette.gold : palette.blue, bg: palette.panelSoft, dot: hasAchievementReward },
+    ]
+      .filter((card) => card.id !== 'achieve' || profile.levelProgress >= 5)
+      .sort((a, b) => {
+        if (profile.energy < 10 && a.id === 'energy') return -1;
+        if (profile.energy < 10 && b.id === 'energy') return 1;
+        return 0;
+      })
+      .map((card, idx) => ({ ...card, y: 115 - idx * 70 }));
 
     cards.forEach((card) => {
       const row = this.createNode(`Welfare_${card.id}`, new Vec3(0, card.y, 0), dialog);
       this.ensureTransform(row, 540, 58);
       const rg = row.addComponent(Graphics);
       rg.fillColor = this.hex(card.bg);
-      ((rg.fillColor) as any).a = card.dot ? 230 : 188;
+      ((rg.fillColor) as any).a = card.dot ? 222 : 174;
       rg.roundRect(-270, -29, 540, 58, 20);
       rg.fill();
       rg.strokeColor = this.hex(card.border);
-      rg.lineWidth = card.dot ? 2.6 : 1.6;
+      rg.lineWidth = card.dot ? 2.2 : 1.3;
       rg.stroke();
 
       rg.fillColor = this.hex(card.border);
@@ -1369,7 +1713,7 @@ export class HomeRoot extends Component {
       event.propagationStopped = true;
     });
 
-    this.createLabel(dialog, 'Title', new Vec3(0, halfDialogH - 48, 1), '🎁 每日签到奖励', 28, palette.text, 430, 42);
+    this.createLabel(dialog, 'Title', new Vec3(0, halfDialogH - 48, 1), '每日签到奖励', 28, palette.text, 430, 42);
     this.createLabel(dialog, 'Hint', new Vec3(0, halfDialogH - 84, 1), signedInToday ? '今日已领取，明天继续点亮浮岛' : '今日可领，连续签到解锁更高奖励', 16, signedInToday ? palette.muted : '#FDE68A', 520, 26);
 
     const closeBtn = this.createNode('CloseBtn', new Vec3(270, halfDialogH - 48, 1), dialog);
@@ -1395,25 +1739,26 @@ export class HomeRoot extends Component {
       const card = this.createNode(`SigninDay_${day.day}`, new Vec3(startX + idx * (cardW + gap), 74, 1), dialog);
       this.ensureTransform(card, cardW, cardH);
       const cg = card.addComponent(Graphics);
-      const fill = isToday ? '#1D2A3B' : (isClaimed ? '#0F172A' : palette.panelSoft);
-      const border = isToday ? palette.gold : (isClaimed ? '#38BDF8' : '#334155');
+      const isGrandPrize = !!day.decorId;
+      const fill = isToday ? '#1D2A3B' : (isGrandPrize ? '#1D2A3B' : (isClaimed ? '#0F172A' : palette.panelSoft));
+      const border = isToday || isGrandPrize ? palette.gold : (isClaimed ? '#38BDF8' : '#334155');
       cg.fillColor = this.colorWithAlpha(fill, isToday ? 245 : 196);
       cg.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 18);
       cg.fill();
-      cg.strokeColor = this.colorWithAlpha(border, isToday ? 230 : 130);
-      cg.lineWidth = isToday ? 2.8 : 1.4;
+      cg.strokeColor = this.colorWithAlpha(border, isToday || isGrandPrize ? 230 : 130);
+      cg.lineWidth = isToday ? 2.8 : (isGrandPrize ? 2.2 : 1.4);
       cg.stroke();
-      cg.fillColor = this.colorWithAlpha(isToday ? palette.gold : (isClaimed ? '#38BDF8' : '#475569'), isToday ? 255 : 210);
+      cg.fillColor = this.colorWithAlpha(isToday || isGrandPrize ? palette.gold : (isClaimed ? '#38BDF8' : '#475569'), isToday ? 255 : 210);
       cg.circle(0, 24, 18);
       cg.fill();
-      this.createLabel(card, 'Day', new Vec3(0, 24, 1), `${day.day}`, 17, isToday ? '#111827' : '#FFFFFF', 34, 30);
+      this.createLabel(card, 'Day', new Vec3(0, 24, 1), isGrandPrize ? '★' : `${day.day}`, 17, isToday || isGrandPrize ? '#111827' : '#FFFFFF', 34, 30);
       this.createLabel(card, 'Reward', new Vec3(0, -13, 1), day.short, 14, isToday ? '#FFFBEB' : (isClaimed ? '#A5F3FC' : palette.muted), 66, 22);
       this.createLabel(card, 'State', new Vec3(0, -39, 1), isClaimed ? '已领' : (isToday ? '可领' : (isNext ? '明日' : '待解锁')), 12, isToday ? palette.gold : '#64748B', 66, 20);
     });
 
     const currentReward = daysConfig[nextDayIndex];
     const rewardText = currentReward.fillEnergy ? '满能量' : `${currentReward.reward} 钻石`;
-    const btnText = signedInToday ? '✨   今 日 已 签 到  (明 日 再 来)' : `✨   立 即 领 取 ${rewardText}`;
+    const btnText = signedInToday ? '今 日 已 签 到  (明 日 再 来)' : `立 即 领 取 ${rewardText}`;
     const btnBgHex = signedInToday ? '#334155' : (this.currentTheme === 2 ? '#1D2A3B' : palette.blue);
 
     const detail = this.createNode('SigninDetail', new Vec3(0, -78, 1), dialog);
@@ -1474,7 +1819,7 @@ export class HomeRoot extends Component {
       }
     });
     const totalUnclaimed = claimableItems.reduce((sum, i) => sum + i.reward, 0);
-    const btnText = totalUnclaimed > 0 ? `🏆   一 键 领 取 (${totalUnclaimed} 💎)` : '🏆   所 有 成 就 已 领 取';
+    const btnText = totalUnclaimed > 0 ? `一 键 领 取 (${totalUnclaimed} 钻石)` : '所 有 成 就 已 领 取';
     const btnBgHex = totalUnclaimed > 0 ? palette.panelSoft : '#1E293B';
     const borderHex = totalUnclaimed > 0 ? '#FDE047' : '#475569';
 
@@ -1486,7 +1831,7 @@ export class HomeRoot extends Component {
     this.drawGlassPanel(dg, 620, 560, 32, borderHex, palette.panel, 230, 2.2);
     dialog.on(Node.EventType.TOUCH_END, (event: EventTouch) => { event.propagationStopped = true; });
 
-    this.createLabel(dialog, 'Title', new Vec3(0, 230, 1), '⭐ 荣誉勋章与成就', 27, palette.text, 430, 42);
+    this.createLabel(dialog, 'Title', new Vec3(0, 230, 1), '荣誉勋章与成就', 27, palette.text, 430, 42);
     this.createLabel(dialog, 'Sub', new Vec3(0, 196, 1), totalUnclaimed > 0 ? '可领取奖励已置顶，点一次全部收下' : '继续通关、收星与挑战，解锁更多晶核奖励', 16, palette.muted, 540, 28);
 
     const closeBtn = this.createNode('CloseBtn', new Vec3(270, 230, 1), dialog);
@@ -1518,7 +1863,20 @@ export class HomeRoot extends Component {
       rg.fillColor = this.colorWithAlpha(border, ach.isClaimable ? 255 : 180);
       rg.circle(-238, 0, 18);
       rg.fill();
-      this.createLabel(row, 'Medal', new Vec3(-238, 1, 1), '🏅', 16, '#111827', 34, 28);
+      rg.strokeColor = this.colorWithAlpha('#111827', 190);
+      rg.lineWidth = 2;
+      const sx = -238;
+      const sy = 1;
+      for (let i = 0; i < 10; i++) {
+        const angle = -Math.PI / 2 + i * Math.PI / 5;
+        const radius = i % 2 === 0 ? 9 : 4;
+        const x = sx + Math.cos(angle) * radius;
+        const y = sy + Math.sin(angle) * radius;
+        if (i === 0) rg.moveTo(x, y);
+        else rg.lineTo(x, y);
+      }
+      rg.close();
+      rg.stroke();
       this.createLabel(row, 'Title', new Vec3(-86, 10, 1), ach.title, 18, palette.text, 240, 24);
       this.createLabel(row, 'Desc', new Vec3(-86, -13, 1), ach.desc, 13, palette.muted, 240, 20);
 

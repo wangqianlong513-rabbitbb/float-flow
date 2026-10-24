@@ -13,12 +13,14 @@ export class SettingsModal extends Component {
   public onPowerSaveChangedCallback?: (enabled: boolean) => void;
 
   private activeTab = 0; // 0: Theme, 1: Gameplay Rules, 2: About
+  private entryMode: 'settings' | 'theme' = 'theme';
   private selectedTheme = ProfileManager.getProfile().selectedTheme || 0; // 0: Icefield, 1: Starport Mist, 2: Corona Dawn
   private powerSaveMode = ProfileManager.isPowerSaveMode();
 
   private dialogNode: Node | null = null;
   private tabsRoot: Node | null = null;
   private contentRoot: Node | null = null;
+  private titleLabel: Label | null = null;
 
   protected onLoad(): void {
     console.log('[FloatFlow] SettingsModal onLoad');
@@ -38,9 +40,9 @@ export class SettingsModal extends Component {
       this.closeModal();
     });
 
-    // 2. Main Glassmorphic Dialog Box (Size: 680 x 540)
+    // 2. Main Glassmorphic Dialog Box (Size: 680 x 500)
     const dialog = this.createNode('DialogBox', new Vec3(0, 0, 0), this.node);
-    this.ensureTransform(dialog, 680, 540);
+    this.ensureTransform(dialog, 680, 500);
     this.dialogNode = dialog;
 
     dialog.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
@@ -52,13 +54,13 @@ export class SettingsModal extends Component {
     // 3. Header & Close Button
     this.createHeader(dialog);
 
-    // 4. Category Tabs (Y = 175)
-    this.tabsRoot = this.createNode('TabsRoot', new Vec3(0, 175, 0), dialog);
+    // 4. Category Tabs (Y = 155)
+    this.tabsRoot = this.createNode('TabsRoot', new Vec3(0, 155, 0), dialog);
     this.ensureTransform(this.tabsRoot, 600, 50);
     this.renderTabs();
 
-    // 5. Dynamic Content Area (Y = -30)
-    this.contentRoot = this.createNode('ContentRoot', new Vec3(0, -30, 0), dialog);
+    // 5. Dynamic Content Area (Y = -42)
+    this.contentRoot = this.createNode('ContentRoot', new Vec3(0, -42, 0), dialog);
     this.ensureTransform(this.contentRoot, 620, 360);
     this.renderContent();
   }
@@ -67,6 +69,14 @@ export class SettingsModal extends Component {
     console.log(`[SettingsModal] Apply Theme Index ${themeIdx}`);
     this.selectedTheme = themeIdx;
     this.updateDialogStyle();
+    if (this.tabsRoot) this.renderTabs();
+    if (this.contentRoot) this.renderContent();
+  }
+
+  public openAs(mode: 'settings' | 'theme'): void {
+    this.entryMode = mode;
+    this.activeTab = mode === 'theme' ? 0 : 1;
+    this.updateHeaderTitle();
     if (this.tabsRoot) this.renderTabs();
     if (this.contentRoot) this.renderContent();
   }
@@ -82,7 +92,7 @@ export class SettingsModal extends Component {
 
     dg.fillColor = this.hex(palette.panel);
     ((dg.fillColor) as ((any)) as any).a = 245;
-    dg.roundRect(-340, -270, 680, 540, 24);
+    dg.roundRect(-340, -250, 680, 500, 24);
     dg.fill();
     dg.strokeColor = this.hex(borderCol);
     dg.lineWidth = 2.5;
@@ -105,9 +115,9 @@ export class SettingsModal extends Component {
   }
 
   private createHeader(parent: Node): void {
-    this.createLabel(parent, 'Title', new Vec3(0, 225, 0), '⚙   设 置 与 帮 助', 30, '#FFFFFF', 400, 44);
+    this.titleLabel = this.createLabel(parent, 'Title', new Vec3(0, 205, 0), this.getHeaderTitle(), 30, '#FFFFFF', 400, 44);
 
-    const closeBtn = this.createNode('CloseBtn', new Vec3(300, 225, 0), parent);
+    const closeBtn = this.createNode('CloseBtn', new Vec3(300, 205, 0), parent);
     this.ensureTransform(closeBtn, 44, 44);
     const cg = closeBtn.addComponent(Graphics);
     cg.fillColor = this.hex('#1E293B');
@@ -122,6 +132,16 @@ export class SettingsModal extends Component {
     this.addClick(closeBtn, () => {
       this.closeModal();
     });
+  }
+
+  private getHeaderTitle(): string {
+    return this.entryMode === 'theme' ? '主 题 馆' : '设 置 与 帮 助';
+  }
+
+  private updateHeaderTitle(): void {
+    if (this.titleLabel) {
+      this.titleLabel.string = this.getHeaderTitle();
+    }
   }
 
   private renderTabs(): void {
@@ -185,12 +205,13 @@ export class SettingsModal extends Component {
   }
 
   private renderThemeTab(parent: Node): void {
-    this.createLabel(parent, 'SubTitle', new Vec3(-200, 140, 0), '✨ 选择宇宙背景主题与配色：', 19, '#93C5FD', 280, 32);
+    const palette = getUiPalette(this.selectedTheme);
+    this.createLabel(parent, 'SubTitle', new Vec3(-200, 140, 0), '选择宇宙背景主题与配色：', 19, palette.cyan, 280, 32);
 
     const themes = [
-      { name: '极光冰原', desc: '默认解锁', top: '#2563EB', side: '#1E3A8A', border: '#00F0FF', cost: 0 },
+      { name: '极光冰原', desc: '默认解锁', top: '#22D3EE', side: '#1E3A8A', border: '#67E8F9', cost: 0 },
       { name: '星港晨雾', desc: '300晶核解锁', top: '#3D7DDE', side: '#13233F', border: '#5DE6FF', cost: 300 },
-      { name: '日冕晨光', desc: '分享/500晶核', top: '#F6A44D', side: '#1D2A3B', border: '#FFD76A', cost: 500 }
+      { name: '日冕晨光', desc: '分享/500晶核', top: '#5DE6D6', side: '#1D2A3B', border: '#FFD76A', cost: 500 }
     ];
 
     const cardXs = [-200, 0, 200];
@@ -216,13 +237,13 @@ export class SettingsModal extends Component {
       this.createLabel(card, 'Desc', new Vec3(0, -49, 0), isUnlocked ? th.desc : `解锁 ${th.cost}💎`, 15, isUnlocked ? '#64748B' : '#FDE047', 150, 22);
 
       if (isSelected) {
-        const badge = this.createNode('Badge', new Vec3(65, 50, 0), card);
-        this.ensureTransform(badge, 26, 26);
+        const badge = this.createNode('Badge', new Vec3(46, 50, 0), card);
+        this.ensureTransform(badge, 64, 24);
         const bg = badge.addComponent(Graphics);
         bg.fillColor = this.hex(th.border);
-        bg.circle(0, 0, 12);
+        bg.roundRect(-32, -12, 64, 24, 12);
         bg.fill();
-        this.createLabel(badge, 'Check', new Vec3(0, 1, 0), '✔', 14, '#000000', 24, 24);
+        this.createLabel(badge, 'Check', new Vec3(0, 1, 0), '已启用', 12, '#06111F', 58, 20);
       } else if (!isUnlocked) {
         const lock = this.createNode('LockBadge', new Vec3(65, 50, 0), card);
         this.ensureTransform(lock, 38, 24);
@@ -288,6 +309,8 @@ export class SettingsModal extends Component {
       if (this.onPowerSaveChangedCallback) this.onPowerSaveChangedCallback(this.powerSaveMode);
       this.renderContent();
     });
+
+    this.createLabel(parent, 'ThemeNote', new Vec3(0, -144, 0), '主题只改变视觉氛围，不影响关卡难度与数值。', 14, palette.muted, 560, 24);
   }
 
   private renderGameplayRulesTab(parent: Node): void {
@@ -302,13 +325,13 @@ export class SettingsModal extends Component {
     g.lineWidth = 2.0;
     g.stroke();
 
-    this.createLabel(rulesBox, 'Title', new Vec3(0, 140, 0), '浮岛浮光 · 玩法速记', 25, '#FDE047', 540, 40);
+    this.createLabel(rulesBox, 'Title', new Vec3(0, 140, 0), '浮岛流光 · 玩法速记', 25, '#FDE047', 540, 40);
 
     const rules = [
       '• 放置接光：拖拽/点击水晶，铺出从起点到终点的光路。',
       '• 子弹时间：流光跑动时拖起手牌会减速，争取补路时间。',
       '• 撤回清盘：撤回退一步，清盘重拿手牌，救回死局。',
-      '• 能量补给：闯关耗 1 能量，不够时到福利中心补满。'
+      '• 健康体验：适度游戏益脑，沉迷游戏伤身。'
     ];
 
     rules.forEach((r, idx) => {
@@ -340,7 +363,7 @@ export class SettingsModal extends Component {
     this.createLabel(aboutBox, 'Sub', new Vec3(0, 35, 0), '创意等距浮岛路线规划与流光引导解谜游戏', 18, '#93C5FD', 520, 30);
     this.createLabel(aboutBox, 'Ver', new Vec3(0, -10, 0), '当前版本: v1.0.0  |  Cocos 引擎开发', 16, '#CBD5E1', 500, 26);
     this.createLabel(aboutBox, 'Team', new Vec3(0, -45, 0), '核心特色: 唯美几何调色板 · 动态光路规划 · 极限子弹救场', 16, '#FDE047', 520, 26);
-    this.createLabel(aboutBox, 'Copy', new Vec3(0, -80, 0), '© 2026 浮岛浮光 制作组. All Rights Reserved.', 15, '#64748B', 400, 22);
+    this.createLabel(aboutBox, 'Copy', new Vec3(0, -80, 0), '© 2026 浮岛流光 制作组. All Rights Reserved.', 15, '#64748B', 400, 22);
 
   }
 

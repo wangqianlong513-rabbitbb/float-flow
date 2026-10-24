@@ -17,6 +17,7 @@ export interface UserProfile {
   dailyChallengeBest?: number;
   dailyChallengeBestMoves?: number;
   dailyChallengeDate?: string;
+  healthNoticeAccepted?: boolean;
   powerSaveMode?: boolean;
   selectedTheme?: number;
   unlockedThemes?: number[];
@@ -76,6 +77,7 @@ export class ProfileManager {
       dailyChallengeBest: 0,
       dailyChallengeBestMoves: 0,
       dailyChallengeDate: '',
+      healthNoticeAccepted: false,
       powerSaveMode: false,
       selectedTheme: 0,
       unlockedThemes: [0],
@@ -349,6 +351,16 @@ export class ProfileManager {
     return !!this.getProfile().powerSaveMode;
   }
 
+  public static isHealthNoticeAccepted(): boolean {
+    return !!this.getProfile().healthNoticeAccepted;
+  }
+
+  public static setHealthNoticeAccepted(enabled: boolean): void {
+    const profile = this.getProfile();
+    profile.healthNoticeAccepted = enabled;
+    this.saveProfile(profile);
+  }
+
   public static isThemeUnlocked(themeIndex: number): boolean {
     const profile = this.getProfile();
     return (profile.unlockedThemes || [0]).includes(themeIndex);
@@ -601,6 +613,7 @@ export class ProfileManager {
     profile.dailyChallengeBest = Number.isFinite(profile.dailyChallengeBest) ? profile.dailyChallengeBest : 0;
     profile.dailyChallengeBestMoves = Number.isFinite(profile.dailyChallengeBestMoves) ? profile.dailyChallengeBestMoves : 0;
     profile.dailyChallengeDate = typeof profile.dailyChallengeDate === 'string' ? profile.dailyChallengeDate : '';
+    profile.healthNoticeAccepted = typeof profile.healthNoticeAccepted === 'boolean' ? profile.healthNoticeAccepted : false;
     profile.powerSaveMode = typeof profile.powerSaveMode === 'boolean' ? profile.powerSaveMode : false;
     profile.selectedTheme = Number.isFinite(profile.selectedTheme) ? Math.max(0, Math.floor(profile.selectedTheme)) : 0;
     profile.unlockedThemes = Array.isArray(profile.unlockedThemes) && profile.unlockedThemes.length > 0 ? profile.unlockedThemes : [0];

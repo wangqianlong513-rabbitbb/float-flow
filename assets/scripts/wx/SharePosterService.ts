@@ -132,20 +132,20 @@ export class SharePosterService {
 
   private static drawPoster(ctx: any, options: SharePosterOptions): void {
     const isResidual = options.kind === 'residual';
-    const primary = isResidual ? '#FF4B3E' : '#00E5FF';
+    const primary = isResidual ? '#F97373' : '#00E5FF';
     const accent = isResidual ? '#FDE047' : '#34D399';
 
     // Deep-space gradient background.
     const bg = ctx.createLinearGradient(0, 0, 500, 400);
-    bg.addColorStop(0, '#101E4A');
-    bg.addColorStop(0.55, '#0B132B');
-    bg.addColorStop(1, isResidual ? '#451A03' : '#312E81');
+    bg.addColorStop(0, '#0E2A47');
+    bg.addColorStop(0.55, '#071426');
+    bg.addColorStop(1, isResidual ? '#2A1D16' : '#05333F');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, 500, 400);
 
-    this.drawOrb(ctx, 88, 78, 145, '#0083B0', 0.58);
-    this.drawOrb(ctx, 430, 128, 185, '#6B21A8', 0.42);
-    this.drawOrb(ctx, 250, 288, 205, isResidual ? '#7C2D12' : '#00F0FF', 0.16);
+    this.drawOrb(ctx, 88, 78, 145, '#00A7C8', 0.50);
+    this.drawOrb(ctx, 430, 128, 185, '#0F766E', 0.32);
+    this.drawOrb(ctx, 250, 288, 205, isResidual ? '#FDE047' : '#00F0FF', 0.14);
     this.drawStars(ctx);
 
     // Card frame.
@@ -167,7 +167,7 @@ export class SharePosterService {
     this.drawText(ctx, '浮岛流光', 250, 62, 24, '#FFFFFF', 'center', 'bold');
     this.drawText(ctx, 'FLOAT & FLOW', 250, 92, 13, primary, 'center', 'normal');
 
-    this.drawBadge(ctx, 250, 126, options.badgeText, accent, isResidual ? '#451A03' : '#052E2B');
+    this.drawBadge(ctx, 250, 126, options.badgeText, accent, isResidual ? '#2A1D16' : '#052E2B');
     this.drawText(ctx, options.headline, 250, 302, 27, '#FFFFFF', 'center', 'bold');
     this.drawText(ctx, options.subline, 250, 334, 17, '#CFFAFE', 'center', 'normal');
     this.drawText(ctx, options.metricText, 250, 360, 16, accent, 'center', 'bold');

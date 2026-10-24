@@ -2,6 +2,7 @@ import { _decorator, Color, Component, EventTouch, Graphics, Label, Layers, Node
 import { WeChatService } from '../wx/WeChatService';
 import { AdService } from '../wx/AdService';
 import { ProfileManager } from '../core/ProfileManager';
+import { getUiPalette } from '../ui/UiTheme';
 import type { FailureShareSummary } from './GameRoot';
 
 const { ccclass } = _decorator;
@@ -42,15 +43,24 @@ export class ReviveModal extends Component {
     this.ensureTransform(dialog, 460, 580);
     this.dialogNode = dialog;
 
+    const palette = this.getPalette();
     const dg = dialog.addComponent(Graphics);
-    // Dark glassmorphic background
-    dg.fillColor = this.hex('#0B132B');
-    ((dg.fillColor) as ((any)) as any).a = 245;
+    // Dark glassmorphic background, aligned with the global theme.
+    dg.fillColor = this.hex(palette.panel);
+    ((dg.fillColor) as ((any)) as any).a = 248;
     dg.roundRect(-230, -290, 460, 580, 24);
     dg.fill();
-    // Sky blue glowing border
-    dg.strokeColor = this.hex('#3B82F6');
+    dg.fillColor = this.hex(palette.panelSoft);
+    ((dg.fillColor) as any).a = 64;
+    dg.roundRect(-214, -274, 428, 548, 20);
+    dg.fill();
+    dg.fillColor = new Color(255, 255, 255, 24);
+    dg.roundRect(-204, 260, 408, 8, 4);
+    dg.fill();
+    dg.strokeColor = this.hex(palette.cyan);
+    ((dg.strokeColor) as any).a = 200;
     dg.lineWidth = 2.5;
+    dg.roundRect(-230, -290, 460, 580, 24);
     dg.stroke();
 
     // Prevent clicks inside dialog from closing modal
@@ -115,11 +125,13 @@ export class ReviveModal extends Component {
     // Close Button [ ✖ ] at Top Right (X = 190, Y = 240)
     const closeBtn = this.createNode('CloseBtn', new Vec3(190, 240, 0), parent);
     this.ensureTransform(closeBtn, 44, 44);
+    const palette = this.getPalette();
     const cg = closeBtn.addComponent(Graphics);
-    cg.fillColor = this.hex('#1E293B');
+    cg.fillColor = this.hex(palette.panelSoft);
+    ((cg.fillColor) as any).a = 230;
     cg.circle(0, 0, 18);
     cg.fill();
-    cg.strokeColor = this.hex('#60A5FA');
+    cg.strokeColor = this.hex(palette.cyan);
     cg.lineWidth = 1.8;
     cg.stroke();
     this.createLabel(closeBtn, 'Icon', new Vec3(0, 1, 0), '✖', 18, '#FFFFFF', 36, 36);
@@ -132,28 +144,30 @@ export class ReviveModal extends Component {
   private createAlertBanner(parent: Node): void {
     const bannerRoot = this.createNode('AlertBanner', new Vec3(0, 195, 0), parent);
     this.ensureTransform(bannerRoot, 400, 100);
+    const palette = this.getPalette();
 
-    // Red/Purple Emergency Glow Aura
+    // Time-rewind emergency aura: urgent but not harsh red-purple.
     const aura = this.createNode('AlertAura', new Vec3(0, 15, 0), bannerRoot);
     this.ensureTransform(aura, 300, 70);
     const ag = aura.addComponent(Graphics);
-    ag.fillColor = this.hex('#7F1D1D');
-    ((ag.fillColor) as ((any)) as any).a = 150;
+    ag.fillColor = this.hex(palette.blue);
+    ((ag.fillColor) as ((any)) as any).a = 115;
     ag.circle(0, 5, 75);
     ag.fill();
-    ag.fillColor = this.hex('#EF4444');
-    ((ag.fillColor) as ((any)) as any).a = 90;
+    ag.fillColor = this.hex('#FF5A6A');
+    ((ag.fillColor) as ((any)) as any).a = 58;
     ag.circle(0, 5, 45);
     ag.fill();
 
     // Title & Subtitle
-    this.titleLabel = this.createLabel(bannerRoot, 'Title', new Vec3(0, 25, 0), '只差一步！', 32, '#FF4B3E', 360, 44);
-    this.subLabel = this.createLabel(bannerRoot, 'Sub', new Vec3(0, -16, 0), '把残局发给好友，打开就能帮你接光', 16, '#A5F3FC', 380, 26);
+    this.titleLabel = this.createLabel(bannerRoot, 'Title', new Vec3(0, 25, 0), '只差一步！', 32, palette.gold, 360, 44);
+    this.subLabel = this.createLabel(bannerRoot, 'Sub', new Vec3(0, -16, 0), '把残局发给好友，打开就能帮你接光', 16, palette.cyan, 380, 26);
   }
 
   private createCrashSitePreview(parent: Node): void {
     const previewRoot = this.createNode('CrashSiteRoot', new Vec3(0, 30, 0), parent);
     this.ensureTransform(previewRoot, 320, 200);
+    const palette = this.getPalette();
 
     const g = previewRoot.addComponent(Graphics);
 
@@ -174,13 +188,13 @@ export class ReviveModal extends Component {
 
       if (isCrash) {
         // Red Exploding Crash Tile (#FF3B30)
-        this.drawIsometricBlock(g, this.hex('#EF4444'), this.hex('#991B1B'), this.hex('#B91C1C'), this.hex('#FCA5A5'), 2.5, depth, tileW, tileH, y, x);
+        this.drawIsometricBlock(g, this.hex('#EF4444'), this.hex('#7F1D1D'), this.hex('#B91C1C'), this.hex('#FCA5A5'), 2.5, depth, tileW, tileH, y, x);
       } else {
         // Normal sapphire/blue tile
-        const topCol = (r + c) % 2 === 0 ? this.hex('#1E3A8A') : this.hex('#2563EB');
-        const leftCol = (r + c) % 2 === 0 ? this.hex('#1E293B') : this.hex('#1E40AF');
-        const rightCol = (r + c) % 2 === 0 ? this.hex('#0F172A') : this.hex('#1D4ED8');
-        this.drawIsometricBlock(g, topCol, leftCol, rightCol, this.hex('#60A5FA'), 1.5, depth, tileW, tileH, y, x);
+        const topCol = (r + c) % 2 === 0 ? this.hex('#1A3278') : this.hex('#2456C8');
+        const leftCol = (r + c) % 2 === 0 ? this.hex('#13233F') : this.hex('#1E40AF');
+        const rightCol = (r + c) % 2 === 0 ? this.hex('#081224') : this.hex('#1D4ED8');
+        this.drawIsometricBlock(g, topCol, leftCol, rightCol, this.hex(palette.cyan), 1.5, depth, tileW, tileH, y, x);
       }
     });
 
@@ -221,16 +235,18 @@ export class ReviveModal extends Component {
   private createActionButtons(parent: Node): void {
     const shareBtn = this.createNode('WeChatShareBtn', new Vec3(0, -75, 0), parent);
     this.ensureTransform(shareBtn, 400, 66);
+    const palette = this.getPalette();
     const sg = shareBtn.addComponent(Graphics);
     sg.fillColor = this.hex('#10B981');
-    ((sg.fillColor) as any).a = 245;
+    ((sg.fillColor) as any).a = 228;
     sg.roundRect(-200, -33, 400, 66, 22);
     sg.fill();
-    sg.strokeColor = this.hex('#FFFFFF');
+    sg.strokeColor = this.hex('#86EFAC');
     sg.lineWidth = 2.6;
+    sg.roundRect(-200, -33, 400, 66, 22);
     sg.stroke();
 
-    this.createLabel(shareBtn, 'Icon', new Vec3(-132, 1, 0), '💬', 24, '#FFFFFF', 44, 42);
+    this.createLabel(shareBtn, 'Icon', new Vec3(-132, 1, 0), '助', 24, '#FFFFFF', 44, 42);
     this.shareTextLabel = this.createLabel(shareBtn, 'Text', new Vec3(18, 0, 0), '发好友一格救援', 19, '#FFFFFF', 270, 32);
 
     shareBtn.on(Node.EventType.TOUCH_END, () => {
@@ -245,16 +261,17 @@ export class ReviveModal extends Component {
     const adReviveBtn = this.createNode('AdReviveBtn', new Vec3(0, -150, 0), parent);
     this.ensureTransform(adReviveBtn, 360, 52);
     const ag = adReviveBtn.addComponent(Graphics);
-    ag.fillColor = this.hex('#00E5FF');
-    ((ag.fillColor) as any).a = 205;
+    ag.fillColor = this.hex(palette.panelSoft);
+    ((ag.fillColor) as any).a = 235;
     ag.roundRect(-180, -26, 360, 52, 18);
     ag.fill();
-    ag.strokeColor = this.hex('#A5F3FC');
+    ag.strokeColor = this.hex(palette.gold);
     ag.lineWidth = 2.0;
+    ag.roundRect(-180, -26, 360, 52, 18);
     ag.stroke();
 
-    this.createLabel(adReviveBtn, 'Icon', new Vec3(-112, 1, 0), '🎬', 21, '#131C39', 44, 38);
-    this.createLabel(adReviveBtn, 'Text', new Vec3(12, 0, 0), '看广告立即复活', 18, '#131C39', 230, 30);
+    this.createLabel(adReviveBtn, 'Icon', new Vec3(-112, 1, 0), '广', 21, palette.gold, 44, 38);
+    this.createLabel(adReviveBtn, 'Text', new Vec3(12, 0, 0), '看广告立即复活', 18, palette.text, 230, 30);
 
     adReviveBtn.on(Node.EventType.TOUCH_END, () => {
       console.log('[ReviveModal] Clicked Ad Revive');
@@ -298,8 +315,9 @@ export class ReviveModal extends Component {
     // Give Up Secondary Button [ 放弃复活 ] at Y = -205
     const giveUpBtn = this.createNode('GiveUpBtn', new Vec3(0, -205, 0), parent);
     this.ensureTransform(giveUpBtn, 240, 42);
+    const palette = this.getPalette();
     const g = giveUpBtn.addComponent(Graphics);
-    g.fillColor = this.hex('#1E293B');
+    g.fillColor = this.hex(palette.panelSoft);
     ((g.fillColor) as ((any)) as any).a = 220;
     g.roundRect(-120, -21, 240, 42, 12);
     g.fill();
@@ -313,7 +331,11 @@ export class ReviveModal extends Component {
     });
 
     // Footer tip text at Y = -260
-    this.footerTipLabel = this.createLabel(parent, 'FooterTip', new Vec3(0, -260, 0), '好友帮你不按套路出牌后可复活并获得无敌光环3秒', 13, '#64748B', 420, 24);
+    this.footerTipLabel = this.createLabel(parent, 'FooterTip', new Vec3(0, -260, 0), '好友帮你接光后可复活并获得 3 秒保护', 13, palette.muted, 420, 24);
+  }
+
+  private getPalette() {
+    return getUiPalette(ProfileManager.getProfile().selectedTheme || 0);
   }
 
   private drawIsometricBlock(

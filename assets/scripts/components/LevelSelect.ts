@@ -116,10 +116,11 @@ export class LevelSelect extends Component {
         g.stroke();
       } else {
         g.fillColor = this.hex('#0F172A');
-        ((g.fillColor) as any).a = 220;
+        ((g.fillColor) as any).a = 150;
         g.roundRect(-83, -28, 166, 56, 18);
         g.fill();
         g.strokeColor = this.hex('#334155');
+        ((g.strokeColor) as any).a = 130;
         g.lineWidth = 2.0;
         g.stroke();
       }
@@ -182,11 +183,12 @@ export class LevelSelect extends Component {
         const g = card.addComponent(Graphics);
         if (status === 'LOCKED') {
           g.fillColor = this.hex('#060912');
-          ((g.fillColor) as any).a = 140;
+          ((g.fillColor) as any).a = 92;
           g.roundRect(-170, -98, 340, 196, 26);
           g.fill();
           g.strokeColor = this.hex('#1E293B');
-          g.lineWidth = 1.8;
+          ((g.strokeColor) as any).a = 120;
+          g.lineWidth = 1.4;
           g.stroke();
         } else if (status === 'ACTIVE') {
           // 优化：当前进行中的关卡给予极高亮度、双重金青霓虹流光边框、微光背景与呼吸灯脉冲特效！
@@ -194,12 +196,13 @@ export class LevelSelect extends Component {
           ((g.fillColor) as any).a = 250;
           g.roundRect(-170, -98, 340, 196, 26);
           g.fill();
-          // Active level inner gold aura
-          g.fillColor = new Color(253, 224, 71, 32);
+          // Active level inner aura
+          const activeAura = this.hex(this.currentTheme === 2 ? palette.gold : palette.cyan);
+          g.fillColor = new Color(activeAura.r, activeAura.g, activeAura.b, 34);
           g.roundRect(-165, -93, 330, 186, 22);
           g.fill();
           // Top Cyber Header Banner for ACTIVE card
-          g.fillColor = this.hex('#F59E0B');
+          g.fillColor = this.hex(this.currentTheme === 2 ? '#F6A44D' : '#0891B2');
           g.roundRect(-170, 68, 340, 30, 14);
           g.fill();
 
@@ -217,16 +220,18 @@ export class LevelSelect extends Component {
           }
         } else {
           g.fillColor = this.hex('#0D162C');
-          ((g.fillColor) as any).a = 236;
+          ((g.fillColor) as any).a = 194;
           g.roundRect(-170, -98, 340, 196, 26);
           g.fill();
           // Completed top accent banner
           g.fillColor = this.hex('#1E3A8A');
+          ((g.fillColor) as any).a = 120;
           g.roundRect(-170, 68, 340, 30, 14);
           g.fill();
 
           g.strokeColor = this.hex(compBorder);
-          g.lineWidth = 2.8;
+          ((g.strokeColor) as any).a = 150;
+          g.lineWidth = 1.8;
           g.stroke();
         }
 
@@ -238,17 +243,17 @@ export class LevelSelect extends Component {
           this.createLabel(card, 'LockIcon', new Vec3(0, 12, 0), '• • •', 28, '#475569', 90, 40);
           this.createLabel(card, 'StatusText', new Vec3(0, -56, 0), '未解锁', 20, '#475569', 140, 34);
         } else {
-          let topCol = status === 'ACTIVE' ? this.hex('#D97706') : (levelNum % 2 === 0 ? this.hex('#1E3A8A') : this.hex('#2563EB'));
-          let leftCol = status === 'ACTIVE' ? this.hex('#92400E') : this.hex('#1E293B');
-          let rightCol = status === 'ACTIVE' ? this.hex('#B45309') : this.hex('#0F172A');
+          let topCol = status === 'ACTIVE' ? this.hex('#22D3EE') : (levelNum % 2 === 0 ? this.hex('#1E3A8A') : this.hex('#2563EB'));
+          let leftCol = status === 'ACTIVE' ? this.hex('#0F766E') : this.hex('#1E293B');
+          let rightCol = status === 'ACTIVE' ? this.hex('#164E63') : this.hex('#0F172A');
 
           if (isRose) {
             topCol = status === 'ACTIVE' ? this.hex('#3D7DDE') : (levelNum % 2 === 0 ? this.hex('#25418A') : this.hex('#2D61C9'));
             leftCol = status === 'ACTIVE' ? this.hex('#24539C') : this.hex('#132B55');
             rightCol = status === 'ACTIVE' ? this.hex('#13233F') : this.hex('#081224');
           } else if (isGold) {
-            topCol = status === 'ACTIVE' ? this.hex('#F6A44D') : (levelNum % 2 === 0 ? this.hex('#2C7A7B') : this.hex('#2F83FF'));
-            leftCol = status === 'ACTIVE' ? this.hex('#A76328') : this.hex('#215C63');
+            topCol = status === 'ACTIVE' ? this.hex('#FFD76A') : (levelNum % 2 === 0 ? this.hex('#2C7A7B') : this.hex('#2F83FF'));
+            leftCol = status === 'ACTIVE' ? this.hex('#2C7A7B') : this.hex('#215C63');
             rightCol = status === 'ACTIVE' ? this.hex('#1D2A3B') : this.hex('#101726');
           }
 
@@ -260,7 +265,7 @@ export class LevelSelect extends Component {
           if (status === 'COMPLETED') {
             const starStr = stars === 3 ? '★ ★ ★' : (stars === 2 ? '★ ★ ☆' : '★ ☆ ☆');
             this.createLabel(card, 'Stars', new Vec3(0, -56, 0), starStr, 20, '#FDE047', 170, 34);
-            this.createLabel(card, 'BannerText', new Vec3(0, 82, 0), '3星达成', 14, '#93C5FD', 160, 24);
+            this.createLabel(card, 'BannerText', new Vec3(0, 82, 0), '已点亮', 14, '#93C5FD', 160, 24);
           } else {
             this.createLabel(card, 'ActiveText', new Vec3(0, -56, 0), '★ 正在挑战中 ★', 20, activeBorder, 170, 34);
             this.createLabel(card, 'BannerText', new Vec3(0, 82, 0), '当前挑战 · 接上这束光', 14, '#FFFFFF', 300, 24);

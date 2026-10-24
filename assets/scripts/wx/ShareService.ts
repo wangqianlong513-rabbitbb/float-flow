@@ -45,15 +45,15 @@ export class ShareService {
     const query = `residual=${this.encodeResidual({ ...payload, grade })}&rescue=1`;
     const isOneTile = grade === '差一格';
     const title = isOneTile
-      ? `差一格就能点亮浮岛！帮我补上《浮岛流光》这一格`
+      ? `我这束光差一格就通了，你能帮我救回来吗？`
       : `${grade}残局求助！帮我改写《浮岛流光》这局`;
     SharePosterService.createPosterAsync({
       kind: 'residual',
       level,
       headline: isOneTile ? '一 格 救 援' : '残 局 救 援',
-      subline: isOneTile ? `第 ${level.id} 关 · 好友进来只补关键一格` : `第 ${level.id} 关 · 好友打开直接接手残局`,
+      subline: isOneTile ? `第 ${level.id} 关 · 点开只补关键一格` : `第 ${level.id} 关 · 好友打开直接接手残局`,
       badgeText: grade,
-      metricText: `已走 ${payload.moves ?? 0} 步 · 双方都得晶核`,
+      metricText: `已走 ${payload.moves ?? 0} 步 · 救回来双方都得晶核`,
     }, (imageUrl) => this.share(title, query, imageUrl));
   }
 
@@ -73,16 +73,16 @@ export class ShareService {
   static sharePoster(level: LevelConfig, scoreText: string): void {
     const isDaily = level.name.indexOf('今日光路') !== -1 || level.id >= 800000;
     const title = isDaily
-      ? `今日光路挑战我打出 ${scoreText}，来比谁更少步！`
+      ? `我用 ${scoreText} 接上今日这一束光，你能更短吗？`
       : `我在《浮岛流光》第 ${level.id} 关打出 ${scoreText}，你能少一步吗？`;
     const query = isDaily ? 'daily=1' : `level=${level.id}`;
     SharePosterService.createPosterAsync({
       kind: 'victory',
       level,
-      headline: isDaily ? '今 日 光 路 已 连 通' : '光 路 完 美 连 通',
-      subline: isDaily ? `${level.name} · 30 秒挑战` : `第 ${level.id} 关 · ${level.name}`,
+      headline: isDaily ? '每 日 一 束 光' : '光 路 完 美 连 通',
+      subline: isDaily ? `${level.name} · 同题比步数` : `第 ${level.id} 关 · ${level.name}`,
       badgeText: scoreText,
-      metricText: isDaily ? '点开立刻挑战同一道题' : '来挑战我的光轨记录',
+      metricText: isDaily ? '点开挑战同一道光路' : '来挑战我的光轨记录',
     }, (imageUrl) => this.share(title, query, imageUrl));
   }
 
@@ -134,10 +134,10 @@ export class ShareService {
     SharePosterService.savePosterToAlbum({
       kind: 'victory',
       level,
-      headline: isDaily ? '今 日 光 路 已 连 通' : '光 路 完 美 连 通',
-      subline: isDaily ? `${level.name} · 30 秒挑战` : `第 ${level.id} 关 · ${level.name}`,
+      headline: isDaily ? '每 日 一 束 光' : '光 路 完 美 连 通',
+      subline: isDaily ? `${level.name} · 同题比步数` : `第 ${level.id} 关 · ${level.name}`,
       badgeText: scoreText,
-      metricText: isDaily ? '发朋友圈晒同题挑战' : '保存战绩图，发给好友挑战',
+      metricText: isDaily ? '保存战绩图，晒今天这一束光' : '保存战绩图，发给好友挑战',
     }, onDone);
   }
 

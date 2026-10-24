@@ -4,6 +4,7 @@ import { ShareService } from '../wx/ShareService';
 import { ProfileManager } from '../core/ProfileManager';
 import { AdService } from '../wx/AdService';
 import { EngagementService } from '../core/EngagementService';
+import { getUiPalette } from '../ui/UiTheme';
 
 const { ccclass } = _decorator;
 
@@ -45,18 +46,28 @@ export class VictoryPoster extends Component {
     this.ensureTransform(poster, 480, 620);
     this.posterNode = poster;
 
+    const palette = this.getPalette();
     const pg = poster.addComponent(Graphics);
     // Deep sapphire navy glassmorphic background
-    pg.fillColor = this.hex('#0B132B');
+    pg.fillColor = this.hex(palette.panel);
     ((pg.fillColor) as ((any)) as any).a = 248;
     pg.roundRect(-240, -310, 480, 620, 24);
     pg.fill();
+    pg.fillColor = this.hex(palette.panelSoft);
+    ((pg.fillColor) as any).a = 58;
+    pg.roundRect(-224, -294, 448, 588, 20);
+    pg.fill();
+    pg.fillColor = new Color(255, 255, 255, 24);
+    pg.roundRect(-214, 278, 428, 8, 4);
+    pg.fill();
     // Glowing sky blue border
-    pg.strokeColor = this.hex('#3B82F6');
+    pg.strokeColor = this.hex(palette.cyan);
+    ((pg.strokeColor) as any).a = 210;
     pg.lineWidth = 3;
+    pg.roundRect(-240, -310, 480, 620, 24);
     pg.stroke();
     // Inner gold trim at top
-    pg.strokeColor = this.hex('#FDE047');
+    pg.strokeColor = this.hex(palette.gold);
     pg.lineWidth = 1.5;
     pg.moveTo(-220, 290);
     pg.lineTo(220, 290);
@@ -95,18 +106,20 @@ export class VictoryPoster extends Component {
 
     this.hasClaimedDouble = false;
     const baseReward = this.getBaseReward();
+    const palette = this.getPalette();
     if (this.doubleRewardTextLabel) {
-      this.doubleRewardTextLabel.string = `🎬 双倍领 💎 +${baseReward}`;
+      this.doubleRewardTextLabel.string = `双倍领钻石 +${baseReward}`;
       this.doubleRewardTextLabel.color = this.hex('#FFFFFF');
     }
     if (this.doubleRewardBtn) {
       const dg = this.doubleRewardBtn.getComponent(Graphics);
       if (dg) {
         dg.clear();
-        dg.fillColor = this.hex('#F59E0B');
+        dg.fillColor = this.hex(palette.panelSoft);
         dg.roundRect(-110, -24, 220, 48, 16);
         dg.fill();
-        dg.strokeColor = this.hex('#FDE047');
+        dg.strokeColor = this.hex(palette.gold);
+        dg.roundRect(-110, -24, 220, 48, 16);
         dg.stroke();
       }
     }
@@ -116,11 +129,11 @@ export class VictoryPoster extends Component {
     }
     if (this.starBannerLabel) {
       if (levelName.indexOf('今日光路') !== -1) {
-        this.starBannerLabel.string = `⚡ 今日挑战完成  |  ${moves} 步接通`;
+        this.starBannerLabel.string = `今日挑战完成  |  ${moves} 步接通`;
       } else if (levelName.indexOf('无尽') !== -1) {
-        this.starBannerLabel.string = `🏆 突破: ${stars} 阶段  |  总得分: ${moves} 分`;
+        this.starBannerLabel.string = `突破: ${stars} 阶段  |  总得分: ${moves} 分`;
       } else {
-        const starStr = '⭐ '.repeat(stars) + '☆ '.repeat(3 - stars);
+        const starStr = '★ '.repeat(stars) + '☆ '.repeat(3 - stars);
         this.starBannerLabel.string = `${starStr}  完美通关 · 步数: ${moves} 步`;
       }
     }
@@ -128,7 +141,7 @@ export class VictoryPoster extends Component {
       const beatPercent = levelName.indexOf('今日光路') !== -1
         ? Math.min(99, 66 + stars * 9 + Math.max(0, 6 - moves) * 3)
         : (levelName.indexOf('无尽') !== -1 ? Math.min(99, 62 + stars * 5) : Math.min(99, 58 + stars * 11 + Math.max(0, 8 - moves) * 3));
-      this.beatFriendLabel.string = `🔥 击败了微信好友 ${beatPercent}% 的玩家！`;
+      this.beatFriendLabel.string = `击败了微信好友 ${beatPercent}% 的玩家！`;
     }
 
     if (this.posterNode) {
@@ -164,11 +177,13 @@ export class VictoryPoster extends Component {
     // Close Button [ ✖ ] at Top Right (X = 200, Y = 265)
     const closeBtn = this.createNode('CloseBtn', new Vec3(200, 265, 0), parent);
     this.ensureTransform(closeBtn, 44, 44);
+    const palette = this.getPalette();
     const cg = closeBtn.addComponent(Graphics);
-    cg.fillColor = this.hex('#1E293B');
+    cg.fillColor = this.hex(palette.panelSoft);
+    ((cg.fillColor) as any).a = 230;
     cg.circle(0, 0, 18);
     cg.fill();
-    cg.strokeColor = this.hex('#60A5FA');
+    cg.strokeColor = this.hex(palette.cyan);
     cg.lineWidth = 1.8;
     cg.stroke();
     this.createLabel(closeBtn, 'Icon', new Vec3(0, 1, 0), '✖', 18, '#FFFFFF', 36, 36);
@@ -177,28 +192,29 @@ export class VictoryPoster extends Component {
       this.closePoster();
     });
 
-    // Golden & Violet Pulsing Aura behind Title
+    // Cyan & gold pulsing aura behind title.
     const auraRoot = this.createNode('HeaderAura', new Vec3(0, 220, 0), parent);
     this.ensureTransform(auraRoot, 360, 80);
     const ag = auraRoot.addComponent(Graphics);
-    ag.fillColor = this.hex('#4C1D95');
-    ((ag.fillColor) as ((any)) as any).a = 150;
+    ag.fillColor = this.hex(palette.blue);
+    ((ag.fillColor) as ((any)) as any).a = 120;
     ag.circle(0, 0, 70);
     ag.fill();
-    ag.fillColor = this.hex('#D97706');
-    ((ag.fillColor) as ((any)) as any).a = 90;
+    ag.fillColor = this.hex(palette.gold);
+    ((ag.fillColor) as ((any)) as any).a = 72;
     ag.circle(0, 0, 45);
     ag.fill();
 
     // Top Certificate Titles
-    this.createLabel(parent, 'Title', new Vec3(0, 245, 0), '✨ 恭喜通关！光轨大师达成 ✨', 28, '#FDE047', 420, 42);
-    this.levelNameLabel = this.createLabel(parent, 'LevelName', new Vec3(0, 205, 0), '旅途模式 · 冰原章节 5-12', 21, '#00F0FF', 360, 32);
-    this.starBannerLabel = this.createLabel(parent, 'StarBanner', new Vec3(0, 172, 0), '⭐ ⭐ ⭐   完美通关 · 步数: -- 步', 19, '#FFFFFF', 380, 28);
+    this.createLabel(parent, 'Title', new Vec3(0, 245, 0), '恭喜通关 · 光轨大师达成', 28, palette.gold, 420, 42);
+    this.levelNameLabel = this.createLabel(parent, 'LevelName', new Vec3(0, 205, 0), '旅途模式 · 冰原章节 5-12', 21, palette.cyan, 360, 32);
+    this.starBannerLabel = this.createLabel(parent, 'StarBanner', new Vec3(0, 172, 0), '★ ★ ★   完美通关 · 步数: -- 步', 19, '#FFFFFF', 380, 28);
   }
 
   private createRouteShowcase(parent: Node): void {
     const showcaseRoot = this.createNode('RouteShowcase', new Vec3(0, 35, 0), parent);
     this.ensureTransform(showcaseRoot, 360, 220);
+    const palette = this.getPalette();
 
     const g = showcaseRoot.addComponent(Graphics);
 
@@ -219,13 +235,13 @@ export class VictoryPoster extends Component {
 
       if (isGoal) {
         // Golden Goal Crystal Tile (#FDE047 / #D97706)
-        this.drawIsometricBlock(g, this.hex('#FDE047'), this.hex('#B45309'), this.hex('#D97706'), this.hex('#FFFFFF'), 2, depth, tileW, tileH, y, x);
+        this.drawIsometricBlock(g, this.hex(palette.gold), this.hex('#A76328'), this.hex('#F6A44D'), this.hex('#FFFFFF'), 2, depth, tileW, tileH, y, x);
       } else {
         // Sapphire Blue Tile
         const topCol = (r + c) % 2 === 0 ? this.hex('#1E3A8A') : this.hex('#2563EB');
         const leftCol = (r + c) % 2 === 0 ? this.hex('#1E293B') : this.hex('#1E40AF');
         const rightCol = (r + c) % 2 === 0 ? this.hex('#0F172A') : this.hex('#1D4ED8');
-        this.drawIsometricBlock(g, topCol, leftCol, rightCol, this.hex('#60A5FA'), 1.5, depth, tileW, tileH, y, x);
+        this.drawIsometricBlock(g, topCol, leftCol, rightCol, this.hex(palette.cyan), 1.5, depth, tileW, tileH, y, x);
       }
     });
 
@@ -247,8 +263,9 @@ export class VictoryPoster extends Component {
     const p3 = getCoordPos(1, 2);
     const p4 = getCoordPos(2, 2);
 
-    // Magenta outer glow
-    rg.strokeColor = new Color(244, 114, 182, 160);
+    // Soft themed outer glow
+    const routeOuter = this.hex(palette.blue);
+    rg.strokeColor = new Color(routeOuter.r, routeOuter.g, routeOuter.b, 150);
     rg.lineWidth = 10;
     rg.moveTo(p0.x, p0.y);
     rg.lineTo(p1.x, p1.y);
@@ -258,7 +275,7 @@ export class VictoryPoster extends Component {
     rg.stroke();
 
     // Electric Cyan core line
-    rg.strokeColor = this.hex('#00F0FF');
+    rg.strokeColor = this.hex(palette.cyan);
     rg.lineWidth = 4;
     rg.moveTo(p0.x, p0.y);
     rg.lineTo(p1.x, p1.y);
@@ -271,7 +288,7 @@ export class VictoryPoster extends Component {
     rg.fillColor = this.hex('#FFFFFF');
     rg.circle(p4.x, p4.y, 12);
     rg.fill();
-    rg.strokeColor = this.hex('#FDE047');
+    rg.strokeColor = this.hex(palette.gold);
     rg.lineWidth = 3;
     rg.circle(p4.x, p4.y, 18);
     rg.stroke();
@@ -291,10 +308,11 @@ export class VictoryPoster extends Component {
     // Left Column: Player Stats & Ranking (X = -90, Y = -150)
     const statsRoot = this.createNode('StatsRoot', new Vec3(-90, -150, 0), parent);
     this.ensureTransform(statsRoot, 260, 110);
+    const palette = this.getPalette();
 
-    this.createLabel(statsRoot, 'Badge', new Vec3(0, 36, 0), '🧑‍🚀 流光开拓者 (Lv.18)', 19, '#60A5FA', 240, 30);
-    this.createLabel(statsRoot, 'Stats1', new Vec3(0, 8, 0), '🔥 连击建桥: 18 次 | ⚡ 救场: 0', 16, '#93C5FD', 250, 26);
-    this.beatFriendLabel = this.createLabel(statsRoot, 'Rank', new Vec3(0, -22, 0), '🔥 击败了微信好友 --% 的玩家！', 18, '#FB923C', 260, 28);
+    this.createLabel(statsRoot, 'Badge', new Vec3(0, 36, 0), '流光开拓者 (Lv.18)', 19, palette.cyan, 240, 30);
+    this.createLabel(statsRoot, 'Stats1', new Vec3(0, 8, 0), '连击建桥 18 次  ·  救场 0', 16, '#93C5FD', 250, 26);
+    this.beatFriendLabel = this.createLabel(statsRoot, 'Rank', new Vec3(0, -22, 0), '击败了微信好友 --% 的玩家！', 18, palette.gold, 260, 28);
 
     // Right Column: WeChat Mini-Game QR Code Box (X = 140, Y = -150)
     const qrRoot = this.createNode('QRRoot', new Vec3(140, -150, 0), parent);
@@ -302,24 +320,24 @@ export class VictoryPoster extends Component {
 
     const qg = qrRoot.addComponent(Graphics);
     // Glassmorphic QR box (84 x 84)
-    qg.fillColor = this.hex('#1E293B');
+    qg.fillColor = this.hex(palette.panelSoft);
     ((qg.fillColor) as ((any)) as any).a = 230;
     qg.roundRect(-42, -32, 84, 84, 14);
     qg.fill();
-    qg.strokeColor = this.hex('#60A5FA');
+    qg.strokeColor = this.hex(palette.cyan);
     qg.lineWidth = 2;
     qg.stroke();
 
     // Simulated WeChat Mini-Game Circular Sun/QR Pattern inside box (0, 10)
-    qg.strokeColor = this.hex('#00F0FF');
+    qg.strokeColor = this.hex(palette.cyan);
     qg.lineWidth = 2.5;
     qg.circle(0, 10, 26);
     qg.stroke();
-    qg.strokeColor = this.hex('#A78BFA');
+    qg.strokeColor = this.hex(palette.blue);
     qg.lineWidth = 1.8;
     qg.circle(0, 10, 18);
     qg.stroke();
-    qg.fillColor = this.hex('#FDE047');
+    qg.fillColor = this.hex(palette.gold);
     qg.circle(0, 10, 8);
     qg.fill();
 
@@ -333,11 +351,12 @@ export class VictoryPoster extends Component {
         (ok, message) => WeChatService.showToast(message, ok ? 'success' : 'none')
       );
     });
-    this.createLabel(qrRoot, 'SaveHint', new Vec3(0, -68, 0), '点此保存战绩图', 13, '#FDE047', 130, 20);
+    this.createLabel(qrRoot, 'SaveHint', new Vec3(0, -68, 0), '点此保存战绩图', 13, palette.gold, 130, 20);
   }
 
   private createBottomActions(parent: Node): void {
-    this.createLabel(parent, 'ShareHint', new Vec3(0, -218, 0), '三星晒最美光轨，否则发起少一步挑战', 17, '#FDE047', 390, 26);
+    const palette = this.getPalette();
+    this.createLabel(parent, 'ShareHint', new Vec3(0, -218, 0), '三星晒最美光轨，否则发起少一步挑战', 17, palette.gold, 390, 26);
 
     // Primary viral CTA: put share in the visual center and make it bigger than monetization.
     const shareAura = this.createNode('ShareAura', new Vec3(0, -260, 0), parent);
@@ -365,7 +384,7 @@ export class VictoryPoster extends Component {
     sg.strokeColor = this.hex('#6EE7B7');
     sg.lineWidth = 3;
     sg.stroke();
-    this.createLabel(shareBtn, 'Text', new Vec3(0, 1, 0), '💬 晒光轨 / 少一步挑战', 22, '#FFFFFF', 350, 42);
+    this.createLabel(shareBtn, 'Text', new Vec3(0, 1, 0), '晒光轨 / 少一步挑战', 22, '#FFFFFF', 350, 42);
 
     shareBtn.on(Node.EventType.TOUCH_END, () => {
       console.log('[VictoryPoster] Clicked Share to Friends -> Beauty or Challenge!');
@@ -384,13 +403,13 @@ export class VictoryPoster extends Component {
     const doubleBtn = this.createNode('DoubleRewardBtn', new Vec3(-112, -182, 0), parent);
     this.ensureTransform(doubleBtn, 220, 48);
     const dg = doubleBtn.addComponent(Graphics);
-    dg.fillColor = this.hex('#F59E0B'); // Orange/Gold
+    dg.fillColor = this.hex(palette.panelSoft);
     dg.roundRect(-110, -24, 220, 48, 16);
     dg.fill();
-    dg.strokeColor = this.hex('#FDE047');
+    dg.strokeColor = this.hex(palette.gold);
     dg.lineWidth = 2;
     dg.stroke();
-    this.doubleRewardTextLabel = this.createLabel(doubleBtn, 'Text', new Vec3(0, 1, 0), '🎬 翻倍晶核', 17, '#FFFFFF', 200, 32);
+    this.doubleRewardTextLabel = this.createLabel(doubleBtn, 'Text', new Vec3(0, 1, 0), '翻倍晶核', 17, '#FFFFFF', 200, 32);
     this.doubleRewardBtn = doubleBtn;
 
     doubleBtn.on(Node.EventType.TOUCH_END, () => {
@@ -425,10 +444,10 @@ export class VictoryPoster extends Component {
     const saveBtn = this.createNode('SaveBtn', new Vec3(132, -182, 0), parent);
     this.ensureTransform(saveBtn, 168, 48);
     const vg = saveBtn.addComponent(Graphics);
-    vg.fillColor = this.hex('#2563EB');
+    vg.fillColor = this.hex(palette.panelSoft);
     vg.roundRect(-84, -24, 168, 48, 16);
     vg.fill();
-    vg.strokeColor = this.hex('#00F0FF');
+    vg.strokeColor = this.hex(palette.cyan);
     vg.lineWidth = 2;
     vg.stroke();
     this.createLabel(saveBtn, 'Text', new Vec3(0, 1, 0), '继续下一关', 17, '#FFFFFF', 148, 32);
@@ -453,6 +472,10 @@ export class VictoryPoster extends Component {
       return this.currentStars * 15;
     }
     return this.currentStars * 20;
+  }
+
+  private getPalette() {
+    return getUiPalette(ProfileManager.getProfile().selectedTheme || 0);
   }
 
   private drawIsometricBlock(

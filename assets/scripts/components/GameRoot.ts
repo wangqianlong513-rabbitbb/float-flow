@@ -177,6 +177,7 @@ export class GameRoot extends Component {
   private activeParticles: ConfettiParticle[] = [];
   private statusToastSerial = 0;
   private routeHintNode: Node | null = null;
+  private islandRoomNode: Node | null = null;
 
 
   public applyTheme(themeIdx: number): void {
@@ -265,7 +266,10 @@ export class GameRoot extends Component {
       WeChatService.vibrateShort('light');
       this.rewindSnapshot = this.createRewindSnapshot();
       this.runner.state = 'RUNNING';
-      this.setStatus('流光已启动！观察光路与救场触发。');
+      const firstRunText = !this.isEndlessMode && !this.isDailyChallenge && this.levelIndex <= 1
+        ? '流光出发！沿着你铺好的水晶路线前进。'
+        : (this.isDailyChallenge ? '今日这束光已启动，冲一个更少步数。' : '流光已启动！观察光路与救场触发。');
+      this.setStatus(firstRunText);
     }
   }
 
@@ -427,7 +431,7 @@ export class GameRoot extends Component {
       missingCell: insight.missingCell,
     };
     ShareService.shareOneTileRescue(this.level, payload, insight.grade);
-    WeChatService.showToast(`${insight.shareText} 好友接通后双方都得晶核。`, 'success');
+    WeChatService.showToast(`${insight.shareText} 好友补上后双方都得晶核。`, 'success');
   }
 
   public shareCurrentChallenge(): void {
@@ -458,21 +462,159 @@ export class GameRoot extends Component {
   }
 
   public showIslandRoom(): void {
+    if (this.islandRoomNode) {
+      this.islandRoomNode.destroy();
+      this.islandRoomNode = null;
+    }
     const profile = ProfileManager.getProfile();
     const decorCount = profile.islandDecor?.length || 0;
     const cosmeticCount = profile.unlockedCosmetics?.length || 0;
     const titles = profile.titles && profile.titles.length > 0 ? profile.titles.slice(-3).join('、') : '暂无称号';
-    WeChatService.showModal({
-      title: '我的光之岛',
-      content: `已收藏装扮 ${cosmeticCount} 件，浮岛摆件 ${decorCount} 件。\n当前称号：${titles}\n继续通关、分享最美光轨、完成通勤挑战可解锁更多光轨和摆件。`,
-      confirmText: '知道了',
-      cancelText: '分享',
-      success: (res) => {
-        if (res.cancel && this.level) {
-          ShareService.shareBeautifulRoute(this.level, Math.max(1, this.usedMoves), ProfileManager.getProfile().beautifulRouteBest || 60);
-        }
+    const dateKey = CloudGameService.getTodayKey();
+    const dailyDone = profile.dailyChallengeDate === dateKey && (profile.dailyChallengeBest || 0) > 0;
+    const nextGoal = dailyDone
+      ? '下一目标：帮好友接一次残局，双方都能领取晶核。'
+      : '下一目标：完成「每日一束光」，为小岛补一束今日光。';
+    const beautyBest = profile.beautifulRouteBest || 0;
+    const islandLevel = Math.min(5, 1 + Math.floor(((profile.levelProgress || 0) + decorCount + cosmeticCount) / 6));
+    const size = view.getVisibleSize();
+    const halfW = size.width / 2;
+    const halfH = size.height / 2;
+    const palette = getUiPalette(this.currentTheme);
+
+    const overlay = new Node('IslandRoomOverlay');
+    overlay.layer = Layers.Enum.UI_2D;
+    overlay.setParent(this.node);
+    overlay.setPosition(new Vec3(0, 0, 150));
+    overlay.addComponent(UITransform).setContentSize(size.width, size.height);
+    this.islandRoomNode = overlay;
+
+    const overlayG = overlay.addComponent(Graphics);
+    overlayG.fillColor = new Color(4, 9, 23, 172);
+    overlayG.rect(-halfW, -halfH, size.width, size.height);
+    overlayG.fill();
+    overlay.on(Node.EventType.TOUCH_END, (event: EventTouch) => {
+      event.propagationStopped = true;
+      overlay.destroy();
+      if (this.islandRoomNode === overlay) this.islandRoomNode = null;
+    }, this);
+
+    const dialog = new Node('IslandRoomDialog');
+    dialog.layer = Layers.Enum.UI_2D;
+    dialog.setParent(overlay);
+    dialog.setPosition(new Vec3(0, -6, 1));
+    dialog.addComponent(UITransform).setContentSize(620, 520);
+    dialog.on(Node.EventType.TOUCH_END, (event: EventTouch) => {
+      event.propagationStopped = true;
+    }, this);
+
+    const dg = dialog.addComponent(Graphics);
+    dg.fillColor = this.hex(palette.panel);
+    ((dg.fillColor) as any).a = 238;
+    dg.roundRect(-310, -260, 620, 520, 34);
+    dg.fill();
+    dg.fillColor = new Color(255, 255, 255, 20);
+    dg.roundRect(-292, 112, 584, 116, 30);
+    dg.fill();
+    dg.strokeColor = this.hex(palette.cyan);
+    ((dg.strokeColor) as any).a = 190;
+    dg.lineWidth = 2.2;
+    dg.roundRect(-310, -260, 620, 520, 34);
+    dg.stroke();
+
+    this.createOverlayLabel(dialog, 'Title', new Vec3(0, 214, 2), '我的光之岛', 28, '#FFFFFF', 440, 42);
+    this.createOverlayLabel(dialog, 'Sub', new Vec3(0, 178, 2), `岛屿 Lv.${islandLevel} · ${nextGoal}`, 16, palette.gold, 560, 28);
+
+    const island = new Node('IslandPreview');
+    island.layer = Layers.Enum.UI_2D;
+    island.setParent(dialog);
+    island.setPosition(new Vec3(0, 74, 2));
+    island.addComponent(UITransform).setContentSize(260, 150);
+    const ig = island.addComponent(Graphics);
+    ig.fillColor = new Color(34, 211, 238, 44);
+    ig.circle(0, 12, 86);
+    ig.fill();
+    ig.fillColor = this.hex('#102A44');
+    ig.moveTo(0, 72);
+    ig.lineTo(112, 8);
+    ig.lineTo(0, -52);
+    ig.lineTo(-112, 8);
+    ig.close();
+    ig.fill();
+    ig.strokeColor = this.hex(palette.cyan);
+    ig.lineWidth = 3.4;
+    ig.stroke();
+    ig.fillColor = this.hex('#FDE047');
+    for (let i = 0; i < Math.min(5, islandLevel + decorCount); i++) {
+      const x = -62 + i * 31;
+      ig.circle(x, 14 + (i % 2) * 15, 7);
+      ig.fill();
+    }
+
+    const makeStat = (name: string, value: string, x: number, y: number, color: string) => {
+      const row = new Node(name);
+      row.layer = Layers.Enum.UI_2D;
+      row.setParent(dialog);
+      row.setPosition(new Vec3(x, y, 2));
+      row.addComponent(UITransform).setContentSize(174, 74);
+      const rg = row.addComponent(Graphics);
+      rg.fillColor = new Color(15, 23, 42, 208);
+      rg.roundRect(-87, -37, 174, 74, 20);
+      rg.fill();
+      rg.strokeColor = this.hex(color);
+      ((rg.strokeColor) as any).a = 155;
+      rg.lineWidth = 1.8;
+      rg.stroke();
+      this.createOverlayLabel(row, 'Value', new Vec3(0, 13, 1), value, 24, '#FFFFFF', 150, 32);
+      this.createOverlayLabel(row, 'Name', new Vec3(0, -18, 1), name, 14, color, 150, 22);
+    };
+    makeStat('通关进度', `${profile.levelProgress || 0}`, -190, -52, palette.cyan);
+    makeStat('收藏装扮', `${cosmeticCount}`, 0, -52, '#34D399');
+    makeStat('浮岛摆件', `${decorCount}`, 190, -52, palette.gold);
+    this.createOverlayLabel(dialog, 'TitleList', new Vec3(0, -112, 2), `称号：${titles}`, 16, palette.muted, 560, 26);
+    this.createOverlayLabel(dialog, 'BeautyBest', new Vec3(0, -142, 2), `最美光轨 ${beautyBest || '--'} 分 · 分享漂亮路线可继续解锁小岛展示`, 15, '#CFFAFE', 560, 24);
+
+    const closeBtn = new Node('IslandCloseBtn');
+    closeBtn.layer = Layers.Enum.UI_2D;
+    closeBtn.setParent(dialog);
+    closeBtn.setPosition(new Vec3(-128, -204, 3));
+    closeBtn.addComponent(UITransform).setContentSize(210, 58);
+    const closeG = closeBtn.addComponent(Graphics);
+    closeG.fillColor = new Color(15, 23, 42, 230);
+    closeG.roundRect(-105, -29, 210, 58, 22);
+    closeG.fill();
+    closeG.strokeColor = this.hex('#64748B');
+    closeG.lineWidth = 1.6;
+    closeG.stroke();
+    this.createOverlayLabel(closeBtn, 'Text', new Vec3(0, 1, 1), '继续点亮', 19, '#FFFFFF', 180, 34);
+    closeBtn.on(Node.EventType.TOUCH_END, (event: EventTouch) => {
+      event.propagationStopped = true;
+      overlay.destroy();
+      if (this.islandRoomNode === overlay) this.islandRoomNode = null;
+    }, this);
+
+    const shareBtn = new Node('IslandShareBtn');
+    shareBtn.layer = Layers.Enum.UI_2D;
+    shareBtn.setParent(dialog);
+    shareBtn.setPosition(new Vec3(128, -204, 3));
+    shareBtn.addComponent(UITransform).setContentSize(210, 58);
+    const shareG = shareBtn.addComponent(Graphics);
+    shareG.fillColor = this.hex('#0891B2');
+    shareG.roundRect(-105, -29, 210, 58, 22);
+    shareG.fill();
+    shareG.strokeColor = this.hex('#A5F3FC');
+    shareG.lineWidth = 2.0;
+    shareG.stroke();
+    this.createOverlayLabel(shareBtn, 'Text', new Vec3(0, 1, 1), '晒我的小岛', 19, '#FFFFFF', 180, 34);
+    shareBtn.on(Node.EventType.TOUCH_END, (event: EventTouch) => {
+      event.propagationStopped = true;
+      if (this.level) {
+        ShareService.shareBeautifulRoute(this.level, Math.max(1, this.usedMoves), beautyBest || 60);
       }
-    });
+    }, this);
+
+    dialog.setScale(new Vec3(0.88, 0.88, 1));
+    tween(dialog).to(0.22, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }).start();
   }
 
   public loadResidualFromShare(residualStr: string): void {
@@ -495,7 +637,7 @@ export class GameRoot extends Component {
         this.showFailureReplayMarker(payload.missingCell);
       }
       this.updateLabels();
-      this.setStatus(`已还原好友${payload.grade || '残局'}求助，直接补关键路。助攻成功可得 80 钻。`);
+      this.setStatus(`已还原好友${payload.grade || '残局'}求助。补上关键水晶，接通后你得 80 晶核。`);
       WeChatService.vibrateShort('medium');
     }
   }
@@ -586,7 +728,7 @@ export class GameRoot extends Component {
     this.maxBulletTime = this.level.bulletTimeSeconds ?? 3.0;
     this.currentBulletTime = this.maxBulletTime;
     this.redrawBulletTimeMeter();
-    this.setStatus(`${liveEvent.title}开启：用最少步数接光，通关后晒战绩！`);
+    this.setStatus(`${liveEvent.title}开启：今日同题比步数，少一步就更靠前。`);
     ProfileManager.recordLevelStart(this.level.id);
     AnalyticsService.track('level_start', { levelId: this.level.id, daily: true, versionTag: this.level.versionTag || 'v1.5' });
     if (this.previewRoot) {
@@ -817,7 +959,7 @@ export class GameRoot extends Component {
       tilePool: ['straight', 'curve', 'cross'],
       fixedHands: handTemplates[variant],
       recommendedMoves: 4 + (variant % 3),
-      tutorialTip: '今日挑战：接上光路后分享战绩，看看谁能更少步。',
+      tutorialTip: '每日一束光：同一道题比最短步数，通关后可晒光路挑战好友。',
       objective: 'reach_goal',
       versionTag: 'v1.5',
     };
@@ -1062,8 +1204,12 @@ export class GameRoot extends Component {
       difficulty: LevelDirector.estimateDifficulty(this.level).label,
     });
     if (this.previewRoot) {
-      this.previewRoot.active = false;
+      this.previewRoot.active = this.levelIndex <= 2 && !this.isEndlessMode;
       this.clearNode(this.previewRoot);
+    }
+    if (this.previewRoot?.active) {
+      this.updateRoutePreviewLine();
+      this.showRouteHintLayerTemporarily(5);
     }
     this.showTutorialOverlayIfNeeded();
   }
@@ -1120,15 +1266,15 @@ export class GameRoot extends Component {
         this.drawTopDownTile(graphics, this.hex('#3B1428'), this.hex('#FF3B30'), 2.5, this.tileWidth, this.tileHeight, 0, 0, 6);
       } else {
         const isEven = (pos.row + pos.col) % 2 === 0;
-        let topCol = isEven ? this.hex('#1A3278') : this.hex('#2456C8');
-        let strokeCol = isEven ? this.hex('#22C7E8') : this.hex('#4F8FE8');
+        let topCol = isEven ? this.hex('#173C8E') : this.hex('#1F6FE5');
+        let strokeCol = isEven ? this.hex('#42E8FF') : this.hex('#7DB7FF');
 
         if (isRose) {
-          topCol = isEven ? this.hex('#24336F') : this.hex('#3155B8');
-          strokeCol = isEven ? this.hex('#5EC7FF') : this.hex('#8BB6FF');
+          topCol = isEven ? this.hex('#1E4C8F') : this.hex('#3272D9');
+          strokeCol = isEven ? this.hex('#6EE7FF') : this.hex('#A8C7FF');
         } else if (isGold) {
-          topCol = isEven ? this.hex('#23426D') : this.hex('#2C7A7B');
-          strokeCol = isEven ? this.hex('#5DE6D6') : this.hex('#FFD76A');
+          topCol = isEven ? this.hex('#1F4E7A') : this.hex('#2F8A8A');
+          strokeCol = isEven ? this.hex('#72F2E6') : this.hex('#FFE08A');
         }
 
         this.drawTopDownTile(graphics, topCol, strokeCol, 2.2, this.tileWidth, this.tileHeight, 0, 0, 6);
@@ -1766,7 +1912,7 @@ export class GameRoot extends Component {
         this.renderCards();
         this.currentBulletTime = Math.min(this.maxBulletTime, this.currentBulletTime + 1.2);
         this.redrawBulletTimeMeter();
-        this.setStatus('放置成功！已补充 1.2s 子弹时间。可继续铺路或启动流光。');
+        this.setStatus(this.getPlacementSuccessText());
       } else {
         WeChatService.vibrateShort('heavy');
         this.setStatus('这里不能放置');
@@ -1854,7 +2000,7 @@ export class GameRoot extends Component {
         this.renderCards();
         this.currentBulletTime = Math.min(this.maxBulletTime, this.currentBulletTime + 1.2);
         this.redrawBulletTimeMeter();
-        this.setStatus('放置成功！已补充 1.2s 子弹时间。可继续铺路或启动流光。');
+        this.setStatus(this.getPlacementSuccessText());
         this.updateLabels();
         this.updateRoutePreviewLine();
       } else {
@@ -2329,6 +2475,28 @@ export class GameRoot extends Component {
       .start();
   }
 
+  private getPlacementSuccessText(): string {
+    const completed = this.isPathCompleted();
+    if (!this.isEndlessMode && !this.isDailyChallenge && this.levelIndex === 0) {
+      return completed
+        ? '接上了第一束光！现在点「启动流光」，看它冲向终点。'
+        : '水晶已放好，青色光轨会帮你判断能不能接通。';
+    }
+    if (!this.isEndlessMode && !this.isDailyChallenge && this.levelIndex <= 2) {
+      return completed
+        ? '青色光轨已接通，点「启动流光」完成这一关。'
+        : '已补充 1.2s 子弹时间。看青色预览线，必要时旋转水晶。';
+    }
+    if (this.isDailyChallenge) {
+      return completed
+        ? '今日光路已接通，启动后冲榜比步数。'
+        : '已补充 1.2s 子弹时间。少走一步，排名就更靠前。';
+    }
+    return completed
+      ? '光路已接通，启动流光完成结算。'
+      : '放置成功！已补充 1.2s 子弹时间。可继续铺路或启动流光。';
+  }
+
   private handleSuccess(): void {
     if (!this.runner || !this.level || this.runner.state === 'SUCCESS') {
       return;
@@ -2354,9 +2522,9 @@ export class GameRoot extends Component {
       const totalReward = reward + this.pendingBonusDiamonds;
       ProfileManager.addDiamonds(totalReward);
       this.triggerVictoryShockwave();
-      this.setStatus(`今日挑战完成！${leaderboard.hintText}，晶核 +${totalReward} 💎。${engagementSummary}`);
+      this.setStatus(`每日一束光完成！${this.usedMoves} 步，${leaderboard.hintText}。晶核 +${totalReward}，邀请好友挑战更短路线。${engagementSummary}`);
       this.updateLabels();
-      WeChatService.showToast(`今日挑战通关 +${totalReward} 💎`, 'success');
+      WeChatService.showToast(`每日一束光通关 +${totalReward} 晶核`, 'success');
       if (this.onShowVictoryPosterCallback) {
         this.onShowVictoryPosterCallback(this.level.id, this.level.name, Math.min(3, this.calculateStars()), this.usedMoves);
       }
@@ -2482,29 +2650,36 @@ export class GameRoot extends Component {
     }, this);
 
     const g = overlay.addComponent(Graphics);
+    const palette = getUiPalette(this.currentTheme);
     g.fillColor = new Color(5, 10, 25, 205);
     g.rect(-halfW, -halfH, size.width, size.height);
     g.fill();
-    g.fillColor = this.hex('#0B132B');
+    g.fillColor = this.hex(palette.panel);
     ((g.fillColor) as any).a = 248;
-    g.roundRect(-310, -245, 620, 490, 34);
+    g.roundRect(-310, -260, 620, 520, 34);
     g.fill();
-    g.strokeColor = this.hex('#FDE047');
+    g.fillColor = this.hex(palette.panelSoft);
+    ((g.fillColor) as any).a = 60;
+    g.roundRect(-292, -242, 584, 484, 28);
+    g.fill();
+    g.strokeColor = this.hex(palette.gold);
     g.lineWidth = 2.8;
+    g.roundRect(-310, -260, 620, 520, 34);
     g.stroke();
 
-    this.createOverlayLabel(overlay, 'BlessingTitle', new Vec3(0, 180, 141), '选择一个流光祝福', 28, '#FFFFFF', 520, 42);
-    this.createOverlayLabel(overlay, 'BlessingSub', new Vec3(0, 142, 141), '下一关开始生效，慢慢形成你的光路流派', 17, '#FDE68A', 560, 30);
+    this.createOverlayLabel(overlay, 'BlessingTitle', new Vec3(0, 196, 141), '选择一个流光祝福', 28, palette.text, 520, 42);
+    this.createOverlayLabel(overlay, 'BlessingSub', new Vec3(0, 158, 141), '通关后的永久成长：本次选择会升级对应祝福', 17, palette.gold, 560, 30);
+    this.createOverlayLabel(overlay, 'BlessingTip', new Vec3(0, 126, 141), '从下一关开始生效，影响水晶出现概率、补时或晶核收益。', 15, palette.muted, 560, 26);
 
     options.forEach((option, idx) => {
-      const y = 74 - idx * 102;
+      const y = 54 - idx * 102;
       const row = new Node(`Blessing_${option.id}`);
       row.layer = Layers.Enum.UI_2D;
       row.setParent(overlay);
       row.setPosition(new Vec3(0, y, 141));
       row.addComponent(UITransform).setContentSize(540, 82);
       const rg = row.addComponent(Graphics);
-      rg.fillColor = this.hex('#111827');
+      rg.fillColor = this.hex(palette.panelSoft);
       ((rg.fillColor) as any).a = 242;
       rg.roundRect(-270, -41, 540, 82, 22);
       rg.fill();
@@ -2515,7 +2690,7 @@ export class GameRoot extends Component {
       const level = ProfileManager.getBlessingLevel(option.id);
       this.createOverlayLabel(row, 'Title', new Vec3(-130, 14, 1), `${option.title}  Lv.${level + 1}`, 21, '#FFFFFF', 250, 30);
       this.createOverlayLabel(row, 'Desc', new Vec3(-70, -18, 1), option.desc, 15, '#CBD5E1', 370, 24);
-      this.createOverlayLabel(row, 'Pick', new Vec3(205, 0, 1), '选择', 18, option.color, 90, 34);
+      this.createOverlayLabel(row, 'Pick', new Vec3(205, 0, 1), '升级', 18, option.color, 90, 34);
 
       row.on(Node.EventType.TOUCH_END, (event: EventTouch) => {
         event.propagationStopped = true;
@@ -3405,9 +3580,9 @@ export class GameRoot extends Component {
   private updateLabels(): void {
     if (this.levelLabel && this.level) {
       if (this.isDailyChallenge) {
-        this.levelLabel.string = '☀ 今日光路挑战';
+        this.levelLabel.string = '每日一束光';
       } else if (this.isEndlessMode) {
-        this.levelLabel.string = `🏆 无尽挑战 · 阶段 ${this.endlessStageIndex + 1}`;
+        this.levelLabel.string = `无尽挑战 · 阶段 ${this.endlessStageIndex + 1}`;
       } else {
         this.levelLabel.string = `第 ${this.levelIndex + 1} 关  ${this.level.name}`;
       }
@@ -3417,7 +3592,7 @@ export class GameRoot extends Component {
       const remainingStars = this.getActiveBonusCells().length;
       const starText = remainingStars > 0 ? ` · 星核 ${remainingStars}` : '';
       if (this.isDailyChallenge) {
-        this.tipLabel.string = `今日 ${this.usedMoves}/${this.level.recommendedMoves} · 分享冲榜${bonusText}`;
+        this.tipLabel.string = `今日 ${this.usedMoves}/${this.level.recommendedMoves} 步 · 同题冲榜${bonusText}`;
       } else if (this.isEndlessMode) {
         this.tipLabel.string = `光能 ${this.endlessScore} · 救场 ${this.flowEnergy}${bonusText}`;
       } else {
@@ -3563,10 +3738,10 @@ export class GameRoot extends Component {
     g.rect(-halfW, -halfH, size.width, size.height);
     g.fill();
 
-    const title = this.levelIndex === 0 ? '第一步：把水晶拖到高亮格' :
-      (this.levelIndex === 1 ? '第二步：旋转水晶，看青色光轨' : '第三步：拖动时看预览线');
-    const tip = this.levelIndex === 0 ? '按住下方手牌，拖到金色目标格，松手放置。' :
-      (this.levelIndex === 1 ? '放好后点击水晶可旋转，蓝线接通再启动流光。' : '拖动过程中：青线能通，红线会掉，先预判再启动。');
+    const title = this.levelIndex === 0 ? '第一束光：拖到高亮格' :
+      (this.levelIndex === 1 ? '旋转水晶：看青色光轨' : '预判光路：青线能通');
+    const tip = this.levelIndex === 0 ? '按住下方水晶拖过去，接通后点「启动流光」。' :
+      (this.levelIndex === 1 ? '放好后点一下水晶可旋转，青线接通就是正确方向。' : '拖动时会实时预览：青线能通，红线会掉。');
 
     // Spotlight ring around the next meaningful board target.
     g.fillColor = new Color(253, 224, 71, 46);
@@ -3606,7 +3781,7 @@ export class GameRoot extends Component {
 
     this.createOverlayLabel(overlay, 'TutorialTitle', new Vec3(0, panelY + 24, 121), title, 24, '#FFFFFF', 520, 34);
     this.createOverlayLabel(overlay, 'TutorialTip', new Vec3(0, panelY - 12, 121), tip, 18, '#CFFAFE', 520, 30);
-    this.createOverlayLabel(overlay, 'TutorialDismiss', new Vec3(0, panelY - 42, 121), '点任意位置开始操作', 15, '#FDE047', 300, 24);
+    this.createOverlayLabel(overlay, 'TutorialDismiss', new Vec3(0, panelY - 42, 121), '轻点继续，高亮格会保留提示', 15, '#FDE047', 330, 24);
 
     overlay.on(Node.EventType.TOUCH_END, (event: EventTouch) => {
       event.propagationStopped = true;
