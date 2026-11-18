@@ -59,6 +59,7 @@ export interface TileConfig {
 export interface TileInstance {
   type: TileType;
   rotation: number;
+  locked?: boolean;
 }
 
 export interface LevelConfig {
@@ -103,6 +104,7 @@ export interface PreviewResult {
   path: PathNode[];
   success: boolean;
   reason?: string;
+  secondaryPath?: PathNode[];
 }
 
 export interface PlacementCandidate extends GridPos {

@@ -30,7 +30,7 @@ export class ShareService {
 
   static shareResidual(level: LevelConfig, payload: ResidualSharePayload): void {
     const query = `residual=${this.encodeResidual(payload)}`;
-    const title = `差一步就通关！帮我接上《浮岛流光》第 ${level.id} 关这束光`;
+    const title = `差一步就通关！帮我接上《浮岛浮光》第 ${level.id} 关这束光`;
     SharePosterService.createPosterAsync({
       kind: 'residual',
       level,
@@ -46,7 +46,7 @@ export class ShareService {
     const isOneTile = grade === '差一格';
     const title = isOneTile
       ? `我这束光差一格就通了，你能帮我救回来吗？`
-      : `${grade}残局求助！帮我改写《浮岛流光》这局`;
+      : `${grade}残局求助！帮我改写《浮岛浮光》这局`;
     SharePosterService.createPosterAsync({
       kind: 'residual',
       level,
@@ -58,7 +58,7 @@ export class ShareService {
   }
 
   static shareResidualSolved(level: LevelConfig, assistId: string): void {
-    const title = `我帮你接通《浮岛流光》第 ${level.id} 关了，回来领助攻晶核！`;
+    const title = `我帮你接通《浮岛浮光》第 ${level.id} 关了，回来领助攻晶核！`;
     const query = `assistDone=${encodeURIComponent(assistId)}`;
     SharePosterService.createPosterAsync({
       kind: 'victory',
@@ -74,7 +74,7 @@ export class ShareService {
     const isDaily = level.name.indexOf('今日光路') !== -1 || level.id >= 800000;
     const title = isDaily
       ? `我用 ${scoreText} 接上今日这一束光，你能更短吗？`
-      : `我在《浮岛流光》第 ${level.id} 关打出 ${scoreText}，你能少一步吗？`;
+      : `我在《浮岛浮光》第 ${level.id} 关打出 ${scoreText}，你能少一步吗？`;
     const query = isDaily ? 'daily=1' : `level=${level.id}`;
     SharePosterService.createPosterAsync({
       kind: 'victory',
@@ -87,8 +87,8 @@ export class ShareService {
   }
 
   static shareFriendChallenge(level: LevelConfig, moves: number, seed = 0): void {
-    const title = `我 ${moves} 步接通《浮岛流光》第 ${level.id} 关，你能少一步吗？`;
-    const query = `challenge=${level.id}&moves=${moves}&seed=${seed}`;
+    const title = `我用 ${moves} 步解开了《浮岛浮光》第 ${level.id} 关，你能比我更少吗？`;
+    const query = `level=${level.id}&challengeMoves=${moves}&seed=${seed}`;
     SharePosterService.createPosterAsync({
       kind: 'victory',
       level,
@@ -100,8 +100,8 @@ export class ShareService {
   }
 
   static shareBeautifulRoute(level: LevelConfig, moves: number, beautyScore: number): void {
-    const title = `我修出了一条 ${beautyScore} 分光轨，来《浮岛流光》看看你的路线有多美`;
-    const query = `beauty=${level.id}&moves=${moves}&score=${beautyScore}`;
+    const title = `我修出了一条 ${beautyScore} 分光轨，来《浮岛浮光》看看你的路线有多美`;
+    const query = `level=${level.id}&challengeMoves=${moves}&beauty=${beautyScore}`;
     SharePosterService.createPosterAsync({
       kind: 'victory',
       level,

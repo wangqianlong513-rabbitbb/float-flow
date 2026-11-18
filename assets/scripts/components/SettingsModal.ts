@@ -325,46 +325,95 @@ export class SettingsModal extends Component {
     g.lineWidth = 2.0;
     g.stroke();
 
-    this.createLabel(rulesBox, 'Title', new Vec3(0, 140, 0), '浮岛流光 · 玩法速记', 25, '#FDE047', 540, 40);
+    this.createLabel(rulesBox, 'Title', new Vec3(0, 140, 0), '浮岛流光 · 玩法速记', 26, '#FDE047', 540, 40);
 
     const rules = [
-      '• 放置接光：拖拽/点击水晶，铺出从起点到终点的光路。',
-      '• 子弹时间：流光跑动时拖起手牌会减速，争取补路时间。',
-      '• 撤回清盘：撤回退一步，清盘重拿手牌，救回死局。',
-      '• 健康体验：适度游戏益脑，沉迷游戏伤身。'
+      { tag: '放置接光', desc: '拖拽或点击手牌铺设，连接起点与终点光路。', color: '#38BDF8' },
+      { tag: '指哪转哪', desc: '轻点手中卡牌或棋盘已放地砖，直接原地旋转 90°！', color: '#34D399' },
+      { tag: '子弹时间', desc: '流光跑动时拖起手牌触发减速，争取关键补路时间。', color: '#FDE047' },
+      { tag: '撤回重置', desc: '撤回退一步，重置清盘重拿手牌，随时救回死局。', color: '#F472B6' }
     ];
 
     rules.forEach((r, idx) => {
-      const y = 55 - idx * 64;
+      const y = 60 - idx * 64;
       const rNode = this.createNode(`Rule_${idx}`, new Vec3(0, y, 0), rulesBox);
-      this.ensureTransform(rNode, 580, 60);
+      this.ensureTransform(rNode, 580, 56);
       const rg = rNode.addComponent(Graphics);
       rg.fillColor = this.hex('#0F172A');
-      ((rg.fillColor) as any).a = 210;
-      rg.roundRect(-280, -30, 560, 60, 14);
+      ((rg.fillColor) as any).a = 220;
+      rg.roundRect(-280, -28, 560, 56, 14);
       rg.fill();
-      this.createLabel(rNode, 'Text', new Vec3(-10, 0, 0), r, 19, '#E2E8F0', 560, 46);
+      rg.strokeColor = this.hex(r.color);
+      ((rg.strokeColor) as any).a = 150;
+      rg.lineWidth = 1.4;
+      rg.roundRect(-280, -28, 560, 56, 14);
+      rg.stroke();
+
+      // Colored tag badge
+      const tagBg = this.createNode('Tag', new Vec3(-215, 0, 1), rNode);
+      this.ensureTransform(tagBg, 96, 32);
+      const tg = tagBg.addComponent(Graphics);
+      tg.fillColor = this.hex(r.color);
+      ((tg.fillColor) as any).a = 45;
+      tg.roundRect(-48, -16, 96, 32, 10);
+      tg.fill();
+      tg.strokeColor = this.hex(r.color);
+      tg.lineWidth = 1.4;
+      tg.roundRect(-48, -16, 96, 32, 10);
+      tg.stroke();
+      this.createLabel(tagBg, 'Text', new Vec3(0, 1, 0), r.tag, 16, r.color, 90, 26);
+
+      this.createLabel(rNode, 'Text', new Vec3(50, 0, 0), r.desc, 17, '#E2E8F0', 430, 36);
     });
   }
 
   private renderAboutTab(parent: Node): void {
-    const aboutBox = this.createNode('AboutBox', new Vec3(0, 20, 0), parent);
-    this.ensureTransform(aboutBox, 580, 240);
+    const aboutBox = this.createNode('AboutBox', new Vec3(0, 15, 0), parent);
+    this.ensureTransform(aboutBox, 580, 280);
     const g = aboutBox.addComponent(Graphics);
     g.fillColor = this.hex('#1E293B');
     ((g.fillColor) as any).a = 200;
-    g.roundRect(-290, -120, 580, 240, 18);
+    g.roundRect(-290, -140, 580, 280, 18);
     g.fill();
     g.strokeColor = this.hex('#60A5FA');
     g.lineWidth = 2;
     g.stroke();
 
-    this.createLabel(aboutBox, 'Emblem', new Vec3(0, 75, 0), '浮 岛 流 光 (Float & Flow)', 28, '#00F0FF', 500, 40);
-    this.createLabel(aboutBox, 'Sub', new Vec3(0, 35, 0), '创意等距浮岛路线规划与流光引导解谜游戏', 18, '#93C5FD', 520, 30);
-    this.createLabel(aboutBox, 'Ver', new Vec3(0, -10, 0), '当前版本: v1.0.0  |  Cocos 引擎开发', 16, '#CBD5E1', 500, 26);
-    this.createLabel(aboutBox, 'Team', new Vec3(0, -45, 0), '核心特色: 唯美几何调色板 · 动态光路规划 · 极限子弹救场', 16, '#FDE047', 520, 26);
-    this.createLabel(aboutBox, 'Copy', new Vec3(0, -80, 0), '© 2026 浮岛流光 制作组. All Rights Reserved.', 15, '#64748B', 400, 22);
+    this.createLabel(aboutBox, 'Emblem', new Vec3(0, 98, 0), '浮 岛 浮 光 (Float & Flow)', 28, '#00F0FF', 500, 38);
+    this.createLabel(aboutBox, 'Sub', new Vec3(0, 62, 0), '创意等距浮岛路线规划与流光引导解谜游戏', 17, '#93C5FD', 520, 26);
+    this.createLabel(aboutBox, 'Ver', new Vec3(0, 28, 0), 'HAMITU GAMES · 哈密兔独立工作室 诚意出品', 16, '#FDE047', 500, 24);
 
+    // Cross-promotion button to Zhenxian
+    const promoBtn = this.createNode('PromoBtn', new Vec3(0, -12, 1), aboutBox);
+    this.ensureTransform(promoBtn, 480, 42);
+    const pg = promoBtn.addComponent(Graphics);
+    pg.fillColor = this.hex('#0F2847');
+    pg.roundRect(-240, -21, 480, 42, 21);
+    pg.fill();
+    pg.strokeColor = this.hex('#29BDE0');
+    pg.lineWidth = 1.4;
+    pg.roundRect(-240, -21, 480, 42, 21);
+    pg.stroke();
+    this.createLabel(promoBtn, 'Text', new Vec3(0, 1, 0), '🐰 更多好玩 · 体验哈密兔新作《穿针引线》➔', 16, '#A5F3FC', 460, 28);
+    this.addClick(promoBtn, () => {
+      WeChatService.vibrateShort('medium');
+      WeChatService.openMiniProgram('wxa8a598a3c86c1234', '', '正在联动唤起《穿针引线》...');
+    });
+
+    // 健康游戏忠告框
+    const healthBox = this.createNode('HealthNotice', new Vec3(0, -82, 1), aboutBox);
+    this.ensureTransform(healthBox, 540, 56);
+    const hg = healthBox.addComponent(Graphics);
+    hg.fillColor = this.hex('#064E3B');
+    ((hg.fillColor) as any).a = 180;
+    hg.roundRect(-270, -28, 540, 56, 12);
+    hg.fill();
+    hg.strokeColor = this.hex('#34D399');
+    hg.lineWidth = 1.4;
+    hg.roundRect(-270, -28, 540, 56, 12);
+    hg.stroke();
+    this.createLabel(healthBox, 'HTitle', new Vec3(0, 10, 1), '健康游戏忠告', 15, '#A7F3D0', 500, 20);
+    this.createLabel(healthBox, 'HBody', new Vec3(0, -11, 1), '抵制不良游戏，拒绝盗版。适度益脑，沉迷伤身。合理安排时间，享受健康生活。', 13, '#E6FFFA', 530, 18);
   }
 
   private drawIsometricBlock(

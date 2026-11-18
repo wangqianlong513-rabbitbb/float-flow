@@ -1,6 +1,6 @@
 import { GridManager } from './GridManager';
-import { move, posKey } from './DirectionUtils';
-import { GoalConfig, GridPos, PathNode, PlacementCandidate, PreviewResult, RunnerState } from './GameTypes';
+import { move, posKey, rotateDirection } from './DirectionUtils';
+import { Direction, GoalConfig, GridPos, PathNode, PlacementCandidate, PreviewResult, RunnerColor, RunnerState } from './GameTypes';
 import { resolveTileConfig } from './TileDefinitions';
 
 export class RouteSimulator {
@@ -16,6 +16,7 @@ export class RouteSimulator {
     }
 
     const path: PathNode[] = [];
+    let secondaryPath: PathNode[] | undefined;
     const visited = new Set<string>();
     let current: GridPos = { row: runner.row, col: runner.col };
     let direction = runner.direction;
@@ -30,12 +31,12 @@ export class RouteSimulator {
 
       if (!tempGrid.isValid(next)) {
         path.push({ ...next, result: 'dead', color });
-        return { path, success: false, reason: '前方是虚空' };
+        return { path, secondaryPath, success: false, reason: '前方是虚空' };
       }
 
       if (tempGrid.isObstacle(next)) {
         path.push({ ...next, result: 'blocked', color });
-        return { path, success: false, reason: '前方被障碍阻挡' };
+        return { path, secondaryPath, success: false, reason: '前方被障碍阻挡' };
       }
 
       const goal = this.findGoal(next, goals);
@@ -43,37 +44,37 @@ export class RouteSimulator {
         const goalKey = posKey(goal);
         if (requiredGoals.length === 0) {
           path.push({ ...next, result: 'goal', color });
-          return { path, success: true };
+          return { path, secondaryPath, success: true };
         }
         litGoals.add(goalKey);
         const complete = requiredGoals.every((requiredGoal) => litGoals.has(posKey(requiredGoal)));
         path.push({ ...next, result: complete ? 'goal' : 'pass', color });
         if (complete) {
-          return { path, success: true };
+          return { path, secondaryPath, success: true };
         }
         current = next;
         continue;
       } else if (goal) {
         path.push({ ...next, result: 'blocked', color });
-        return { path, success: false, reason: '光的颜色不匹配' };
+        return { path, secondaryPath, success: false, reason: '光的颜色不匹配' };
       }
 
       const tile = tempGrid.getTile(next);
       if (!tile) {
         path.push({ ...next, result: 'dead', color });
-        return { path, success: false, reason: '前方没有水晶路' };
+        return { path, secondaryPath, success: false, reason: '前方没有水晶路' };
       }
 
       if (visited.has(stateKey)) {
         path.push({ ...next, result: 'loop', color });
-        return { path, success: false, reason: '路线形成循环' };
+        return { path, secondaryPath, success: false, reason: '路线形成循环' };
       }
       visited.add(stateKey);
 
       const config = resolveTileConfig(tile);
       if (config.colorFilter && config.colorFilter !== 'none' && config.colorFilter !== color) {
         path.push({ ...next, result: 'blocked', color });
-        return { path, success: false, reason: '光的颜色不匹配' };
+        return { path, secondaryPath, success: false, reason: '光的颜色不匹配' };
       }
 
       if (config.colorPaint && config.colorPaint !== 'none') {
@@ -83,7 +84,13 @@ export class RouteSimulator {
       const out = config.routing[direction];
       if (!out || out === 'dead') {
         path.push({ ...next, result: 'dead', color });
-        return { path, success: false, reason: '水晶方向不连通' };
+        return { path, secondaryPath, success: false, reason: '水晶方向不连通' };
+      }
+
+      // 分光水晶：激发金色分支折射光流
+      if ((tile.type === 'splitter' || config.skill === 'splitter') && !secondaryPath) {
+        const splitDir = rotateDirection(direction, 1);
+        secondaryPath = this.traceSecondaryPath(tempGrid, next, splitDir, 'yellow', goals, maxSteps);
       }
 
       path.push({ ...next, result: 'pass', color });
@@ -106,13 +113,13 @@ export class RouteSimulator {
             const goalKey = posKey(jumpGoal);
             if (requiredGoals.length === 0) {
               path.push({ ...landing, result: 'goal', color });
-              return { path, success: true };
+              return { path, secondaryPath, success: true };
             }
             litGoals.add(goalKey);
             const complete = requiredGoals.every((requiredGoal) => litGoals.has(posKey(requiredGoal)));
             path.push({ ...landing, result: complete ? 'goal' : 'pass', color });
             if (complete) {
-              return { path, success: true };
+              return { path, secondaryPath, success: true };
             }
           } else {
             path.push({ ...landing, result: 'pass', color });
@@ -122,7 +129,61 @@ export class RouteSimulator {
       }
     }
 
-    return { path, success: false, reason: '路线过长或无法抵达终点' };
+    return { path, secondaryPath, success: false, reason: '路线过长或无法抵达终点' };
+  }
+
+  private static traceSecondaryPath(
+    grid: GridManager,
+    start: GridPos,
+    initialDir: Direction,
+    initialColor: RunnerColor,
+    goals: GoalConfig[],
+    maxSteps: number,
+  ): PathNode[] {
+    const secPath: PathNode[] = [];
+    let cur = start;
+    let dir = initialDir;
+    let col = initialColor === 'none' ? 'yellow' : initialColor;
+    const visited = new Set<string>();
+
+    for (let s = 0; s < Math.min(maxSteps, 12); s++) {
+      const next = move(cur, dir);
+      if (!grid.isValid(next)) {
+        secPath.push({ ...next, result: 'dead', color: col });
+        break;
+      }
+      if (grid.isObstacle(next)) {
+        secPath.push({ ...next, result: 'blocked', color: col });
+        break;
+      }
+      const goal = this.findGoal(next, goals);
+      if (goal) {
+        secPath.push({ ...next, result: 'goal', color: col });
+        break;
+      }
+      const tile = grid.getTile(next);
+      if (!tile) {
+        secPath.push({ ...next, result: 'dead', color: col });
+        break;
+      }
+      const key = `${posKey(next)}:${dir}`;
+      if (visited.has(key)) {
+        secPath.push({ ...next, result: 'loop', color: col });
+        break;
+      }
+      visited.add(key);
+
+      const cfg = resolveTileConfig(tile);
+      const out = cfg.routing[dir];
+      if (!out || out === 'dead') {
+        secPath.push({ ...next, result: 'dead', color: col });
+        break;
+      }
+      secPath.push({ ...next, result: 'pass', color: col });
+      cur = next;
+      dir = out;
+    }
+    return secPath;
   }
 
   private static findGoal(pos: GridPos, goals: GoalConfig[]): GoalConfig | null {

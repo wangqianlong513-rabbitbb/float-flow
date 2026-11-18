@@ -82,14 +82,23 @@ export class CardSystem {
   }
 
   private drawOne(): TileType {
+    // 1. 优先按关卡预设顺序精准发牌
     if (this.cursor < this.fixedHands.length) {
       return this.fixedHands[this.cursor++];
+    }
+
+    // 2. 关卡解法循环保底：如果关卡有预设牌组，发完后循环供给预设牌，确保解谜关键拼图永远不会因为随机数断供！
+    if (this.fixedHands.length > 0) {
+      const loopedType = this.fixedHands[this.cursor % this.fixedHands.length];
+      this.cursor++;
+      return loopedType;
     }
 
     if (this.pool.length === 0) {
       return 'straight';
     }
 
+    // 3. 随机牌池模式（如无尽挑战）：防卡手智能加权
     const randomIndex = this.pickWeightedIndex();
     const drawn = this.pool[randomIndex];
     this.updateMissProtection(drawn);
@@ -98,10 +107,18 @@ export class CardSystem {
 
   private pickWeightedIndex(): number {
     let total = 0;
+    // 检测手牌中是否缺少基础连接器 (curve / straight)
+    const hasCurveInHand = this.hand.includes('curve');
+    const hasStraightInHand = this.hand.includes('straight');
+
     const weights = this.pool.map((type) => {
       const missBonus = Math.min(4, this.misses[type] || 0);
+      let connectorBonus = 0;
+      if (type === 'curve' && !hasCurveInHand) connectorBonus = 4.0;
+      if (type === 'straight' && !hasStraightInHand) connectorBonus = 3.0;
+
       const isConnector = type === 'straight' || type === 'curve' || type === 'cross' || type === 'universal';
-      const weight = 1 + missBonus * (isConnector ? 0.35 : 0.18);
+      const weight = 1 + missBonus * (isConnector ? 0.35 : 0.18) + connectorBonus;
       total += weight;
       return weight;
     });

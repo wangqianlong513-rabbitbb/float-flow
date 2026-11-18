@@ -29,6 +29,8 @@ export class SceneBootstrap extends Component {
   private bgGraphicsNode: Graphics | null = null;
   private currentTheme = ProfileManager.getProfile().selectedTheme || 0; // 0: Icefield, 1: Starport Mist, 2: Corona Dawn
   private powerSaveMode = ProfileManager.isPowerSaveMode();
+  private rotateControlButtons: Node[] = [];
+  private static hasShownSplashThisSession = false;
 
   private closeAllModals(): void {
     if (this.settingsModalRootNode) this.settingsModalRootNode.active = false;
@@ -58,58 +60,101 @@ export class SceneBootstrap extends Component {
     const g = this.bgGraphicsNode;
     g.clear();
 
-    if (themeIdx === 1) {
-      // Theme 1 keeps the cool premium feel without pushing into heavy purple.
-      g.fillColor = this.hex('#081224');
-      g.rect(-1280, -1280, 2560, 2560);
-      g.fill();
-      g.fillColor = this.hex('#0E7490');
-      ((g.fillColor) as ((any)) as any).a = 58;
-      g.circle(0, 320, 500);
-      g.fill();
-      g.fillColor = this.hex('#2563EB');
-      ((g.fillColor) as ((any)) as any).a = 42;
-      g.circle(450, 180, 480);
-      g.fill();
-      g.fillColor = this.hex('#38BDF8');
-      ((g.fillColor) as ((any)) as any).a = 22;
-      g.circle(-350, -150, 420);
-      g.fill();
-    } else if (themeIdx === 2) {
-      // Theme 2 uses warm sunrise accents on a blue-black base, avoiding muddy orange/brown.
-      g.fillColor = this.hex('#0B1424');
-      g.rect(-1280, -1280, 2560, 2560);
-      g.fill();
-      g.fillColor = this.hex('#0F766E');
-      ((g.fillColor) as ((any)) as any).a = 56;
-      g.circle(0, 320, 500);
-      g.fill();
-      g.fillColor = this.hex('#FBBF24');
-      ((g.fillColor) as ((any)) as any).a = 22;
-      g.circle(450, 180, 480);
-      g.fill();
-      g.fillColor = this.hex('#2563EB');
-      ((g.fillColor) as ((any)) as any).a = 30;
-      g.circle(-350, -150, 420);
-      g.fill();
-    } else {
-      // Theme 0: premium icefield blue/cyan, with purple removed from the default home impression.
-      g.fillColor = this.hex('#071329');
-      g.rect(-1280, -1280, 2560, 2560);
-      g.fill();
-      g.fillColor = this.hex('#0E7490');
-      ((g.fillColor) as ((any)) as any).a = 118;
-      g.circle(0, 320, 500);
-      g.fill();
-      g.fillColor = this.hex('#2563EB');
-      ((g.fillColor) as ((any)) as any).a = 64;
-      g.circle(450, 180, 480);
-      g.fill();
-      g.fillColor = this.hex('#67E8F9');
-      ((g.fillColor) as ((any)) as any).a = 54;
-      g.circle(-350, -150, 420);
+    const palette = getUiPalette(themeIdx);
+
+    // 1. 天幕纵向空灵渐变 (从顶端深邃星空过渡到地平线灵光霞气，彻底告别死板深黑蓝！)
+    const topHex = palette.skyTop || '#121432';
+    const midHex = palette.skyMid || '#182C58';
+    const btmHex = palette.skyBottom || '#194474';
+    const cTop = this.hex(topHex);
+    const cMid = this.hex(midHex);
+    const cBtm = this.hex(btmHex);
+
+    const halfW = 1280;
+    const halfH = 1280;
+    const steps = 14;
+    const stepH = (halfH * 2) / steps;
+
+    for (let s = 0; s < steps; s++) {
+      const t = s / (steps - 1);
+      const curCol = new Color();
+      if (t < 0.5) {
+        Color.lerp(curCol, cTop, cMid, t * 2);
+      } else {
+        Color.lerp(curCol, cMid, cBtm, (t - 0.5) * 2);
+      }
+      g.fillColor = curCol;
+      const y = halfH - (s + 1) * stepH;
+      g.rect(-halfW, y, halfW * 2, stepH + 2);
       g.fill();
     }
+
+    // 2. 天穹极光柔和漫射流带 (Soft Horizontal Aurora Glow - 柔化流光，告别生硬机械同心圆)
+    const auroraCol = this.hex(palette.auroraColor || palette.cyan);
+    auroraCol.a = 24;
+    g.fillColor = auroraCol;
+    g.ellipse(0, 360, 680, 240);
+    g.fill();
+    auroraCol.a = 15;
+    g.fillColor = auroraCol;
+    g.ellipse(-120, 440, 560, 200);
+    g.fill();
+    g.ellipse(140, 420, 580, 210);
+    g.fill();
+
+    // 3. 玩法核心区背光透亮光晕 (Central Ethereal Light Bloom - 柔和极光微雾，告别生硬椭圆轮廓)
+    const centerBloom = this.hex(palette.glowAura || palette.glacier);
+    centerBloom.a = 18;
+    g.fillColor = centerBloom;
+    g.ellipse(0, 40, 520, 260);
+    g.fill();
+    centerBloom.a = 10;
+    g.fillColor = centerBloom;
+    g.ellipse(0, 40, 720, 380);
+    g.fill();
+
+    // 4. 地平线梦幻连绵流体云海 (Continuous Fluid Cloud Wave Ocean - 彻底铲除重叠肥皂泡与鱼鳞圆环纹！)
+    // 采用纪念碑谷风格的连绵波浪多边形，底部整洁收拢，绝不侵占关卡卡片与操作区
+    const cMist = this.hex(palette.cloudMist || '#E0F2FE');
+    const cWhite = this.hex(palette.cloudWhite || '#FFFFFF');
+
+    // 4.1 远景柔和薄雾基底层 (Distant Atmosphere Mist Ramp - 底端平滑霞光过渡)
+    const mistSteps = 8;
+    const mistTopY = -560;
+    const mistH = 260;
+    const mistStepH = mistH / mistSteps;
+    for (let mi = 0; mi < mistSteps; mi++) {
+      const mt = mi / (mistSteps - 1);
+      const curMistA = Math.floor(10 + mt * 45);
+      g.fillColor = new Color(cMist.r, cMist.g, cMist.b, curMistA);
+      g.rect(-halfW, mistTopY - (mi + 1) * mistStepH, halfW * 2, mistStepH + 2);
+      g.fill();
+    }
+
+    // 4.2 中景柔和极光薄雾波浪
+    g.fillColor = new Color(cMist.r, cMist.g, cMist.b, 42);
+    g.moveTo(-halfW, -660);
+    g.bezierCurveTo(-380, -630, -220, -675, -60, -645);
+    g.bezierCurveTo(100, -618, 260, -668, halfW, -640);
+    g.lineTo(halfW, -halfH);
+    g.lineTo(-halfW, -halfH);
+    g.close();
+    g.fill();
+
+    // 4.3 前景轻透云霭波脊（柔和半透明，不形成生硬白底条）
+    g.fillColor = new Color(cWhite.r, cWhite.g, cWhite.b, 68);
+    g.moveTo(-halfW, -725);
+    g.bezierCurveTo(-320, -695, -140, -735, 40, -705);
+    g.bezierCurveTo(200, -685, 360, -722, halfW, -700);
+    g.lineTo(halfW, -halfH);
+    g.lineTo(-halfW, -halfH);
+    g.close();
+    g.fill();
+
+    // 4.4 底端柔雾收拢带
+    g.fillColor = new Color(cWhite.r, cWhite.g, cWhite.b, 92);
+    g.rect(-halfW, -halfH, halfW * 2, halfH - 752);
+    g.fill();
 
     if (!this.powerSaveMode) {
       this.drawBackgroundDecorations(g, themeIdx);
@@ -131,6 +176,12 @@ export class SceneBootstrap extends Component {
       const settings = this.settingsModalRootNode.getComponent(SettingsModal);
       if (settings) settings.applyTheme(themeIdx);
     }
+    this.rotateControlButtons.forEach((btn) => {
+      const g = btn.getComponent(Graphics);
+      if (g) {
+        this.drawRotateButtonVisuals(g, getUiPalette(themeIdx));
+      }
+    });
   }
 
   private applyPowerSaveMode(enabled: boolean): void {
@@ -143,97 +194,159 @@ export class SceneBootstrap extends Component {
   }
 
   private drawBackgroundDecorations(graphics: Graphics, themeIdx: number): void {
-    // 5. Center Nebula Aura
-    graphics.fillColor = themeIdx === 1 ? this.hex('#0E7490') : (themeIdx === 2 ? this.hex('#0F766E') : this.hex('#0B5C8A'));
-    ((graphics.fillColor) as ((any)) as any).a = 72;
-    graphics.circle(0, 0, 450);
+    const palette = getUiPalette(themeIdx);
+
+    // 5. 空灵柔光弯月与星云漫反射 (Ethereal Luminous Crescent Moon)
+    const moonX = 258;
+    const moonY = 472;
+    const moonR = 32;
+    const moonCol = this.hex(palette.moonColor || '#FFFBEB');
+    const moonGlowCol = this.hex(palette.moonGlow || palette.cyan);
+
+    graphics.fillColor = new Color(moonGlowCol.r, moonGlowCol.g, moonGlowCol.b, 14);
+    graphics.circle(moonX, moonY, 68);
+    graphics.fill();
+    graphics.fillColor = new Color(moonGlowCol.r, moonGlowCol.g, moonGlowCol.b, 24);
+    graphics.circle(moonX, moonY, 48);
     graphics.fill();
 
-    // 6. Distant Floating Isometric Shards
-    const shards = [
-      { x: -500, y: 240, size: 55, colTop: '#3B82F6', colLeft: '#1D4ED8', colRight: '#1E3A8A', a: 118, h: 26 },
-      { x: 540, y: 200, size: 45, colTop: '#38BDF8', colLeft: '#0284C7', colRight: '#075985', a: 104, h: 22 },
-      { x: -540, y: -40, size: 42, colTop: '#67E8F9', colLeft: '#0891B2', colRight: '#164E63', a: 126, h: 20 },
-      { x: 560, y: -60, size: 60, colTop: '#2DD4BF', colLeft: '#0F766E', colRight: '#134E4A', a: 94, h: 28 },
-      { x: -440, y: -250, size: 50, colTop: '#60A5FA', colLeft: '#2563EB', colRight: '#1D4ED8', a: 112, h: 24 },
-      { x: 490, y: -230, size: 52, colTop: '#93C5FD', colLeft: '#3B82F6', colRight: '#1E3A8A', a: 106, h: 26 },
-      { x: -290, y: 290, size: 36, colTop: '#FDE68A', colLeft: '#D97706', colRight: '#92400E', a: 74, h: 16 },
-      { x: 330, y: 270, size: 38, colTop: '#38BDF8', colLeft: '#0284C7', colRight: '#0369A1', a: 105, h: 18 },
-      { x: -590, y: 100, size: 32, colTop: '#7DD3FC', colLeft: '#0EA5E9', colRight: '#075985', a: 94, h: 15 },
-      { x: 590, y: 80, size: 34, colTop: '#34D399', colLeft: '#059669', colRight: '#047857', a: 100, h: 16 },
-      { x: -220, y: -280, size: 44, colTop: '#22D3EE', colLeft: '#0891B2', colRight: '#164E63', a: 104, h: 20 },
-      { x: 240, y: -270, size: 46, colTop: '#60A5FA', colLeft: '#3B82F6', colRight: '#1D4ED8', a: 112, h: 22 },
+    graphics.fillColor = new Color(moonCol.r, moonCol.g, moonCol.b, 175);
+    graphics.circle(moonX, moonY, moonR);
+    graphics.fill();
+
+    // 天穹同色弯月遮罩，营造通透弦月质感
+    const moonShadowCol = this.hex(palette.skyTop);
+    graphics.fillColor = new Color(moonShadowCol.r, moonShadowCol.g, moonShadowCol.b, 235);
+    graphics.circle(moonX - 11, moonY + 7, 27);
+    graphics.fill();
+
+    // 6. 远景悬浮浮岛剪影（避让中央棋盘区，不戳出棋盘边缘）
+    const isRose = themeIdx === 1;
+    const isGold = themeIdx === 2;
+
+    const satelliteIslands = [
+      { x: -290, y: 430, w: 76, h: 22, depth: 36, hasWaterfall: true, hasCrystal: true, scale: 0.85 },
+      { x: 295, y: 310, w: 68, h: 18, depth: 30, hasWaterfall: false, hasCrystal: true, scale: 0.78 },
+      { x: -290, y: -420, w: 64, h: 18, depth: 28, hasWaterfall: false, hasCrystal: false, scale: 0.72 },
+      { x: 285, y: -440, w: 58, h: 16, depth: 26, hasWaterfall: false, hasCrystal: false, scale: 0.68 },
     ];
 
-    shards.forEach((s, idx) => {
-      const halfW = s.size;
-      const halfH = s.size * 0.5;
-      let topCol = this.hex(s.colTop);
-      let leftCol = this.hex(s.colLeft);
-      let rightCol = this.hex(s.colRight);
-      if (themeIdx === 1) {
-        topCol = this.hex(idx % 3 === 0 ? '#5DE6FF' : '#3D7DDE');
-        leftCol = this.hex('#24539C');
-        rightCol = this.hex('#132B55');
-      } else if (themeIdx === 2) {
-        topCol = this.hex(idx % 4 === 0 ? '#FFD76A' : (idx % 2 === 0 ? '#5DE6D6' : '#3B82F6'));
-        leftCol = this.hex(idx % 4 === 0 ? '#B7791F' : '#2C7A7B');
-        rightCol = this.hex('#1D2A3B');
-      }
-      ((topCol) as ((any)) as any).a = s.a; ((leftCol) as ((any)) as any).a = s.a; ((rightCol) as ((any)) as any).a = s.a;
+    satelliteIslands.forEach((isle) => {
+      const halfW = isle.w * 0.5;
+      const halfH = isle.h * 0.5;
+      const depth = isle.depth;
 
+      // 浮岛底部倒悬低多边形山体 (Inverted Low-Poly Crag)
+      const rockL = this.hex(isGold ? '#1F2937' : (isRose ? '#261238' : '#0B1D36'));
+      const rockR = this.hex(isGold ? '#111827' : (isRose ? '#170924' : '#071326'));
+
+      // 倒锥左受光面
+      graphics.fillColor = rockL;
+      graphics.moveTo(isle.x - halfW, isle.y);
+      graphics.lineTo(isle.x, isle.y - depth);
+      graphics.lineTo(isle.x, isle.y + halfH * 0.3);
+      graphics.close();
+      graphics.fill();
+
+      // 倒锥右阴影面
+      graphics.fillColor = rockR;
+      graphics.moveTo(isle.x, isle.y + halfH * 0.3);
+      graphics.lineTo(isle.x, isle.y - depth);
+      graphics.lineTo(isle.x + halfW, isle.y);
+      graphics.close();
+      graphics.fill();
+
+      // 岛体平顶雪原/冰晶草地 (Isle Top Plateau - 高亮纯净雪原，告别暗蓝)
+      const topCol = this.hex(isGold ? '#10B981' : (isRose ? '#F472B6' : (palette.plateauSnow || '#F8FAFC')));
       graphics.fillColor = topCol;
-      graphics.moveTo(s.x, s.y + halfH);
-      graphics.lineTo(s.x + halfW, s.y);
-      graphics.lineTo(s.x, s.y - halfH);
-      graphics.lineTo(s.x - halfW, s.y);
+      graphics.moveTo(isle.x, isle.y + halfH);
+      graphics.lineTo(isle.x + halfW, isle.y);
+      graphics.lineTo(isle.x, isle.y - halfH);
+      graphics.lineTo(isle.x - halfW, isle.y);
       graphics.close();
       graphics.fill();
 
-      graphics.fillColor = leftCol;
-      graphics.moveTo(s.x - halfW, s.y);
-      graphics.lineTo(s.x, s.y - halfH);
-      graphics.lineTo(s.x, s.y - halfH - s.h);
-      graphics.lineTo(s.x - halfW, s.y - s.h);
-      graphics.close();
-      graphics.fill();
-
-      graphics.fillColor = rightCol;
-      graphics.moveTo(s.x, s.y - halfH);
-      graphics.lineTo(s.x + halfW, s.y);
-      graphics.lineTo(s.x + halfW, s.y - s.h);
-      graphics.lineTo(s.x, s.y - halfH - s.h);
-      graphics.close();
-      graphics.fill();
-
-      graphics.strokeColor = this.hex('#FFFFFF');
-      ((graphics.strokeColor) as ((any)) as any).a = s.a + 50;
-      graphics.lineWidth = 1.5;
-      graphics.moveTo(s.x, s.y + halfH);
-      graphics.lineTo(s.x + halfW, s.y);
-      graphics.lineTo(s.x, s.y - halfH);
-      graphics.lineTo(s.x - halfW, s.y);
-      graphics.close();
+      // 边缘微光描线
+      graphics.strokeColor = this.hex(isle.hasCrystal ? (isRose ? '#F472B6' : '#38BDF8') : '#FFFFFF');
+      ((graphics.strokeColor) as any).a = 125;
+      graphics.lineWidth = 1.0;
+      graphics.moveTo(isle.x - halfW, isle.y);
+      graphics.lineTo(isle.x, isle.y + halfH);
+      graphics.lineTo(isle.x + halfW, isle.y);
       graphics.stroke();
+
+      // 悬崖飞瀑倾泻效果 (Waterfall Cascading into Void)
+      if (isle.hasWaterfall) {
+        const fallX = isle.x - halfW * 0.25;
+        const fallStartY = isle.y - halfH * 0.2;
+        const fallLen = depth + 38;
+
+        const wfCol = this.hex(palette.waterfallColor || '#38BDF8');
+        graphics.fillColor = new Color(wfCol.r, wfCol.g, wfCol.b, 175);
+        graphics.rect(fallX - 3.5, fallStartY - fallLen, 7, fallLen);
+        graphics.fill();
+
+        // 瀑布核心高光
+        graphics.strokeColor = this.hex('#FFFFFF');
+        ((graphics.strokeColor) as any).a = 210;
+        graphics.lineWidth = 1.5;
+        graphics.moveTo(fallX, fallStartY);
+        graphics.lineTo(fallX, fallStartY - fallLen);
+        graphics.stroke();
+
+        // 跌落处散发的光雾飞沫
+        graphics.fillColor = new Color(255, 255, 255, 120);
+        graphics.circle(fallX - 4, fallStartY - fallLen - 4, 3);
+        graphics.circle(fallX + 4, fallStartY - fallLen - 2, 2.5);
+        graphics.circle(fallX, fallStartY - fallLen - 6, 4.5);
+        graphics.fill();
+      }
+
+      // 岛顶矗立的伴生晶体 (Isle Top Crystals)
+      if (isle.hasCrystal) {
+        const cryX = isle.x + halfW * 0.2;
+        const cryY = isle.y + halfH;
+        const cryH = 22 * isle.scale;
+        const cryW = 6 * isle.scale;
+
+        const cryCol = this.hex(isRose ? '#F472B6' : (isGold ? '#F59E0B' : '#00F0FF'));
+        graphics.fillColor = new Color(cryCol.r, cryCol.g, cryCol.b, 210);
+        graphics.moveTo(cryX - cryW, cryY);
+        graphics.lineTo(cryX, cryY + cryH);
+        graphics.lineTo(cryX + cryW, cryY);
+        graphics.close();
+        graphics.fill();
+
+        graphics.strokeColor = this.hex('#FFFFFF');
+        ((graphics.strokeColor) as any).a = 180;
+        graphics.lineWidth = 1.0;
+        graphics.moveTo(cryX, cryY);
+        graphics.lineTo(cryX, cryY + cryH);
+        graphics.stroke();
+      }
     });
 
-    // 7. Starfield particles & cyber sparkles
-    for (let i = 0; i < 45; i++) {
-      const x = Math.sin(i * 997) * 620;
-      const y = Math.cos(i * 631) * 360;
-      const radius = 1.2 + (i % 3) * 0.8;
-      graphics.fillColor = themeIdx === 1 ? (i % 2 === 0 ? this.hex('#5DE6FF') : this.hex('#FFFFFF')) : (themeIdx === 2 ? (i % 2 === 0 ? this.hex('#FFD76A') : this.hex('#EFFFFB')) : (i % 4 === 0 ? this.hex('#00F0FF') : (i % 3 === 0 ? this.hex('#F472B6') : this.hex('#FFFFFF'))));
-      ((graphics.fillColor) as ((any)) as any).a = 160 + (i % 5) * 18;
+    // 7. 漫天星轨星辰与十字芒星 (Starfield & Cross Sparkles)
+    for (let i = 0; i < 28; i++) {
+      const x = Math.sin(i * 997) * 640;
+      const y = Math.cos(i * 631) * 420 + 60;
+      const radius = 1.2 + (i % 3) * 0.9;
+      graphics.fillColor = themeIdx === 1
+        ? (i % 2 === 0 ? this.hex('#F472B6') : this.hex('#FFFFFF'))
+        : (themeIdx === 2
+          ? (i % 2 === 0 ? this.hex('#FFD76A') : this.hex('#E0F2FE'))
+          : (i % 4 === 0 ? this.hex('#00F0FF') : (i % 3 === 0 ? this.hex('#C084FC') : this.hex('#FFFFFF'))));
+      ((graphics.fillColor) as ((any)) as any).a = 180 + (i % 4) * 20;
       graphics.circle(x, y, radius);
       graphics.fill();
 
-      if (radius > 2) {
+      if (radius > 2.0) {
         graphics.strokeColor = graphics.fillColor;
         graphics.lineWidth = 1;
-        graphics.moveTo(x - radius * 2.5, y);
-        graphics.lineTo(x + radius * 2.5, y);
-        graphics.moveTo(x, y - radius * 2.5);
-        graphics.lineTo(x, y + radius * 2.5);
+        graphics.moveTo(x - radius * 2.8, y);
+        graphics.lineTo(x + radius * 2.8, y);
+        graphics.moveTo(x, y - radius * 2.8);
+        graphics.lineTo(x, y + radius * 2.8);
         graphics.stroke();
       }
     }
@@ -241,6 +354,8 @@ export class SceneBootstrap extends Component {
 
   protected onLoad(): void {
     console.log('[FloatFlow] SceneBootstrap onLoad');
+    WeChatService.disableDebugMode();
+    WeChatService.checkUpdate();
     WeChatService.initShareMenu();
     AdService.init(WeChatService.adUnitId, WeChatService.interstitialAdUnitId);
     view.setDesignResolutionSize(720, 1558, ResolutionPolicy.FIXED_WIDTH);
@@ -271,16 +386,18 @@ export class SceneBootstrap extends Component {
     const halfW = visibleSize.width / 2;
     const halfH = visibleSize.height / 2;
 
-    // 动态计算在顶部导航条与底部操作区（Y = -halfH + 495）之间的可用垂直空间，求出其中心坐标
-    const boardCenterY = (halfH - 436) / 2;
+    // 动态计算在顶部导航条与底部操作区之间的可用垂直空间（初始居中，载入关卡时动态自适应贴合）
+    const boardCenterY = 153;
 
     const boardRoot = this.createRoot('BoardRoot', new Vec3(0, boardCenterY, 0), gamePage);
     const previewRoot = this.createRoot('PreviewRoot', new Vec3(0, boardCenterY, 0), gamePage);
     const runnerRoot = this.createRoot('RunnerRoot', new Vec3(0, boardCenterY, 0), gamePage);
     const uiRoot = this.createRoot('UI', new Vec3(0, 0, 0), gamePage);
 
-    // 1. Top Navigation Bar with embedded Level Label (never overlaps iOS notch or WeChat top capsule!)
-    let capsuleYOffset = 135;
+    // 1. 顶部导航栏（主页 & 关卡标题）：优雅移至微信胶囊按钮正下方
+    // 彻底告别原先与胶囊挤在同一行导致的“右侧被迫断截断、关卡偏左、且与网格间留有 150px 巨大空洞”的问题！
+    // 移至胶囊下方后，成为 672px 居中对称的高级玻璃拟态通栏，并显著缩小与网格的上下间距。
+    let capsuleBottomOffset = 150;
     if (typeof wx !== 'undefined' && wx.getMenuButtonBoundingClientRect) {
       try {
         const rect = wx.getMenuButtonBoundingClientRect();
@@ -288,42 +405,54 @@ export class SceneBootstrap extends Component {
         const screenHeight = systemInfo.screenHeight || systemInfo.windowHeight;
         if (screenHeight > 0) {
           const ratio = view.getVisibleSize().height / screenHeight;
-          const capsuleCenterYFromTop = (rect.top + rect.height / 2) * ratio;
-          capsuleYOffset = capsuleCenterYFromTop;
+          capsuleBottomOffset = (rect.bottom) * ratio;
         }
       } catch (e) {
         console.warn('[SceneBootstrap] Failed to compute WeChat capsule bounding rect, using fallback:', e);
       }
     }
-    const levelLabel = this.createTopNav(uiRoot, new Vec3(0, halfH - capsuleYOffset, 0));
+    const topNavHeight = 68;
+    const topNavMarginTop = 18;
+    const topNavYFromTop = capsuleBottomOffset + topNavMarginTop + topNavHeight / 2;
+    const topNavY = halfH - topNavYFromTop;
+    const { levelLabel, starPreviewLabel } = this.createTopNav(uiRoot, new Vec3(0, topNavY, 0));
+    const constellationLabel = this.createConstellationStrip(uiRoot, new Vec3(0, topNavY - 54, 0));
 
-    // 2. Bottom Card Deck Background tightly matching CardRoot at Y = -halfH + 260
-    const bottomDeckGraphics = this.createBottomDeck(uiRoot, new Vec3(0, -halfH + 260, 0));
-    const cardRoot = this.createRoot('CardRoot', new Vec3(0, -halfH + 260, 1), uiRoot); // 水晶卡片必须在托盘上层，避免被托盘遮罩压暗。
+    // 2. 底部卡槽保持隐藏（直接棋盘旋转模式），释放底部空间给 3 合 1 轻道具坞与冲关按钮
+    const bottomDeckGraphics = this.createBottomDeck(uiRoot, new Vec3(0, -halfH + 280, 0));
+    bottomDeckGraphics.node.active = false;
+    const cardRoot = this.createRoot('CardRoot', new Vec3(0, -halfH + 280, 1), uiRoot);
+    cardRoot.active = false;
 
-    // 3. 状态胶囊 与 提示文本：把时空缓冲从按钮行上移，避免底部工具区拥挤。
-    const tipPill = this.createRoot('TipPill', new Vec3(0, -halfH + 495, 0), uiRoot); // 下移
-    this.ensureTransform(tipPill, 610, 38);
+    // 3. 通透实时进度胶囊（紧邻操作栏上方，消除重复规则文案）
+    const tipPill = this.createRoot('TipPill', new Vec3(0, -halfH + 224, 0), uiRoot);
+    this.ensureTransform(tipPill, 620, 34);
     const tg = tipPill.addComponent(Graphics);
-    tg.fillColor = this.hex('#080E24');
-    ((tg.fillColor) as any).a = 150;
-    tg.roundRect(-305, -19, 610, 38, 19);
+    tg.fillColor = this.hex('#0F2344');
+    ((tg.fillColor) as any).a = 165;
+    tg.roundRect(-310, -17, 620, 34, 17);
     tg.fill();
-    const tipLabel = this.createLabel(tipPill, 'TipLabel', new Vec3(-96, 1, 0), '手数 0/5 · 救场 3', 17, '#A5F3FC', 380, 32);
+    tg.strokeColor = this.hex('#38BDF8');
+    ((tg.strokeColor) as any).a = 95;
+    tg.lineWidth = 1.1;
+    tg.stroke();
+    const tipLabel = this.createLabel(tipPill, 'TipLabel', new Vec3(0, 1, 0), '⚡ 光路已接通 0% · 轻触水晶旋转导光', 17, '#E0F2FE', 590, 30);
+    tipLabel.horizontalAlign = Label.HorizontalAlign.CENTER;
     const btMeter = this.createBulletTimeMeter(tipPill, new Vec3(218, 0, 0));
+    btMeter.node.active = false;
 
-    const statusToast = this.createRoot('StatusToast', new Vec3(0, -halfH + 450, 0), uiRoot);
-    this.ensureTransform(statusToast, 610, 42);
+    const statusToast = this.createRoot('StatusToast', new Vec3(0, -halfH + 294, 0), uiRoot);
+    this.ensureTransform(statusToast, 620, 42);
     const stg = statusToast.addComponent(Graphics);
-    stg.fillColor = this.hex('#061128');
-    ((stg.fillColor) as any).a = 210;
-    stg.roundRect(-305, -21, 610, 42, 21);
+    stg.fillColor = this.hex('#0F2344');
+    ((stg.fillColor) as any).a = 225;
+    stg.roundRect(-310, -21, 620, 42, 21);
     stg.fill();
-    stg.strokeColor = this.hex('#38BDF8');
-    ((stg.strokeColor) as any).a = 160;
+    stg.strokeColor = this.hex('#FDE047');
+    ((stg.strokeColor) as any).a = 180;
     stg.lineWidth = 1.6;
     stg.stroke();
-    const statusLabel = this.createLabel(statusToast, 'StatusLabel', new Vec3(0, 1, 0), '拖动手牌到地图放置', 20, '#A5F3FC', 580, 34);
+    const statusLabel = this.createLabel(statusToast, 'StatusLabel', new Vec3(0, 1, 0), '轻触水晶旋转朝向', 19, '#FEF08A', 590, 34);
     statusToast.active = false;
 
     const game = gamePage.getComponent(GameRoot) ?? gamePage.addComponent(GameRoot);
@@ -332,20 +461,32 @@ export class SceneBootstrap extends Component {
     game.runnerRoot = runnerRoot;
     game.cardRoot = cardRoot;
     game.bottomDeckGraphics = bottomDeckGraphics;
+    game.topNavNode = constellationLabel.node.parent;
     game.levelLabel = levelLabel;
+    game.starPreviewLabel = starPreviewLabel;
+    game.constellationLabel = constellationLabel;
     game.tipLabel = tipLabel;
     game.statusLabel = statusLabel;
     game.applyPowerSaveMode(this.powerSaveMode);
 
-    // 4. 下方横排辅助操作区：仅保留高频局内操作，低频/社交入口收进“更多”。
-    const actionRow = this.createRoot('ActionRow', new Vec3(0, -halfH + 403, 0), uiRoot);
+    // 4. 底部 3 合 1 轻道具坞：💡提示 · 🔨破障 · ↺重置（明确规则边界与求助出口）
+    const actionRow = this.createRoot('ActionRow', new Vec3(0, -halfH + 168, 0), uiRoot);
+    actionRow.active = true;
     game.bulletTimeNode = btMeter.node;
     game.bulletTimeGraphics = btMeter.graphics;
     game.bulletTimeValueLabel = btMeter.valueLabel;
-    this.createSideActionButtons(actionRow, game, new Vec3(0, 0, 0));
+    const { hammerBtnNode, hammerBtnLabel } = this.createSideActionButtons(actionRow, game, new Vec3(0, 0, 0));
+    game.hammerButtonNode = hammerBtnNode;
+    game.hammerButtonLabel = hammerBtnLabel;
 
-    // 5. 底部操控中心：只做单一主行动，避免和工具按钮抢注意力。
-    this.createHeroButton(uiRoot, 'StartButton', new Vec3(0, -halfH + 90, 0), '★  启 动 流 光', () => game.startRunner());
+    // 5. 底部核心冲关大按钮：连通终点时浮现（未吃满星核时由玩家自主选择直接冲关或继续拿满 3 星）
+    this.createHeroButton(uiRoot, 'StartButton', new Vec3(0, -halfH + 84, 0), '🚀 立 即 冲 关', () => game.startRunner(), game);
+
+    // 6. 旋转全面升级为原生自然交互：轻点手中卡牌即旋转、轻点棋盘地砖即旋转！彻底告别侧边悬空浮标，屏幕通透明亮。
+    game.leftRotateButtonNode = null;
+    game.rightRotateButtonNode = null;
+    game.rotateButtonNode = null;
+    this.rotateControlButtons = [];
 
     // 3. Settings Modal Root (Hidden by default!)
     const settingsModalRoot = this.createRoot('SettingsModalRoot', new Vec3(0, 0, 0));
@@ -393,7 +534,7 @@ export class SceneBootstrap extends Component {
     const startJourneyLevel = (idx: number, source: 'continue' | 'select' | 'share' = 'select') => {
       const safeIndex = Math.max(0, Math.min(idx, journeyLevelCount - 1));
       const profile = ProfileManager.getProfile();
-      const isFtueLevel = safeIndex < 5;
+      const isFtueLevel = safeIndex < 8;
       if (!isFtueLevel && profile.energy <= 0) {
         this.showEnergyEmptyDialog(() => {
           this.closeAllModals();
@@ -521,9 +662,9 @@ export class SceneBootstrap extends Component {
 
     let handledInitialDeepLink = WeChatService.hasInitialLaunchQuery();
     WeChatService.checkLaunchQuery(
-      (levelId: number) => {
+      (levelId: number, challengeMoves?: number) => {
         handledInitialDeepLink = true;
-        console.log(`[SceneBootstrap] Launch from share with levelId=${levelId}`);
+        console.log(`[SceneBootstrap] Launch from share with levelId=${levelId}, challengeMoves=${challengeMoves}`);
         const idx = game.findIndexByLevelId(levelId);
         if (idx >= 0) {
           this.closeAllModals();
@@ -531,6 +672,11 @@ export class SceneBootstrap extends Component {
           if (this.levelSelectRootNode) this.levelSelectRootNode.active = false;
           gamePage.active = true;
           game.loadLevel(idx);
+          if (challengeMoves && challengeMoves > 0) {
+            this.scheduleOnce(() => {
+              WeChatService.showToast(`好友用 ${challengeMoves} 步破局，你能少一步吗？`, 'none');
+            }, 0.5);
+          }
         }
       },
       (residualStr: string) => {
@@ -572,6 +718,64 @@ export class SceneBootstrap extends Component {
     if (!handledInitialDeepLink && initialProfile.levelProgress === 0 && !hasStartedJourney) {
       this.scheduleOnce(() => startJourneyLevel(0, 'continue'), 0);
     }
+  }
+
+  private showStudioSplash(): void {
+    if (SceneBootstrap.hasShownSplashThisSession) {
+      return;
+    }
+    SceneBootstrap.hasShownSplashThisSession = true;
+
+    const visibleSize = view.getVisibleSize();
+    const splashRoot = this.createRoot('StudioSplashRoot', new Vec3(0, 0, 999), this.node);
+    this.ensureTransform(splashRoot, visibleSize.width, visibleSize.height);
+
+    const bg = splashRoot.addComponent(Graphics);
+    bg.fillColor = new Color(4, 11, 22, 255);
+    bg.rect(-visibleSize.width / 2, -visibleSize.height / 2, visibleSize.width, visibleSize.height);
+    bg.fill();
+
+    const emblem = this.createRoot('Emblem', new Vec3(0, 52, 1), splashRoot);
+    this.ensureTransform(emblem, 90, 90);
+    const eg = emblem.addComponent(Graphics);
+    eg.fillColor = new Color(41, 189, 224, 35);
+    eg.circle(0, 0, 48);
+    eg.fill();
+    eg.fillColor = new Color(181, 233, 255, 230);
+    eg.moveTo(0, 36);
+    eg.lineTo(26, 0);
+    eg.lineTo(0, -32);
+    eg.lineTo(-26, 0);
+    eg.close();
+    eg.fill();
+    eg.fillColor = new Color(41, 189, 224, 255);
+    eg.moveTo(0, 22);
+    eg.lineTo(15, 0);
+    eg.lineTo(0, -18);
+    eg.lineTo(-15, 0);
+    eg.close();
+    eg.fill();
+
+    this.createLabel(splashRoot, 'BrandEn', new Vec3(0, -16, 1), 'HAMITU GAMES', 30, '#FFFFFF', 460, 40);
+    this.createLabel(splashRoot, 'BrandZh', new Vec3(0, -56, 1), '哈密兔独立工作室 · 诚意出品', 18, '#29BDE0', 460, 28);
+    this.createLabel(splashRoot, 'GameTag', new Vec3(0, -90, 1), '梦幻极光 · 浮岛连线益智', 14, '#94A3B8', 460, 24);
+
+    let dismissed = false;
+    const dismiss = () => {
+      if (dismissed) return;
+      dismissed = true;
+      tween(splashRoot)
+        .to(0.32, { scale: new Vec3(1.04, 1.04, 1) }, { easing: 'quadOut' })
+        .call(() => {
+          if (splashRoot.isValid) splashRoot.destroy();
+        })
+        .start();
+    };
+
+    this.addClick(splashRoot, dismiss);
+    this.scheduleOnce(() => {
+      dismiss();
+    }, 1.25);
   }
 
   private showEnergyEmptyDialog(onGoHome: () => void): void {
@@ -696,46 +900,63 @@ export class SceneBootstrap extends Component {
     this.applyTheme(this.currentTheme);
   }
 
-  private createTopNav(parent: Node, position: Vec3): Label {
+  private createTopNav(parent: Node, position: Vec3): { levelLabel: Label; starPreviewLabel: Label } {
     const node = new Node('TopNav');
     node.layer = Layers.Enum.UI_2D;
     node.setParent(parent);
     node.setPosition(position);
-    this.ensureTransform(node, 510, 80);
+    this.ensureTransform(node, 672, 68);
     const graphics = node.addComponent(Graphics);
     const palette = getUiPalette(this.currentTheme);
 
-    // Glassmorphic top navigation panel (leaving right side clear for WeChat Capsule)
+    // Glassmorphic top navigation panel - 672px 居中对称通栏
     graphics.fillColor = this.hex(palette.panel);
-    ((graphics.fillColor) as ((any)) as any).a = 190;
-    graphics.roundRect(-335, -40, 510, 80, 26);
+    ((graphics.fillColor) as ((any)) as any).a = 205;
+    graphics.roundRect(-336, -34, 672, 68, 22);
     graphics.fill();
     graphics.strokeColor = this.hex(palette.cyan);
     ((graphics.strokeColor) as any).a = 210;
     graphics.lineWidth = 2.0;
-    graphics.roundRect(-335, -40, 510, 80, 26);
+    graphics.roundRect(-336, -34, 672, 68, 22);
     graphics.stroke();
 
-    // Top nav only keeps navigation and level title; gameplay tools live in the thumb-friendly bottom toolbar.
-    const levelLabel = this.createLabel(node, 'LevelLabel', new Vec3(-20, 0, 0), '旅途模式 · 5-12', 22, palette.text, 360, 40);
+    // 关卡标题：居中偏左，留出右侧实时星级与步数徽章空间
+    const levelLabel = this.createLabel(node, 'LevelLabel', new Vec3(-22, 0, 0), '第 1 关  光信出发', 22, palette.text, 310, 40);
 
-    // Clickable Pause / Return to Home button!
+    // 右侧实时星级与步数预判胶囊
+    const starPillBg = new Node('StarPreviewPill');
+    starPillBg.layer = Layers.Enum.UI_2D;
+    starPillBg.setParent(node);
+    starPillBg.setPosition(new Vec3(230, 0, 0));
+    this.ensureTransform(starPillBg, 184, 46);
+    const spg = starPillBg.addComponent(Graphics);
+    spg.fillColor = this.hex(palette.panelSoft);
+    ((spg.fillColor) as any).a = 215;
+    spg.roundRect(-92, -23, 184, 46, 16);
+    spg.fill();
+    spg.strokeColor = this.hex('#FDE047');
+    ((spg.strokeColor) as any).a = 175;
+    spg.lineWidth = 1.6;
+    spg.stroke();
+    const starPreviewLabel = this.createLabel(starPillBg, 'StarPreviewLabel', new Vec3(0, 1, 0), '☆☆☆ · 0步', 18, '#FDE047', 176, 36);
+
+    // 左侧「|| 主页」返回胶囊
     const homeReturnBtn = new Node('HomeReturnBtn');
     homeReturnBtn.layer = Layers.Enum.UI_2D;
     homeReturnBtn.setParent(node);
-    homeReturnBtn.setPosition(new Vec3(-272, 0, 0));
-    this.ensureTransform(homeReturnBtn, 106, 50);
+    homeReturnBtn.setPosition(new Vec3(-268, 0, 0));
+    this.ensureTransform(homeReturnBtn, 112, 48);
     const hBg = homeReturnBtn.addComponent(Graphics);
     hBg.fillColor = this.hex(palette.panelSoft);
     ((hBg.fillColor) as any).a = 210;
-    hBg.roundRect(-53, -25, 106, 50, 16);
+    hBg.roundRect(-56, -24, 112, 48, 16);
     hBg.fill();
     hBg.strokeColor = this.hex('#60A5FA');
     ((hBg.strokeColor) as any).a = 210;
-    hBg.lineWidth = 2.0;
-    hBg.roundRect(-53, -25, 106, 50, 16);
+    hBg.lineWidth = 1.8;
+    hBg.roundRect(-56, -24, 112, 48, 16);
     hBg.stroke();
-    this.createLabel(homeReturnBtn, 'Text', new Vec3(0, 1, 0), '|| 主页', 21, '#FFFFFF', 100, 38);
+    this.createLabel(homeReturnBtn, 'Text', new Vec3(0, 1, 0), '|| 主页', 20, '#FFFFFF', 106, 36);
 
     this.addClick(homeReturnBtn, () => {
       console.log('[SceneBootstrap] Clicked Home/Pause -> Return to LevelSelect or HomePage!');
@@ -750,7 +971,28 @@ export class SceneBootstrap extends Component {
       }
     });
 
-    return levelLabel;
+    return { levelLabel, starPreviewLabel };
+  }
+
+  private createConstellationStrip(parent: Node, position: Vec3): Label {
+    const node = new Node('ConstellationStrip');
+    node.layer = Layers.Enum.UI_2D;
+    node.setParent(parent);
+    node.setPosition(position);
+    this.ensureTransform(node, 672, 34);
+    const g = node.addComponent(Graphics);
+    const palette = getUiPalette(this.currentTheme);
+
+    g.fillColor = this.hex(palette.panel);
+    ((g.fillColor) as any).a = 155;
+    g.roundRect(-336, -17, 672, 34, 17);
+    g.fill();
+    g.strokeColor = this.hex(palette.gold);
+    ((g.strokeColor) as any).a = 120;
+    g.lineWidth = 1.2;
+    g.stroke();
+
+    return this.createLabel(node, 'ConstellationLabel', new Vec3(0, 1, 0), '✦ 唤醒星座：天鹅座 (1/5) · 再过 4 关点亮星图', 16, '#FDE68A', 640, 28);
   }
 
   private createBottomDeck(parent: Node, position: Vec3): Graphics {
@@ -787,39 +1029,37 @@ export class SceneBootstrap extends Component {
     node.layer = Layers.Enum.UI_2D;
     node.setParent(parent);
     node.setPosition(position);
-    this.ensureTransform(node, 150, 32);
+    this.ensureTransform(node, 156, 34);
 
     const g = node.addComponent(Graphics);
     // Graphics drawn dynamically in game.redrawBulletTimeMeter()
 
-    this.createLabel(node, 'Title', new Vec3(-43, 0, 0), '缓冲', 13, '#93C5FD', 46, 24);
-    const valueLabel = this.createLabel(node, 'Value', new Vec3(26, 0, 0), '⏱ 3.0s', 16, '#00F0FF', 86, 26);
+    this.createLabel(node, 'Title', new Vec3(-45, 0, 0), '缓冲', 15, '#93C5FD', 48, 26);
+    const valueLabel = this.createLabel(node, 'Value', new Vec3(26, 0, 0), '⏱ 3.0s', 18, '#00F0FF', 90, 28);
     return { node, graphics: g, valueLabel };
   }
 
-  private createSideActionButtons(parent: Node, game: GameRoot, position: Vec3): void {
+  private createSideActionButtons(parent: Node, game: GameRoot, position: Vec3): { hammerBtnNode: Node; hammerBtnLabel: Label } {
     const root = new Node('SideActions');
     root.layer = Layers.Enum.UI_2D;
     root.setParent(parent);
     root.setPosition(position);
-    this.ensureTransform(root, 560, 56);
+    this.ensureTransform(root, 620, 58);
     const palette = getUiPalette(this.currentTheme);
 
-    this.createSideActionButton(root, 'PreviewBtn', new Vec3(-210, 0, 0), 110, '预览', palette.panel, palette.cyan, '#A5F3FC', () => {
-      game.showRoutePreview();
-    });
-
-    this.createSideActionButton(root, 'UndoBtn', new Vec3(-70, 0, 0), 110, '撤回', palette.panel, '#38BDF8', '#38BDF8', () => {
-      game.undoLastMove();
-    });
-
-    this.createSideActionButton(root, 'HintBtn', new Vec3(70, 0, 0), 110, '提示', palette.panelSoft, '#EAB308', '#FFFFFF', () => {
+    this.createSideActionButton(root, 'HintBtn', new Vec3(-196, 0, 0), 178, '💡 提 示', palette.panelSoft, '#FACC15', '#FEF08A', () => {
       game.showGameplayHint();
     });
 
-    this.createSideActionButton(root, 'MoreBtn', new Vec3(210, 0, 0), 110, '更多', palette.panelSoft, palette.cyan, '#FFFFFF', () => {
-      this.showMoreGameActions(game);
+    const hammerRes = this.createSideActionButton(root, 'HammerBtn', new Vec3(0, 0, 0), 192, '🔨 破障(2)', palette.panelSoft, '#F43F5E', '#FECDD3', () => {
+      game.activateHammerMode();
     });
+
+    this.createSideActionButton(root, 'ResetBtn', new Vec3(196, 0, 0), 178, '↺ 重 置', palette.panel, '#38BDF8', '#E0F2FE', () => {
+      game.clearPlacedTiles();
+    });
+
+    return { hammerBtnNode: hammerRes.node, hammerBtnLabel: hammerRes.label };
   }
 
   private showMoreGameActions(game: GameRoot): void {
@@ -870,8 +1110,8 @@ export class SceneBootstrap extends Component {
 
     const actions = [
       { icon: '助', title: '残局求助', desc: '分享给好友帮你接光', border: '#22C55E', run: () => game.shareCurrentResidual() },
+      { icon: '导', title: '光轨预测', desc: '切换棋盘虚线光路指引', border: '#38BDF8', run: () => game.showRoutePreview() },
       { icon: '勤', title: '通勤挑战', desc: '来一局短时挑战', border: palette.gold, run: () => game.loadCommuteChallenge() },
-      { icon: '岛', title: '我的小岛', desc: '查看收藏与装扮', border: palette.cyan, run: () => game.showIslandRoom() },
       { icon: '清', title: '重置棋盘', desc: '清空已放置手牌', border: '#64748B', run: () => game.clearPlacedTiles() },
     ];
 
@@ -926,26 +1166,35 @@ export class SceneBootstrap extends Component {
     }
   }
 
-  private createSideActionButton(parent: Node, name: string, pos: Vec3, width: number, labelStr: string, bgHex: string, borderHex: string, textHex: string, onClick: () => void): void {
+  private createSideActionButton(parent: Node, name: string, pos: Vec3, width: number, labelStr: string, bgHex: string, borderHex: string, textHex: string, onClick: () => void): { node: Node; label: Label } {
     const node = new Node(name);
     node.layer = Layers.Enum.UI_2D;
     node.setParent(parent);
     node.setPosition(pos);
-    this.ensureTransform(node, width, 52);
+    const btnHeight = 54;
+    this.ensureTransform(node, width, btnHeight);
 
     const g = node.addComponent(Graphics);
     g.fillColor = this.hex(bgHex);
-    ((g.fillColor) as any).a = labelStr === '提示' ? 220 : 190;
-    g.roundRect(-width / 2, -26, width, 52, 20);
+    ((g.fillColor) as any).a = labelStr.includes('提示') ? 225 : 200;
+    g.roundRect(-width / 2, -btnHeight / 2, width, btnHeight, 22);
     g.fill();
     g.strokeColor = this.hex(borderHex);
-    ((g.strokeColor) as any).a = labelStr === '提示' ? 210 : 150;
-    g.lineWidth = labelStr === '提示' ? 2.0 : 1.6;
-    g.roundRect(-width / 2, -26, width, 52, 20);
+    ((g.strokeColor) as any).a = labelStr.includes('提示') ? 220 : 180;
+    g.lineWidth = labelStr.includes('提示') ? 2.2 : 1.8;
+    g.roundRect(-width / 2, -btnHeight / 2, width, btnHeight, 22);
     g.stroke();
 
-    this.createLabel(node, 'Text', new Vec3(0, 1, 0), labelStr, 17, textHex, width - 8, 36);
-    this.addClick(node, onClick);
+    const label = this.createLabel(node, 'Text', new Vec3(0, 1, 0), labelStr, 21, textHex, width - 8, 38);
+    this.addClick(node, () => {
+      tween(node)
+        .to(0.08, { scale: new Vec3(0.96, 0.96, 1) })
+        .to(0.12, { scale: new Vec3(1.03, 1.03, 1) })
+        .to(0.08, { scale: new Vec3(1.0, 1.0, 1) })
+        .start();
+      onClick();
+    });
+    return { node, label };
   }
 
   private addClick(node: Node, onClick: () => void): void {
@@ -975,10 +1224,17 @@ export class SceneBootstrap extends Component {
 
     this.createLabel(node, 'Icon', new Vec3(0, 16, 1), icon, 28, '#FFFFFF', 88, 42);
     this.createLabel(node, 'Text', new Vec3(0, -20, 1), labelText, 18, '#60A5FA', 90, 30);
-    this.addClick(node, onClick);
+    this.addClick(node, () => {
+      tween(node)
+        .to(0.08, { scale: new Vec3(0.96, 0.96, 1) })
+        .to(0.12, { scale: new Vec3(1.03, 1.03, 1) })
+        .to(0.08, { scale: new Vec3(1.0, 1.0, 1) })
+        .start();
+      onClick();
+    });
   }
 
-  private createHeroButton(parent: Node, name: string, position: Vec3, text: string, onClick: () => void): void {
+  private createHeroButton(parent: Node, name: string, position: Vec3, text: string, onClick: () => void, game?: GameRoot): void {
     const node = new Node(name);
     node.layer = Layers.Enum.UI_2D;
     node.setParent(parent);
@@ -1019,7 +1275,20 @@ export class SceneBootstrap extends Component {
     label.fontSize = 28; // H3 (28px)
     label.color = this.hex('#071126');
 
-    this.addClick(node, onClick);
+    if (game) {
+      game.heroButtonNode = node;
+      game.heroButtonLabel = label;
+      node.active = false; // 初始静默隐藏，贯通时辉煌浮现
+    }
+
+    this.addClick(node, () => {
+      tween(node)
+        .to(0.08, { scale: new Vec3(0.96, 0.96, 1) })
+        .to(0.12, { scale: new Vec3(1.03, 1.03, 1) })
+        .to(0.08, { scale: new Vec3(1.0, 1.0, 1) })
+        .start();
+      onClick();
+    });
 
     if (!this.powerSaveMode) {
       tween(node)
@@ -1062,7 +1331,14 @@ export class SceneBootstrap extends Component {
     label.fontSize = 22; // size 22
     label.color = this.hex('#FFFFFF');
 
-    this.addClick(node, onClick);
+    this.addClick(node, () => {
+      tween(node)
+        .to(0.08, { scale: new Vec3(0.96, 0.96, 1) })
+        .to(0.12, { scale: new Vec3(1.03, 1.03, 1) })
+        .to(0.08, { scale: new Vec3(1.0, 1.0, 1) })
+        .start();
+      onClick();
+    });
   }
 
   private createLabel(parent: Node, name: string, position: Vec3, text: string, size: number, color: string, width = 520, height = 60): Label {
@@ -1091,5 +1367,115 @@ export class SceneBootstrap extends Component {
     const color = new Color();
     Color.fromHEX(color, value);
     return color;
+  }
+
+  private createRotateControlButton(parent: Node, game: GameRoot, position: Vec3, name = 'RotateControlButton'): Node {
+    const node = new Node(name);
+    node.layer = Layers.Enum.UI_2D;
+    node.setParent(parent);
+    node.setPosition(position);
+    const size = 76;
+    this.ensureTransform(node, 92, 92); // 92x92 触控扩大判定区
+
+    const graphics = node.addComponent(Graphics);
+    const palette = getUiPalette(this.currentTheme);
+    this.drawRotateButtonVisuals(graphics, palette);
+
+    // 文字标识：下半部微标
+    const labelNode = new Node('Label');
+    labelNode.layer = Layers.Enum.UI_2D;
+    labelNode.setParent(node);
+    labelNode.setPosition(new Vec3(0, -18, 1));
+    this.ensureTransform(labelNode, size, 24);
+    const label = labelNode.addComponent(Label);
+    label.string = '旋转';
+    label.fontSize = 17;
+    label.color = this.hex('#FFFFFF');
+
+    // 触摸监听（TouchStart 即发，双手连招零延迟！）
+    node.on(Node.EventType.TOUCH_START, () => {
+      tween(node).stop();
+      tween(node).to(0.06, { scale: new Vec3(0.88, 0.88, 1) }).start();
+      game.rotateCurrentTarget(node);
+    }, this);
+
+    node.on(Node.EventType.TOUCH_END, () => {
+      tween(node).stop();
+      tween(node).to(0.12, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'backOut' }).start();
+    }, this);
+
+    node.on(Node.EventType.TOUCH_CANCEL, () => {
+      tween(node).stop();
+      node.setScale(new Vec3(1.0, 1.0, 1));
+    }, this);
+
+    if (!this.powerSaveMode) {
+      // 待机轻微呼吸流光提示
+      tween(node)
+        .to(1.4, { scale: new Vec3(1.03, 1.03, 1) }, { easing: 'sineInOut' })
+        .to(1.4, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'sineInOut' })
+        .union()
+        .repeatForever()
+        .start();
+    }
+
+    return node;
+  }
+
+  private drawRotateButtonVisuals(graphics: Graphics, palette: any): void {
+    graphics.clear();
+    const radius = 38;
+
+    // 1. 底板外围暗色晕影
+    graphics.fillColor = this.hex('#040B18');
+    ((graphics.fillColor) as any).a = 235;
+    graphics.circle(0, 0, radius);
+    graphics.fill();
+
+    // 2. 内层微光水蓝色光斑
+    graphics.fillColor = this.hex(palette.cyan);
+    ((graphics.fillColor) as any).a = 38;
+    graphics.circle(0, 0, radius - 4);
+    graphics.fill();
+
+    // 3. 赛博流光双层描边
+    graphics.strokeColor = this.hex(palette.cyan);
+    ((graphics.strokeColor) as any).a = 220;
+    graphics.lineWidth = 2.4;
+    graphics.circle(0, 0, radius);
+    graphics.stroke();
+
+    graphics.strokeColor = this.hex('#FFFFFF');
+    ((graphics.strokeColor) as any).a = 70;
+    graphics.lineWidth = 1.0;
+    graphics.circle(0, 0, radius - 4);
+    graphics.stroke();
+
+    // 4. 顺时针旋转箭头图标（绘制在按钮上半部分 Y = 10 处）
+    const centerY = 10;
+    const arcRadius = 14;
+
+    graphics.strokeColor = this.hex('#FFFFFF');
+    graphics.lineWidth = 3.2;
+    // 顺时针圆弧：从 0.2*PI 到 1.55*PI（即大半圈）
+    graphics.arc(0, centerY, arcRadius, Math.PI * 0.2, Math.PI * 1.55, false);
+    graphics.stroke();
+
+    // 箭头小三角（位于弧线终点 Math.PI * 0.2 附近，顺时针向下）
+    const tipX = arcRadius * Math.cos(Math.PI * 0.2);
+    const tipY = centerY + arcRadius * Math.sin(Math.PI * 0.2);
+
+    graphics.fillColor = this.hex('#FFFFFF');
+    graphics.moveTo(tipX + 6, tipY + 4);
+    graphics.lineTo(tipX - 1, tipY - 4);
+    graphics.lineTo(tipX - 6, tipY + 6);
+    graphics.close();
+    graphics.fill();
+
+    // 5. 左下角与右上角流光点缀
+    graphics.fillColor = this.hex(palette.cyan);
+    graphics.circle(-arcRadius + 2, centerY - 2, 2.0);
+    graphics.circle(arcRadius - 3, centerY - 3, 2.0);
+    graphics.fill();
   }
 }

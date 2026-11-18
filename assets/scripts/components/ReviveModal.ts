@@ -270,8 +270,9 @@ export class ReviveModal extends Component {
     ag.roundRect(-180, -26, 360, 52, 18);
     ag.stroke();
 
-    this.createLabel(adReviveBtn, 'Icon', new Vec3(-112, 1, 0), '广', 21, palette.gold, 44, 38);
-    this.createLabel(adReviveBtn, 'Text', new Vec3(12, 0, 0), '看广告立即复活', 18, palette.text, 230, 30);
+    const hasRealAd = WeChatService.adUnitId && WeChatService.adUnitId.startsWith('adunit-');
+    this.createLabel(adReviveBtn, 'Icon', new Vec3(-112, 1, 0), hasRealAd ? '广' : '福', 21, palette.gold, 44, 38);
+    this.createLabel(adReviveBtn, 'Text', new Vec3(12, 0, 0), hasRealAd ? '看广告立即复活' : '免广告立即复活', 18, palette.text, 230, 30);
 
     adReviveBtn.on(Node.EventType.TOUCH_END, () => {
       console.log('[ReviveModal] Clicked Ad Revive');
@@ -281,7 +282,7 @@ export class ReviveModal extends Component {
           WeChatService.showToast('复活成功！已重置棋盘', 'success');
           this.triggerReviveTransition();
         } else {
-          WeChatService.showToast('观看广告未完成，无法复活！', 'none');
+          WeChatService.showToast(res.error || '复活未完成，请重试', 'none');
         }
       });
     });

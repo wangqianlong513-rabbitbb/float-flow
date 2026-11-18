@@ -52,13 +52,13 @@ export class AdService {
   private static interstitialShowing = false;
 
   private static limits: Record<RewardedAdPlacement, PlacementLimit> = {
-    near_miss_rescue: { cooldownMs: 20 * 1000, daily: 8, session: 4 },
-    redraw_cards: { cooldownMs: 30 * 1000, daily: 4, session: 2 },
-    reward_multiplier: { cooldownMs: 25 * 1000, daily: 8, session: 4 },
-    time_rewind: { cooldownMs: 45 * 1000, daily: 4, session: 2 },
-    foresight_card: { cooldownMs: 30 * 1000, daily: 6, session: 3 },
-    daily_retry: { cooldownMs: 60 * 1000, daily: 1, session: 1 },
-    utility_refill: { cooldownMs: 45 * 1000, daily: 6, session: 3 },
+    near_miss_rescue: { cooldownMs: 0, daily: 30, session: 15 },
+    redraw_cards: { cooldownMs: 0, daily: 30, session: 15 },
+    reward_multiplier: { cooldownMs: 0, daily: 30, session: 15 },
+    time_rewind: { cooldownMs: 0, daily: 30, session: 15 },
+    foresight_card: { cooldownMs: 0, daily: 30, session: 15 },
+    daily_retry: { cooldownMs: 0, daily: 30, session: 15 },
+    utility_refill: { cooldownMs: 0, daily: 30, session: 15 },
   };
 
   private static policy: Record<RewardedAdPlacement, RewardedAdPolicy> = {
@@ -143,7 +143,12 @@ export class AdService {
       return this.fail(placement, limitError);
     }
     if (!this.configured || !this.rewardedVideoAd) {
-      return this.fail(placement, '广告位尚未配置');
+      // 未配置商业化广告位（未达1000UV冷启动阶段），自动降级为福利体验，绝不报错阻断玩家复活与撤回
+      this.markShown(placement);
+      const transactionId = this.makeTransactionId(placement);
+      AnalyticsService.track('ad_completed', { placement, transactionId, fallback: true });
+      AnalyticsService.track('ad_reward', { placement, transactionId, fallback: true });
+      return { completed: true, placement, transactionId, fallback: true };
     }
 
     this.inFlight = true;
@@ -225,9 +230,6 @@ export class AdService {
   }
 
   private static completeFallbackOrFail(placement: RewardedAdPlacement, error: string): RewardedAdResult {
-    if (this.loadFailures < 3) {
-      return this.fail(placement, error);
-    }
     this.loadFailures = 0;
     this.markShown(placement);
     const transactionId = this.makeTransactionId(placement);

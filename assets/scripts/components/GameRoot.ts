@@ -15,10 +15,20 @@ import {
 } from 'cc';
 import { CardSystem } from '../core/CardSystem';
 import { GridManager } from '../core/GridManager';
-import { move, posKey } from '../core/DirectionUtils';
+import { DIRECTIONS, move, posKey, rotateDirection } from '../core/DirectionUtils';
 import { Direction, GoalConfig, GridPos, LevelConfig, RunnerColor, RunnerState, TileInstance, TileType } from '../core/GameTypes';
 import { RouteSimulator } from '../core/RouteSimulator';
-import { createTile, getTileDisplayName, resolveTileConfig, rotateTile } from '../core/TileDefinitions';
+import {
+  createTile,
+  getTileDisplayName,
+  resolveTileConfig,
+  rotateTile,
+  isStraightType,
+  isCurveType,
+  getValidCurveRotations,
+  smartRotateTile,
+  getBaseTileConfig,
+} from '../core/TileDefinitions';
 import { LevelDirector } from '../core/LevelDirector';
 import { LiveOpsService } from '../core/LiveOpsService';
 import { EngagementService, FailureInsight } from '../core/EngagementService';
@@ -30,6 +40,7 @@ import { CloudGameService } from '../wx/CloudGameService';
 import { AnalyticsService } from '../wx/AnalyticsService';
 import { AdService } from '../wx/AdService';
 import { getUiPalette } from '../ui/UiTheme';
+import { CrystalAudioService } from '../core/CrystalAudioService';
 
 export interface FailureShareSummary {
   levelId: number;
@@ -90,6 +101,7 @@ export class GameRoot extends Component {
 
   @property(Label)
   levelLabel: Label | null = null;
+  topNavNode: Node | null = null;
 
   @property(Label)
   tipLabel: Label | null = null;
@@ -105,6 +117,55 @@ export class GameRoot extends Component {
 
   @property(Label)
   bulletTimeValueLabel: Label | null = null;
+
+  @property(Node)
+  rotateButtonNode: Node | null = null;
+
+  @property(Node)
+  leftRotateButtonNode: Node | null = null;
+
+  @property(Node)
+  rightRotateButtonNode: Node | null = null;
+
+  @property(Node)
+  heroButtonNode: Node | null = null;
+
+  @property(Label)
+  heroButtonLabel: Label | null = null;
+
+  @property(Label)
+  starPreviewLabel: Label | null = null;
+
+  @property(Label)
+  constellationLabel: Label | null = null;
+
+  @property(Node)
+  hammerButtonNode: Node | null = null;
+
+  @property(Label)
+  hammerButtonLabel: Label | null = null;
+
+  private autoLaunchTimer: any = null;
+  private hammerCharges = 2;
+  private hammerModeActive = false;
+  private illuminatedCellKeys: Set<string> = new Set();
+  private previewLitStars = 0;
+  private previewProgressRatio = 0;
+  private previewBlockedOnObstacle = false;
+  private lastPreviewLitCount = 0;
+  private lastPreviewConnected = false;
+  private lockedBridgeCount = 0;
+
+  @property(Node)
+  fogRoot: Node | null = null;
+  private fogNodes: Map<string, Node> = new Map();
+  private markersRoot: Node | null = null;
+  private isGestureDrawing = false;
+  private gesturePath: GridPos[] = [];
+  private gestureTouchedCells: Set<string> = new Set();
+  private cellNodes: Map<string, Node> = new Map();
+  private drillingObstacleKey: string | null = null;
+  private obstacleDrillTimer: any = null;
 
   public onShowReviveModalCallback?: (summary: FailureShareSummary) => void;
   public onShowVictoryPosterCallback?: (levelId: number, levelName: string, stars: number, moves: number) => void;
@@ -138,10 +199,14 @@ export class GameRoot extends Component {
   private dragCardIndex = -1;
   private dragNode: Node | null = null;
   private hoverCell: GridPos | null = null;
+  private selectedPlacedPos: GridPos | null = null;
+  private selectedPlacedHighlightNode: Node | null = null;
+  private radialDialNode: Node | null = null;
+  private selectedCardRotation = 0;
   private usedMoves = 0;
   public undoRemaining = 1;
   public eraseRemaining = 1;
-  private moveHistory: { pos: GridPos; cardIndex: number; tileType: TileType; generated?: GridPos[] }[] = [];
+  private moveHistory: { pos: GridPos; cardIndex?: number; tileType?: TileType; prevRotation?: number; generated?: GridPos[] }[] = [];
   private flowEnergy = 0;
   private runnerTimer = 0;
   private maxBulletTime = 3.0;
@@ -183,10 +248,16 @@ export class GameRoot extends Component {
   public applyTheme(themeIdx: number): void {
     console.log(`[GameRoot] Apply Theme Index ${themeIdx}`);
     this.currentTheme = themeIdx;
-    if (this.level) {
+    if (this.level && this.boardRoot && this.boardRoot.isValid) {
+      this.clearNode(this.boardRoot);
+      this.fogRoot = null;
+      this.markersRoot = null;
+      this.tileNodes.clear();
+      this.starCoreNodes.clear();
       this.renderBoard();
       this.renderAllTiles();
       this.renderCards();
+      this.renderFogOfWar();
     }
   }
 
@@ -262,14 +333,62 @@ export class GameRoot extends Component {
   }
 
   public startRunner(): void {
-    if (this.runner && this.runner.state === 'IDLE') {
-      WeChatService.vibrateShort('light');
+    this.cancelAutoLaunch();
+    this.closeRadialDial();
+    if (!this.runner || !this.level) return;
+
+    // 1. 如果光子处于 DEAD 或 SUCCESS 状态，重置回到初始起点
+    if (this.runner.state === 'DEAD' || this.runner.state === 'SUCCESS') {
+      this.runner.row = this.level.start.row;
+      this.runner.col = this.level.start.col;
+      this.runner.direction = this.level.start.direction;
+      this.runner.color = this.level.start.color;
+      this.runner.speed = this.level.start.speed;
+      this.runner.state = 'IDLE';
+      this.runnerTimer = 0;
+      this.isResolving = false;
+      if (this.runnerNode) {
+        this.runnerNode.setPosition(this.gridToLocal(this.runner));
+      }
+      this.updateRoutePreviewLine();
+    }
+
+    // 2. 立即启动：同步进入 RUNNING 状态，绝不被任何异步 Tween 回调阻塞！
+    if (this.runner.state === 'IDLE') {
+      CrystalAudioService.resetScale();
+      WeChatService.vibrateShort('medium');
       this.rewindSnapshot = this.createRewindSnapshot();
       this.runner.state = 'RUNNING';
+
       const firstRunText = !this.isEndlessMode && !this.isDailyChallenge && this.levelIndex <= 1
         ? '流光出发！沿着你铺好的水晶路线前进。'
         : (this.isDailyChallenge ? '今日这束光已启动，冲一个更少步数。' : '流光已启动！观察光路与救场触发。');
       this.setStatus(firstRunText);
+
+      this.playLaunchCeremony();
+    }
+  }
+
+  private playLaunchCeremony(): void {
+    if (this.powerSaveMode) {
+      return;
+    }
+
+    // 1. 起点极光法阵爆射能量激波
+    const startAura = this.boardRoot?.getChildByName('StartAura');
+    if (startAura) {
+      tween(startAura)
+        .to(0.12, { scale: new Vec3(1.4, 1.4, 1) }, { easing: 'sineOut' })
+        .to(0.12, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'sineIn' })
+        .start();
+    }
+
+    // 2. 光轨全线导通脉冲：路线短暂高亮充能
+    if (this.previewRoot) {
+      tween(this.previewRoot)
+        .to(0.1, { scale: new Vec3(1.025, 1.025, 1) }, { easing: 'sineOut' })
+        .to(0.12, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'sineIn' })
+        .start();
     }
   }
 
@@ -287,83 +406,35 @@ export class GameRoot extends Component {
   public clearPlacedTiles(): void {
     console.log('[FloatFlow] Clear Placed Tiles');
     WeChatService.vibrateShort('light');
-    if (this.eraseRemaining <= 0) {
-      WeChatService.showModal({
-        title: '免费清盘已耗尽',
-        content: '本关卡免费清盘(擦除)次数(1次)已用完！是否观看一段短视频广告立刻获取补给并为你清空重置手牌？',
-        confirmText: '观看广告',
-        cancelText: '暂不需要',
-        success: (res) => {
-          if (res.confirm) {
-            console.log('[FloatFlow] Watch Ad for Erase Reset');
-            AdService.showRewarded('utility_refill').then((adRes) => {
-              if (adRes.completed) {
-                this.eraseRemaining = 1;
-                WeChatService.showToast('★ 已重置清盘机会！', 'success');
-                this.setStatus('★ 已补给 1 次清盘机会并自动为您重置棋盘！');
-                this.clearPlacedTiles();
-              } else {
-                WeChatService.showToast(adRes.error || '观看完成后补给清盘机会', 'none');
-              }
-            });
-          }
-        },
-      });
-      return;
-    }
-    if (this.moveHistory.length === 0 && this.usedMoves === 0) {
-      this.setStatus('当前棋盘已经很干净啦，无需擦除。');
-      return;
-    }
-
-    this.eraseRemaining--;
     this.restartLevel(true);
-    this.setStatus(`已擦除放置地砖，手牌已重置（本关剩余清盘：${this.eraseRemaining}/1 次）`);
+    this.setStatus('已重置关卡水晶朝向，轻触水晶重新连通！');
   }
 
   public undoLastMove(): void {
     console.log('[FloatFlow] Undo Last Move');
+    this.closeRadialDial();
     WeChatService.vibrateShort('light');
-    if (!this.grid || !this.cardSystem || this.runner?.state === 'RUNNING') {
-      return;
-    }
-    if (this.undoRemaining <= 0) {
-      WeChatService.showModal({
-        title: '免费撤回已耗尽',
-        content: '本关卡免费撤回次数(1次)已用完！是否观看一段短视频广告立刻获得 1 次撤回机会？',
-        confirmText: '观看广告',
-        cancelText: '暂不需要',
-        success: (res) => {
-          if (res.confirm) {
-            console.log('[FloatFlow] Watch Ad for Undo Reset');
-            AdService.showRewarded('utility_refill').then((adRes) => {
-              if (adRes.completed) {
-                this.undoRemaining = 1;
-                WeChatService.showToast('★ 已获得 1 次撤回机会！', 'success');
-                this.setStatus('★ 补给成功！已获得 1 次撤回机会！');
-                if (this.moveHistory.length > 0) {
-                  this.undoLastMove();
-                } else {
-                  WeChatService.showToast('现在去放置地砖，走错时随时可使用撤回哦~', 'none');
-                }
-              } else {
-                WeChatService.showToast(adRes.error || '观看完成后补给撤回机会', 'none');
-              }
-            });
-          }
-        },
-      });
+    if (!this.grid || this.runner?.state === 'RUNNING') {
       return;
     }
     if (this.moveHistory.length === 0) {
-      this.setStatus('当前没有任何可撤回的放置操作！');
+      this.setStatus('当前没有任何可撤回的旋转操作！');
       return;
     }
 
     const last = this.moveHistory.pop();
     if (!last) return;
 
-    this.undoRemaining--;
+    if (last.prevRotation !== undefined && this.grid) {
+      const tile: TileInstance = { type: last.tileType || 'straight', rotation: last.prevRotation };
+      this.grid.setTile(last.pos, tile);
+      this.renderTile(last.pos, tile);
+      this.setSelectedPlacedPos(last.pos);
+      this.updateRoutePreviewLine();
+      this.setStatus('已撤销上一次旋转');
+      return;
+    }
+
     this.grid.setTile(last.pos, null);
     const key = this.key(last.pos);
     this.tileNodes.get(key)?.destroy();
@@ -375,13 +446,16 @@ export class GameRoot extends Component {
       this.tileNodes.delete(generatedKey);
     }
 
-    this.hand = this.cardSystem.returnTileToHand(last.cardIndex, last.tileType);
-    this.renderCards();
+    if (last.cardIndex !== undefined && last.tileType && this.cardSystem) {
+      this.hand = this.cardSystem.returnTileToHand(last.cardIndex, last.tileType);
+      this.renderCards();
+    }
+    this.setSelectedPlacedPos(null);
 
     this.usedMoves = Math.max(0, this.usedMoves - 1);
     this.updateLabels();
     this.updateRoutePreviewLine();
-    this.setStatus(`已撤回上一步地砖（本关剩余撤回：${this.undoRemaining}/1 次）`);
+    this.setStatus('已撤回上一步操作');
   }
 
   public showRoutePreview(): void {
@@ -694,13 +768,23 @@ export class GameRoot extends Component {
     }
     this.grid = GridManager.fromLevel(this.level);
     this.runner = { ...this.level.start, state: 'IDLE' };
+    this.illuminatedCellKeys.clear();
+    this.previewLitStars = 0;
+    this.previewProgressRatio = 0;
+    this.previewBlockedOnObstacle = false;
+    this.lastPreviewLitCount = 0;
+    this.lastPreviewConnected = false;
+    this.lockedBridgeCount = 0;
+    this.hammerCharges = 2;
+    this.hammerModeActive = false;
+    this.ensureLevelPuzzleTilesOnBoard();
     this.cardSystem = new CardSystem(this.withSkillTiles(this.level.tilePool), this.level.handSize, this.level.fixedHands ?? []);
     this.hand = this.cardSystem.drawInitial();
     this.usedMoves = 0;
     this.flowEnergy = 0;
     this.runnerTimer = 0;
     this.isResolving = false;
-    this.bonusCell = null;
+    this.bonusCell = this.level?.starCores && this.level.starCores.length > 0 ? { ...this.level.starCores[0] } : null;
     this.bonusCollected = false;
     this.bonusNode = null;
     this.starCoreNodes.clear();
@@ -709,6 +793,8 @@ export class GameRoot extends Component {
     this.activeParticles.forEach((p) => p.node.destroy());
     this.activeParticles = [];
     this.clearNode(this.boardRoot);
+    this.fogRoot = null;
+    this.markersRoot = null;
     this.clearNode(this.previewRoot);
     this.clearNode(this.runnerRoot);
     this.clearNode(this.cardRoot);
@@ -732,8 +818,9 @@ export class GameRoot extends Component {
     ProfileManager.recordLevelStart(this.level.id);
     AnalyticsService.track('level_start', { levelId: this.level.id, daily: true, versionTag: this.level.versionTag || 'v1.5' });
     if (this.previewRoot) {
-      this.previewRoot.active = false;
+      this.previewRoot.active = true;
       this.clearNode(this.previewRoot);
+      this.updateRoutePreviewLine();
     }
   }
 
@@ -746,6 +833,16 @@ export class GameRoot extends Component {
     this.levelIndex = Math.max(0, stage);
     this.grid = GridManager.fromLevel(this.level);
     this.runner = { ...this.level.start, state: 'IDLE' };
+    this.illuminatedCellKeys.clear();
+    this.previewLitStars = 0;
+    this.previewProgressRatio = 0;
+    this.previewBlockedOnObstacle = false;
+    this.lastPreviewLitCount = 0;
+    this.lastPreviewConnected = false;
+    this.lockedBridgeCount = 0;
+    this.hammerCharges = 2;
+    this.hammerModeActive = false;
+    this.ensureLevelPuzzleTilesOnBoard();
     this.cardSystem = new CardSystem(this.withSkillTiles(this.level.tilePool), this.level.handSize, this.level.fixedHands ?? []);
     this.hand = this.cardSystem.drawInitial();
     this.usedMoves = 0;
@@ -766,6 +863,8 @@ export class GameRoot extends Component {
     this.skillComboCount = 0;
     this.commuteStage = -1;
     this.clearNode(this.boardRoot);
+    this.fogRoot = null;
+    this.markersRoot = null;
     this.clearNode(this.previewRoot);
     this.clearNode(this.runnerRoot);
     this.clearNode(this.cardRoot);
@@ -782,6 +881,11 @@ export class GameRoot extends Component {
     const report = LevelDirector.estimateDifficulty(this.level);
     this.setStatus(`种子挑战已生成：${report.label}，用于每日/活动内容生产。`);
     AnalyticsService.track('level_start', { levelId: this.level.id, seed, stage, difficulty: report.label, versionTag: 'v1.7' });
+    if (this.previewRoot) {
+      this.previewRoot.active = true;
+      this.clearNode(this.previewRoot);
+      this.updateRoutePreviewLine();
+    }
   }
 
   public loadCommuteChallenge(stage = 0): void {
@@ -1002,6 +1106,10 @@ export class GameRoot extends Component {
   }
 
   public loadLevel(index: number, preserveChances = false, isEndless = false): void {
+    this.closeRadialDial();
+    this.setSelectedPlacedPos(null);
+    this.selectedCardIndex = -1;
+    this.selectedCardRotation = 0;
     if (this.routeHintNode) {
       this.routeHintNode.destroy();
       this.routeHintNode = null;
@@ -1106,6 +1214,17 @@ export class GameRoot extends Component {
     }
 
     this.grid = GridManager.fromLevel(this.level);
+    this.runner = { ...this.level!.start, state: 'IDLE' };
+    this.illuminatedCellKeys.clear();
+    this.previewLitStars = 0;
+    this.previewProgressRatio = 0;
+    this.previewBlockedOnObstacle = false;
+    this.lastPreviewLitCount = 0;
+    this.lastPreviewConnected = false;
+    this.lockedBridgeCount = 0;
+    this.hammerCharges = 2;
+    this.hammerModeActive = false;
+    this.ensureLevelPuzzleTilesOnBoard();
 
     this.bonusCell = null;
     this.bonusCollected = false;
@@ -1159,6 +1278,8 @@ export class GameRoot extends Component {
     this.activeParticles = [];
 
     this.clearNode(this.boardRoot);
+    this.fogRoot = null;
+    this.markersRoot = null;
     this.clearNode(this.previewRoot);
     this.clearNode(this.runnerRoot);
     this.clearNode(this.cardRoot);
@@ -1168,33 +1289,18 @@ export class GameRoot extends Component {
     }
     this.tileNodes.clear();
     this.cardNodes = [];
-
-    // 动态计算在顶部导航条与底部操作区（Y = -halfH + 495）之间的可用垂直空间，求出其中心坐标
-    const offsetY = 174;
-    const pos3f = new Vec3(0, offsetY, 0);
-
-    if (this.boardRoot) {
-      this.boardRoot.setPosition(pos3f);
-    }
-    if (this.previewRoot) {
-      this.previewRoot.setPosition(pos3f);
-    }
-    if (this.runnerRoot) {
-      this.runnerRoot.setPosition(pos3f);
-    }
+    this.fogNodes.clear();
 
     this.renderBoard();
     this.renderAllTiles();
     this.renderRunner();
     this.renderCards();
+    this.renderFogOfWar();
     this.updateLabels();
     this.maxBulletTime = this.level.bulletTimeSeconds ?? 3.0;
     this.currentBulletTime = this.maxBulletTime;
     this.redrawBulletTimeMeter();
-    const objectiveIntro = this.level.objective === 'light_all_goals'
-      ? '今日委托：点亮所有灯塔。'
-      : (this.level.objective === 'collect_star' ? '今日委托：顺路收集星核。' : '今日委托：把光信送到终点。');
-    this.setStatus(`${objectiveIntro}${this.level.tutorialTip ?? '拖拽水晶，接住这束光。'}`);
+    this.setStatus(this.level.tutorialTip ?? '✦ 一指滑动拉出光轨 · 驱散迷雾复苏浮岛');
     ProfileManager.recordLevelStart(this.level.id);
     AnalyticsService.track('level_start', {
       levelId: this.level.id,
@@ -1204,14 +1310,876 @@ export class GameRoot extends Component {
       difficulty: LevelDirector.estimateDifficulty(this.level).label,
     });
     if (this.previewRoot) {
-      this.previewRoot.active = this.levelIndex <= 2 && !this.isEndlessMode;
+      this.previewRoot.active = true;
       this.clearNode(this.previewRoot);
-    }
-    if (this.previewRoot?.active) {
       this.updateRoutePreviewLine();
-      this.showRouteHintLayerTemporarily(5);
     }
     this.showTutorialOverlayIfNeeded();
+  }
+
+  private ensureLevelPuzzleTilesOnBoard(): void {
+    if (!this.level || !this.grid || !this.runner) return;
+    this.lockedBridgeCount = 0;
+
+    const placedKeys = new Set<string>();
+    const resolvedSteps: Array<{ row: number; col: number; type: TileType; correctRot: number }> = [];
+    const resolveCorrectRot = (type: TileType, inDir: Direction, outDir: Direction): number => {
+      if (isStraightType(type)) {
+        return (inDir === 'left' || inDir === 'right') ? 0 : 1;
+      }
+      for (let r = 0; r < 4; r++) {
+        const cfg = resolveTileConfig({ type, rotation: r });
+        if (cfg.routing[inDir] === outDir) {
+          return r;
+        }
+      }
+      return 0;
+    };
+
+    const placeStepTile = (
+      steps: Array<{ row: number; col: number; inDir: Direction; outDir: Direction }>,
+      allowOverride: boolean,
+      recordPrimary = false,
+      forceSolutionType = false,
+      scramble = true
+    ) => {
+      if (!this.grid) return;
+      for (const step of steps) {
+        const pos = { row: step.row, col: step.col };
+        const key = this.key(pos);
+        if (!allowOverride && placedKeys.has(key)) continue;
+        if (!this.canPlace(pos)) continue;
+
+        const existing = this.grid.getTile(pos);
+        const isStraight = step.inDir === step.outDir;
+        const neededType: TileType = isStraight ? 'straight' : 'curve';
+        const tileType = (forceSolutionType || !existing) ? neededType : existing.type;
+        const correctRot = resolveCorrectRot(tileType, step.inDir, step.outDir);
+
+        let rot = correctRot;
+        if (scramble) {
+          if (isStraightType(tileType)) {
+            rot = 1 - (correctRot % 2);
+          } else {
+            const shift = 1 + ((step.row * 2 + step.col) % 3);
+            rot = (correctRot + shift) % 4;
+          }
+        }
+
+        this.grid.setTile(pos, { type: tileType, rotation: rot });
+        placedKeys.add(key);
+        if (recordPrimary) {
+          resolvedSteps.push({ row: step.row, col: step.col, type: tileType, correctRot });
+        }
+      }
+    };
+
+    // 1. Ensure primary solution path is 100% mathematically solvable via RouteSimulator!
+    const currentSim = RouteSimulator.simulate(this.grid, this.runner, this.level.goals);
+    if (currentSim.success) {
+      this.scramblePlacedTiles();
+    } else {
+      const obstacleSet = new Set<string>();
+      for (const [r, c] of this.level.obstacles ?? []) {
+        obstacleSet.add(`${r}:${c}`);
+      }
+      let safeSteps = this.findLevelSolutionPath(this.level);
+      // Place unscrambled first to verify solvability (prevents incompatible initialTiles / routeHints deadlocks!)
+      placeStepTile(safeSteps, true, true, true, false);
+      // Ensure colored goals ('blue' / 'red') have a matching paint crystal along a straight segment before gates/goals
+      const needColor = this.level.goals.find((g) => g.color === 'blue' || g.color === 'red')?.color;
+      if (needColor) {
+        const paintType: TileType = needColor === 'blue' ? 'paint_blue' : 'paint_red';
+        const firstStraight = resolvedSteps.find((s) => s.type === 'straight');
+        if (firstStraight) {
+          firstStraight.type = paintType;
+          firstStraight.correctRot = 0;
+          this.grid.setTile({ row: firstStraight.row, col: firstStraight.col }, { type: paintType, rotation: 0 });
+        }
+      }
+
+      let verify = RouteSimulator.simulate(this.grid, this.runner, this.level.goals);
+      if (!verify.success && this.level.goals.length > 0) {
+        // Fallback: clear failed hint steps and solve all required goals + color gates cleanly via bfsSolveAllGoals
+        for (const s of resolvedSteps) {
+          this.grid.setTile({ row: s.row, col: s.col }, null);
+          placedKeys.delete(this.key({ row: s.row, col: s.col }));
+        }
+        resolvedSteps.length = 0;
+        safeSteps = this.bfsSolveAllGoals(this.level.start, this.level.goals, obstacleSet, this.grid.rows, this.grid.cols);
+        placeStepTile(safeSteps, true, true, true, false);
+        if (needColor) {
+          const paintType: TileType = needColor === 'blue' ? 'paint_blue' : 'paint_red';
+          const firstStraight = resolvedSteps.find((s) => s.type === 'straight');
+          if (firstStraight) {
+            firstStraight.type = paintType;
+            firstStraight.correctRot = 0;
+            this.grid.setTile({ row: firstStraight.row, col: firstStraight.col }, { type: paintType, rotation: 0 });
+          }
+        }
+        verify = RouteSimulator.simulate(this.grid, this.runner, this.level.goals);
+      }
+
+      // Now scramble all rotatable primary solution tiles so the player actively solves it
+      for (const s of resolvedSteps) {
+        if (!resolveTileConfig({ type: s.type, rotation: 0 }).rotatable) continue;
+        const pos = { row: s.row, col: s.col };
+        let scrambledRot = s.correctRot;
+        if (isStraightType(s.type)) {
+          scrambledRot = 1 - (s.correctRot % 2);
+        } else {
+          const shift = 1 + ((s.row * 2 + s.col) % 3);
+          scrambledRot = (s.correctRot + shift) % 4;
+        }
+        this.grid.setTile(pos, { type: s.type, rotation: scrambledRot });
+      }
+    }
+
+    // 1.5 Add 1-2 locked anchor bridge tiles on larger boards (6x6+ or daily/endless) as visual landmarks
+    const shouldPlaceAnchors = this.isDailyChallenge || this.isEndlessMode || this.grid.cols >= 6 || this.levelIndex >= 3;
+    if (shouldPlaceAnchors && resolvedSteps.length >= 4) {
+      const starSet = new Set((this.level.starCores ?? []).map((s) => this.key(s)));
+      const anchorIndices = resolvedSteps.length >= 7
+        ? [Math.floor(resolvedSteps.length * 0.38), Math.floor(resolvedSteps.length * 0.72)]
+        : [Math.floor(resolvedSteps.length * 0.5)];
+      for (const idx of anchorIndices) {
+        const step = resolvedSteps[idx];
+        if (!step) continue;
+        if (!resolveTileConfig({ type: step.type, rotation: 0 }).rotatable) continue;
+        const pos = { row: step.row, col: step.col };
+        if (starSet.has(this.key(pos)) || !this.canPlace(pos)) continue;
+        this.grid.setTile(pos, { type: step.type, rotation: step.correctRot, locked: true });
+        this.lockedBridgeCount++;
+      }
+    }
+
+    // 2. Also populate greedy 3-star route through starCores so 3-star collection is genuinely solvable!
+    if (this.level.starCores && this.level.starCores.length > 0 && this.level.goals.length > 0) {
+      const obstacleSet = new Set<string>();
+      for (const [r, c] of this.level.obstacles ?? []) {
+        obstacleSet.add(`${r}:${c}`);
+      }
+      const anchors: GridPos[] = [this.level.start, ...this.level.starCores, this.level.goals[0]];
+      const greedyWaypoints: GridPos[] = [];
+      for (let i = 0; i < anchors.length - 1; i++) {
+        const sub = this.bfsBetween(anchors[i], anchors[i + 1], obstacleSet, this.grid.rows, this.grid.cols);
+        if (sub.length > 0) {
+          greedyWaypoints.push(...(i === 0 ? sub : sub.slice(1)));
+        }
+      }
+      if (greedyWaypoints.length >= 3) {
+        const greedySteps = this.waypointsToSteps(greedyWaypoints);
+        placeStepTile(greedySteps, false, false, false, true);
+      }
+    }
+
+    // 3. Populate deterministic scrambled-road grid (crisp FTUE on levels 1-3, full density on 4+/daily/endless)
+    for (let r = 0; r < this.grid.rows; r++) {
+      for (let c = 0; c < this.grid.cols; c++) {
+        const pos = { row: r, col: c };
+        if (!this.canPlace(pos) || this.grid.getTile(pos)) continue;
+        const seed = (this.level.id * 31 + r * 17 + c * 23) % 100;
+        const density = (!this.isEndlessMode && !this.isDailyChallenge)
+          ? (this.levelIndex === 0 ? 38 : (this.levelIndex <= 2 ? 48 : 65))
+          : 65;
+        if (seed < density) {
+          const decoyType: TileType = seed % 11 === 0 && (this.isDailyChallenge || this.levelIndex >= 4)
+            ? 'cross'
+            : (seed % 2 === 0 ? 'straight' : 'curve');
+          const rot = (seed + r + c) % (decoyType === 'straight' ? 2 : 4);
+          this.grid.setTile(pos, { type: decoyType, rotation: rot });
+        }
+      }
+    }
+  }
+
+  private scramblePlacedTiles(): void {
+    if (!this.grid) return;
+    for (let r = 0; r < this.grid.rows; r++) {
+      for (let c = 0; c < this.grid.cols; c++) {
+        const pos = { row: r, col: c };
+        const tile = this.grid.getTile(pos);
+        if (tile && !tile.locked && !this.grid.isObstacle(pos)) {
+          if (isStraightType(tile.type)) {
+            this.grid.setTile(pos, { ...tile, rotation: 1 - (tile.rotation % 2) });
+            return;
+          } else if (isCurveType(tile.type)) {
+            this.grid.setTile(pos, { ...tile, rotation: (tile.rotation + 1) % 4 });
+            return;
+          }
+        }
+      }
+    }
+  }
+
+  private findLevelSolutionPath(level: LevelConfig): Array<{ row: number; col: number; inDir: Direction; outDir: Direction }> {
+    const rows = level.gridSize[0];
+    const cols = level.gridSize[1];
+    const obstacleSet = new Set<string>();
+    if (level.obstacles) {
+      for (const [r, c] of level.obstacles) {
+        obstacleSet.add(`${r}:${c}`);
+      }
+    }
+
+    if (level.routeHints?.safe && level.routeHints.safe.length >= 2) {
+      const hints = level.routeHints.safe;
+      const waypoints: GridPos[] = [];
+      for (let i = 0; i < hints.length - 1; i++) {
+        const from = hints[i];
+        const to = hints[i + 1];
+        const subPath = this.bfsBetween(from, to, obstacleSet, rows, cols);
+        if (subPath.length > 0) {
+          const slice = i === 0 ? subPath : subPath.slice(1);
+          waypoints.push(...slice);
+        } else {
+          waypoints.push(from);
+        }
+      }
+      if (waypoints.length >= 2) {
+        const steps = this.waypointsToSteps(waypoints);
+        if (steps.length > 0) return steps;
+      }
+    }
+
+    const targetGoal = level.goals[0];
+    if (!targetGoal) return [];
+
+    return this.bfsStartToGoal(level.start, targetGoal, obstacleSet, rows, cols);
+  }
+
+  private bfsBetween(from: GridPos, to: GridPos, obstacleSet: Set<string>, rows: number, cols: number): GridPos[] {
+    if (from.row === to.row && from.col === to.col) return [from];
+
+    const queue: Array<{ pos: GridPos; path: GridPos[] }> = [{ pos: from, path: [from] }];
+    const visited = new Set<string>([`${from.row}:${from.col}`]);
+
+    while (queue.length > 0) {
+      const { pos, path } = queue.shift()!;
+      if (pos.row === to.row && pos.col === to.col) {
+        return path;
+      }
+
+      for (const dir of DIRECTIONS) {
+        const n = move(pos, dir);
+        if (n.row < 0 || n.row >= rows || n.col < 0 || n.col >= cols) continue;
+        const key = `${n.row}:${n.col}`;
+        if ((n.row !== to.row || n.col !== to.col) && obstacleSet.has(key)) continue;
+        if (!visited.has(key)) {
+          visited.add(key);
+          queue.push({ pos: n, path: [...path, n] });
+        }
+      }
+    }
+    return [from, to];
+  }
+
+  private waypointsToSteps(waypoints: GridPos[]): Array<{ row: number; col: number; inDir: Direction; outDir: Direction }> {
+    const steps: Array<{ row: number; col: number; inDir: Direction; outDir: Direction }> = [];
+    if (waypoints.length < 3) return steps;
+
+    for (let i = 1; i < waypoints.length - 1; i++) {
+      const prev = waypoints[i - 1];
+      const cur = waypoints[i];
+      const next = waypoints[i + 1];
+
+      const inDir = this.getStepDirection(prev, cur);
+      const outDir = this.getStepDirection(cur, next);
+      if (inDir && outDir) {
+        steps.push({ row: cur.row, col: cur.col, inDir, outDir });
+      }
+    }
+    return steps;
+  }
+
+  private getStepDirection(from: GridPos, to: GridPos): Direction | null {
+    if (to.row === from.row - 1 && to.col === from.col) return 'up';
+    if (to.row === from.row + 1 && to.col === from.col) return 'down';
+    if (to.row === from.row && to.col === from.col + 1) return 'right';
+    if (to.row === from.row && to.col === from.col - 1) return 'left';
+    return null;
+  }
+
+  private bfsStartToGoal(
+    start: RunnerState,
+    goal: GoalConfig,
+    obstacleSet: Set<string>,
+    rows: number,
+    cols: number
+  ): Array<{ row: number; col: number; inDir: Direction; outDir: Direction }> {
+    const firstPos = move(start, start.direction);
+    if (firstPos.row < 0 || firstPos.row >= rows || firstPos.col < 0 || firstPos.col >= cols) return [];
+    if (obstacleSet.has(`${firstPos.row}:${firstPos.col}`)) return [];
+    if (firstPos.row === goal.row && firstPos.col === goal.col) return [];
+
+    interface BFSItem {
+      pos: GridPos;
+      dir: Direction;
+      steps: Array<{ row: number; col: number; inDir: Direction; outDir: Direction }>;
+    }
+
+    const queue: BFSItem[] = [];
+    const visited = new Set<string>();
+
+    const possibleOutDirs: Direction[] = [
+      start.direction,
+      rotateDirection(start.direction, 1),
+      rotateDirection(start.direction, 3),
+    ];
+
+    for (const outDir of possibleOutDirs) {
+      queue.push({
+        pos: firstPos,
+        dir: outDir,
+        steps: [{ row: firstPos.row, col: firstPos.col, inDir: start.direction, outDir }],
+      });
+      visited.add(`${firstPos.row}:${firstPos.col}:${outDir}`);
+    }
+
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      const nextPos = move(cur.pos, cur.dir);
+
+      if (nextPos.row === goal.row && nextPos.col === goal.col) {
+        return cur.steps;
+      }
+
+      if (nextPos.row < 0 || nextPos.row >= rows || nextPos.col < 0 || nextPos.col >= cols) continue;
+      if (obstacleSet.has(`${nextPos.row}:${nextPos.col}`)) continue;
+      if (nextPos.row === start.row && nextPos.col === start.col) continue;
+
+      const nextOutDirs: Direction[] = [
+        cur.dir,
+        rotateDirection(cur.dir, 1),
+        rotateDirection(cur.dir, 3),
+      ];
+
+      for (const nextOut of nextOutDirs) {
+        const key = `${nextPos.row}:${nextPos.col}:${nextOut}`;
+        if (!visited.has(key)) {
+          visited.add(key);
+          queue.push({
+            pos: nextPos,
+            dir: nextOut,
+            steps: [...cur.steps, { row: nextPos.row, col: nextPos.col, inDir: cur.dir, outDir: nextOut }],
+          });
+        }
+      }
+    }
+
+    return [];
+  }
+
+  private scheduleAutoLaunch(): void {
+    if (this.autoLaunchTimer !== null) {
+      return;
+    }
+    WeChatService.vibrateShort('heavy');
+    this.setStatus('✨ 满星光路已完美贯通！即刻破空冲关...');
+
+    this.autoLaunchTimer = setTimeout(() => {
+      this.autoLaunchTimer = null;
+      if (this.runner && this.runner.state === 'IDLE') {
+        this.startRunner();
+      }
+    }, 360);
+  }
+
+  private cancelAutoLaunch(): void {
+    if (this.autoLaunchTimer !== null) {
+      clearTimeout(this.autoLaunchTimer);
+      this.autoLaunchTimer = null;
+    }
+  }
+
+  private updateHeroButtonState(connected: boolean, remainingStars = 0): void {
+    if (!this.heroButtonNode) return;
+    this.heroButtonNode.active = connected;
+    if (connected) {
+      if (this.heroButtonLabel) {
+        this.heroButtonLabel.string = remainingStars > 0
+          ? `🚀 立即冲关 (还可拿${remainingStars}星)`
+          : '✨ 满星贯通 · 破空冲关！';
+      }
+      tween(this.heroButtonNode).stop();
+      tween(this.heroButtonNode)
+        .to(0.16, { scale: new Vec3(1.05, 1.05, 1) })
+        .to(0.16, { scale: new Vec3(1.0, 1.0, 1) })
+        .union()
+        .repeatForever()
+        .start();
+    } else {
+      tween(this.heroButtonNode).stop();
+      this.heroButtonNode.setScale(new Vec3(1.0, 1.0, 1));
+    }
+  }
+
+  private renderFogOfWar(): void {
+    if (!this.boardRoot || !this.boardRoot.isValid || !this.grid) return;
+
+    if (!this.fogRoot || !this.fogRoot.isValid) {
+      this.fogRoot = new Node('FogRoot');
+      this.fogRoot.layer = Layers.Enum.UI_2D;
+      this.fogRoot.setParent(this.boardRoot);
+      this.fogRoot.setPosition(new Vec3(0, 0, 22));
+    } else {
+      this.clearNode(this.fogRoot);
+    }
+    this.fogNodes.clear();
+
+    // 前 15 关与每日挑战保持 100% 明亮通透全视野，彻底避免黑雾遮挡终点与星核导致挫败流失！
+    if (!this.isEndlessMode && (this.isDailyChallenge || this.levelIndex < 15)) {
+      return;
+    }
+
+    const rows = this.grid.rows;
+    const cols = this.grid.cols;
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (this.level?.start && this.level.start.row === r && this.level.start.col === c) {
+          continue;
+        }
+        if (this.level?.goals.some((g) => g.row === r && g.col === c)) {
+          continue;
+        }
+
+        const pos = { row: r, col: c };
+        const key = this.key(pos);
+        const fogNode = new Node(`Fog_${r}_${c}`);
+        fogNode.layer = Layers.Enum.UI_2D;
+        fogNode.setParent(this.fogRoot);
+        fogNode.setPosition(this.gridToLocal(pos));
+        fogNode.addComponent(UITransform).setContentSize(this.tileWidth * 1.04, this.tileHeight * 1.04);
+
+        const g = fogNode.addComponent(Graphics);
+        // 轻盈半透星空薄纱（非死黑），保持目标感与画面通透度
+        g.fillColor = new Color(28, 56, 108, 92);
+        g.roundRect(-this.tileWidth * 0.51, -this.tileHeight * 0.51, this.tileWidth * 1.02, this.tileHeight * 1.02, 16);
+        g.fill();
+
+        g.fillColor = new Color(103, 232, 249, 64);
+        g.circle(0, 0, 4.5);
+        g.fill();
+
+        this.fogNodes.set(key, fogNode);
+      }
+    }
+  }
+
+  private updateFogOfWar(illuminatedSet: Set<string>): void {
+    this.fogNodes.forEach((node, key) => {
+      if (illuminatedSet.has(key)) {
+        if (node.active) {
+          tween(node)
+            .to(0.24, { scale: new Vec3(1.15, 1.15, 1) })
+            .call(() => {
+              node.active = false;
+            })
+            .start();
+        }
+      }
+    });
+  }
+
+  private dispelAllFog(): void {
+    this.fogNodes.forEach((node) => {
+      if (node.active) {
+        tween(node)
+          .to(0.35, { scale: new Vec3(1.25, 1.25, 1) })
+          .call(() => {
+            node.active = false;
+          })
+          .start();
+      }
+    });
+  }
+
+  private playSanctumAwakeningCeremony(goalPos: GridPos): void {
+    if (!this.boardRoot) return;
+
+    // 1. 圣所爆发全屏环状能量震波 (Sanctum Expanding Shockwave)
+    const shockNode = new Node('AwakeningShockwave');
+    shockNode.layer = Layers.Enum.UI_2D;
+    shockNode.setParent(this.boardRoot);
+    shockNode.setPosition(this.gridToLocal(goalPos).add3f(0, 0, 50));
+    const sg = shockNode.addComponent(Graphics);
+    sg.strokeColor = this.hex('#00F0FF');
+    sg.lineWidth = 14;
+    sg.circle(0, 0, 40);
+    sg.stroke();
+    sg.strokeColor = this.hex('#FDE047');
+    sg.lineWidth = 6;
+    sg.circle(0, 0, 28);
+    sg.stroke();
+
+    tween(shockNode)
+      .to(0.65, { scale: new Vec3(12, 12, 1) }, { easing: 'quadOut' })
+      .call(() => {
+        shockNode.destroy();
+      })
+      .start();
+
+    // 2. 驱散全岛所有暗影迷雾 (Total Fog Evaporation)
+    this.dispelAllFog();
+
+    // 3. 浮岛晶石由内向外多米诺骨牌级涟漪弹跳 (Island Resonant Pulse Wave)
+    this.tileNodes.forEach((node, key) => {
+      const parts = key.split(':').map(Number);
+      const dist = Math.hypot(parts[0] - goalPos.row, parts[1] - goalPos.col);
+      const delay = dist * 0.055;
+      this.scheduleOnce(() => {
+        tween(node)
+          .to(0.12, { scale: new Vec3(1.22, 1.22, 1) }, { easing: 'quadOut' })
+          .to(0.18, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'bounceOut' })
+          .start();
+      }, delay);
+    });
+
+    // 4. 浮岛星尘礼花雨 (Stardust Firework Rain)
+    const centerLocal = this.gridToLocal(goalPos);
+    for (let i = 0; i < 22; i++) {
+      const spark = new Node(`Stardust_${i}`);
+      spark.layer = Layers.Enum.UI_2D;
+      spark.setParent(this.boardRoot);
+      spark.setPosition(centerLocal.add3f(0, 0, 40));
+      const g = spark.addComponent(Graphics);
+      const isGold = i % 2 === 0;
+      g.fillColor = this.hex(isGold ? '#FDE047' : '#38BDF8');
+      g.circle(0, 0, Math.random() * 4 + 3);
+      g.fill();
+
+      const angle = (Math.PI * 2 * i) / 22 + (Math.random() - 0.5) * 0.4;
+      const dist = Math.random() * 160 + 90;
+      const targetPos = new Vec3(
+        centerLocal.x + Math.cos(angle) * dist,
+        centerLocal.y + Math.sin(angle) * dist + 40,
+        40
+      );
+
+      tween(spark)
+        .to(0.55 + Math.random() * 0.3, { position: targetPos, scale: new Vec3(0.2, 0.2, 1) }, { easing: 'quadOut' })
+        .call(() => spark.destroy())
+        .start();
+    }
+
+    // 4.5. 圣所生长破空光之神树/灵泉光柱 (Awakened Spire & Life Rebirth)
+    const spireNode = new Node('AwakenedSpire');
+    spireNode.layer = Layers.Enum.UI_2D;
+    spireNode.setParent(this.boardRoot);
+    spireNode.setPosition(centerLocal.add3f(0, 0, 45));
+    const spg = spireNode.addComponent(Graphics);
+    spg.fillColor = this.hex('#00F0FF');
+    ((spg.fillColor) as any).a = 180;
+    spg.moveTo(-10, 0);
+    spg.lineTo(0, 85);
+    spg.lineTo(10, 0);
+    spg.close();
+    spg.fill();
+
+    spg.fillColor = this.hex('#FFFFFF');
+    spg.circle(0, 85, 7);
+    spg.fill();
+
+    spireNode.setScale(new Vec3(0, 0, 1));
+    tween(spireNode)
+      .to(0.45, { scale: new Vec3(1.2, 1.2, 1) }, { easing: 'backOut' })
+      .to(0.25, { scale: new Vec3(1.0, 1.0, 1) })
+      .delay(0.6)
+      .to(0.3, { scale: new Vec3(0.1, 0.1, 1) })
+      .call(() => spireNode.destroy())
+      .start();
+
+    // 浮岛圣所复苏浮空彩标
+    const bannerNode = new Node('AwakenBanner');
+    bannerNode.layer = Layers.Enum.UI_2D;
+    bannerNode.setParent(this.boardRoot);
+    bannerNode.setPosition(centerLocal.add3f(0, 65, 60));
+    const bLabel = bannerNode.addComponent(Label);
+    bLabel.string = '✨ 浮岛圣所已复苏！';
+    bLabel.fontSize = 24;
+    bLabel.color = this.hex('#FEF08A');
+    bannerNode.setScale(new Vec3(0.5, 0.5, 1));
+    tween(bannerNode)
+      .to(0.3, { scale: new Vec3(1.15, 1.15, 1) }, { easing: 'backOut' })
+      .to(0.15, { scale: new Vec3(1.0, 1.0, 1) })
+      .delay(0.5)
+      .to(0.2, { scale: new Vec3(0.2, 0.2, 1) })
+      .call(() => bannerNode.destroy())
+      .start();
+
+    // 5. 三段式深沉震感 (Haptic Symphony)
+    WeChatService.vibrateShort('heavy');
+    this.scheduleOnce(() => WeChatService.vibrateShort('heavy'), 0.12);
+    this.scheduleOnce(() => WeChatService.vibrateShort('medium'), 0.26);
+
+    // 6. 天国八音盒空灵大三和弦破空奏响
+    CrystalAudioService.playAwakeningChord();
+
+    // 7. 全屏天幕极光绽放
+    this.triggerScreenFlash();
+  }
+
+  private cancelObstacleDrill(): void {
+    if (this.obstacleDrillTimer) {
+      this.unschedule(this.obstacleDrillTimer);
+      this.obstacleDrillTimer = null;
+    }
+    this.drillingObstacleKey = null;
+  }
+
+  public shatterObstacle(pos: GridPos): void {
+    if (!this.grid || !this.boardRoot || !this.level) return;
+    const key = this.key(pos);
+    if (!this.grid.isObstacle(pos)) return;
+
+    // 1. Audio and Haptics
+    CrystalAudioService.playShatterChime();
+    WeChatService.vibrateShort('heavy');
+
+    // 2. Clear obstacle state
+    this.grid.setObstacle(pos, false);
+    if (this.level.obstacles) {
+      this.level.obstacles = this.level.obstacles.filter(([r, c]) => !(r === pos.row && c === pos.col));
+    }
+    this.cancelObstacleDrill();
+
+    // 3. Screen/Island camera shake
+    const curBoardPos = this.boardRoot.position.clone();
+    tween(this.boardRoot)
+      .to(0.03, { position: curBoardPos.clone().add3f(5, -4, 0) })
+      .to(0.03, { position: curBoardPos.clone().add3f(-5, 4, 0) })
+      .to(0.04, { position: curBoardPos })
+      .start();
+
+    // 4. Sparkling diamond shards explosion (16 颗璀璨钻石晶尘多向飞射)
+    const center = this.gridToLocal(pos);
+    for (let i = 0; i < 16; i++) {
+      const shard = new Node(`Shard_${i}`);
+      shard.layer = Layers.Enum.UI_2D;
+      shard.setParent(this.boardRoot);
+      shard.setPosition(center.clone().add3f(0, 0, 35));
+      const g = shard.addComponent(Graphics);
+      const isCyan = i % 2 === 0;
+      g.fillColor = this.hex(isCyan ? '#38BDF8' : '#FDE047');
+      // Draw diamond polygon
+      g.moveTo(0, 7);
+      g.lineTo(6, 0);
+      g.lineTo(0, -7);
+      g.lineTo(-6, 0);
+      g.close();
+      g.fill();
+
+      const angle = (Math.PI * 2 * i) / 16 + (Math.random() - 0.5) * 0.5;
+      const dist = Math.random() * 95 + 45;
+      const targetPos = new Vec3(
+        center.x + Math.cos(angle) * dist,
+        center.y + Math.sin(angle) * dist,
+        35
+      );
+
+      tween(shard)
+        .to(0.42 + Math.random() * 0.2, { position: targetPos, scale: new Vec3(0.15, 0.15, 1), angle: Math.random() * 360 }, { easing: 'quadOut' })
+        .call(() => shard.destroy())
+        .start();
+    }
+
+    // 5. Floating bonus text
+    const toastNode = new Node('ShatterToast');
+    toastNode.layer = Layers.Enum.UI_2D;
+    toastNode.setParent(this.boardRoot);
+    toastNode.setPosition(center.clone().add3f(0, 10, 50));
+    const label = toastNode.addComponent(Label);
+    label.string = '💥 暗影碎裂 +15💎';
+    label.fontSize = 20;
+    label.color = this.hex('#FDE047');
+    tween(toastNode)
+      .to(0.65, { position: center.clone().add3f(0, 55, 50), scale: new Vec3(1.15, 1.15, 1) }, { easing: 'quadOut' })
+      .call(() => toastNode.destroy())
+      .start();
+
+    // 6. Reward diamonds and update UI
+    this.pendingBonusDiamonds += 15;
+    this.updateLabels();
+    this.setStatus('💥 强光击碎暗蚀晶石！获得 15 晶核，光路彻底贯通！');
+
+    // 7. Redraw this cell as a flagstone
+    const cellNode = this.cellNodes.get(key);
+    if (cellNode) {
+      const g = cellNode.getComponent(Graphics);
+      if (g) {
+        g.clear();
+        const isEven = (pos.row + pos.col) % 2 === 0;
+        const topCol = isEven ? this.hex('#153560') : this.hex('#1A4072');
+        const strokeCol = isEven ? this.hex('#38BDF8') : this.hex('#60A5FA');
+        ((strokeCol as any)).a = 72;
+        this.drawTopDownTile(g, topCol, strokeCol, 1.2, this.tileWidth, this.tileHeight, 0, 0, 3);
+      }
+    }
+
+    // 8. Dispel fog around shattered cell
+    const illSet = new Set<string>();
+    illSet.add(key);
+    for (const d of DIRECTIONS) {
+      illSet.add(this.key(move(pos, d)));
+    }
+    this.updateFogOfWar(illSet);
+
+    // 9. Re-calculate live route preview
+    this.updateRoutePreviewLine();
+  }
+
+  public activateHammerMode(): void {
+    if (!this.grid || this.runner?.state === 'RUNNING') return;
+    let hasObstacle = false;
+    this.grid.forEachCell((_pos, _tile, obs) => {
+      if (obs) hasObstacle = true;
+    });
+    if (!hasObstacle) {
+      WeChatService.showToast('当前棋盘没有可击碎的暗蚀陨石', 'none');
+      return;
+    }
+
+    if (this.hammerCharges <= 0 && !this.hammerModeActive) {
+      AdService.showRewarded('utility_refill').then((res) => {
+        if (res.completed) {
+          this.hammerCharges += 2;
+          this.hammerModeActive = true;
+          this.updateLabels();
+          WeChatService.showToast('破障神锤 +2！轻点任意暗蚀陨石击碎', 'success');
+          this.setStatus('🔨 破障模式已就绪：轻点棋盘上的暗蚀陨石即可击碎！');
+        } else {
+          WeChatService.showToast(res.error || '观看激励视频可补充 2 次破障次数', 'none');
+        }
+      });
+      return;
+    }
+
+    this.hammerModeActive = !this.hammerModeActive;
+    WeChatService.vibrateShort('light');
+    this.updateLabels();
+    if (this.hammerModeActive) {
+      this.setStatus('🔨 破障模式开启：轻点任意一块暗蚀陨石即可粉碎它！');
+      WeChatService.showToast('请点击想要击碎的陨石', 'none');
+    } else {
+      this.setStatus('已退出破障模式，轻触水晶继续旋转接光');
+    }
+  }
+
+  private onBoardTouchStart(event: EventTouch): void {
+    if (!this.grid || !this.boardRoot || this.runner?.state === 'RUNNING') return;
+    const touch = event.getUILocation();
+    const cell = this.uiToGrid(touch.x, touch.y);
+    if (cell && this.grid.isValid(cell)) {
+      if (this.grid.isObstacle(cell)) {
+        if (this.hammerModeActive && this.hammerCharges > 0) {
+          this.hammerCharges--;
+          this.hammerModeActive = false;
+          this.shatterObstacle(cell);
+          this.updateLabels();
+          return;
+        }
+        WeChatService.vibrateShort('light');
+        const obsNode = this.cellNodes.get(this.key(cell));
+        if (obsNode) {
+          tween(obsNode)
+            .to(0.04, { scale: new Vec3(0.92, 0.92, 1) })
+            .to(0.06, { scale: new Vec3(1.04, 1.04, 1) })
+            .to(0.05, { scale: new Vec3(1.0, 1.0, 1) })
+            .start();
+        }
+        this.setStatus('🪨 暗蚀陨石不可穿越！可旋转水晶绕路，或点底部【🔨 破障】击碎');
+        return;
+      }
+      this.isGestureDrawing = true;
+      this.gesturePath = [cell];
+      this.gestureTouchedCells.clear();
+      this.gestureTouchedCells.add(this.key(cell));
+    }
+  }
+
+  private onBoardTouchMove(event: EventTouch): void {
+    if (!this.isGestureDrawing || !this.grid || !this.boardRoot || this.runner?.state === 'RUNNING') return;
+    const touch = event.getUILocation();
+    const curCell = this.uiToGrid(touch.x, touch.y);
+    if (!curCell || !this.grid.isValid(curCell) || this.grid.isObstacle(curCell)) return;
+
+    const lastCell = this.gesturePath[this.gesturePath.length - 1];
+    if (curCell.row === lastCell.row && curCell.col === lastCell.col) return;
+
+    const stepDir = this.getStepDirection(lastCell, curCell);
+    if (!stepDir) return;
+
+    this.gesturePath.push(curCell);
+    this.gestureTouchedCells.add(this.key(curCell));
+
+    // Only auto-orient EXISTING rotatable crystals along drag path (no spawning free tiles on empty cells!)
+    const lastTile = this.grid.getTile(lastCell);
+    if (!lastTile || lastTile.locked) return;
+    const tileCfg = resolveTileConfig(lastTile);
+    if (!tileCfg.rotatable) return;
+
+    const prevStepCell = this.gesturePath.length >= 3 ? this.gesturePath[this.gesturePath.length - 3] : null;
+    const inDir = prevStepCell
+      ? this.getStepDirection(prevStepCell, lastCell) || stepDir
+      : (this.runner ? this.runner.direction : stepDir);
+
+    const isStraight = inDir === stepDir;
+    if (isStraightType(lastTile.type) && isStraight) {
+      const targetRot = (inDir === 'left' || inDir === 'right') ? 0 : 1;
+      if (lastTile.rotation !== targetRot) {
+        this.moveHistory.push({ pos: lastCell, prevRotation: lastTile.rotation, tileType: lastTile.type });
+        const updated: TileInstance = { ...lastTile, rotation: targetRot };
+        this.grid.setTile(lastCell, updated);
+        this.usedMoves++;
+        this.renderTile(lastCell, updated);
+        CrystalAudioService.playStepChime(this.gesturePath.length);
+        WeChatService.vibrateShort('light');
+        this.updateLabels();
+        this.updateRoutePreviewLine();
+      }
+    } else if (!isStraightType(lastTile.type) && !isStraight) {
+      let targetRot = lastTile.rotation;
+      let matched = false;
+      for (let r = 0; r < 4; r++) {
+        const cfg = resolveTileConfig({ type: lastTile.type, rotation: r });
+        if (cfg.routing[inDir] === stepDir) {
+          targetRot = r;
+          matched = true;
+          break;
+        }
+      }
+      if (matched && lastTile.rotation !== targetRot) {
+        this.moveHistory.push({ pos: lastCell, prevRotation: lastTile.rotation, tileType: lastTile.type });
+        const updated: TileInstance = { ...lastTile, rotation: targetRot };
+        this.grid.setTile(lastCell, updated);
+        this.usedMoves++;
+        this.renderTile(lastCell, updated);
+        CrystalAudioService.playStepChime(this.gesturePath.length);
+        WeChatService.vibrateShort('light');
+        this.updateLabels();
+        this.updateRoutePreviewLine();
+      }
+    }
+  }
+
+  private onBoardTouchEnd(): void {
+    if (!this.isGestureDrawing) return;
+    this.isGestureDrawing = false;
+
+    if (this.gesturePath.length <= 1 && this.gesturePath[0]) {
+      this.onPlacedTileTouch(this.gesturePath[0]);
+      CrystalAudioService.playRotatePlink();
+    } else {
+      WeChatService.vibrateShort('medium');
+      this.updateRoutePreviewLine();
+    }
+    this.gesturePath = [];
+  }
+
+  private onBoardTouchCancel(): void {
+    this.isGestureDrawing = false;
+    this.gesturePath = [];
   }
 
   private renderBoard(): void {
@@ -1222,11 +2190,12 @@ export class GameRoot extends Component {
     const step = this.tileWidth + (this.tileGap || 10);
     const rawWidth = this.grid.cols * step;
     const rawHeight = this.grid.rows * step;
-    // 优化：右侧竖排功能键移除并转为下方横排后，水平空间释放至 670px！棋盘整体放大 1.25~1.3 倍，大幅改善手指误触痛点！
     const size = view.getVisibleSize();
-    // 扣除顶部导航条与底部提示条安全区后的最大高度，防止重叠
-    const maxBoardHeight = size.height - 726;
-    let sW = 656 / rawWidth; // 656 符合左右 32px 安全页边距
+    const halfH = size.height / 2;
+
+    // 棋盘适度饱满放大（最大宽度 672px，左右各 24px 优雅边距）
+    const maxBoardHeight = size.height - 480;
+    let sW = 672 / rawWidth;
     let sH = maxBoardHeight / rawHeight;
     let s = Math.min(sW, sH);
     if (s > 1.45) s = 1.45;
@@ -1234,93 +2203,238 @@ export class GameRoot extends Component {
     if (this.previewRoot) this.previewRoot.setScale(new Vec3(s, s, 1));
     if (this.runnerRoot) this.runnerRoot.setScale(new Vec3(s, s, 1));
 
-    // 0. Floating Island Under-Glow & Shadow Aura (浮岛底座悬空极光云与深邃投影)
+    // 动态计算顶部导航条与底部状态胶囊之间的可用垂直空间，让棋盘上下留白完全对称均等！
+    const tipPillTopY = -halfH + 252;
+    let topNavBottomY = halfH - 250;
+    if (this.topNavNode) {
+      topNavBottomY = this.topNavNode.position.y - 24;
+    }
+    const availableHeight = topNavBottomY - tipPillTopY;
+    const visualBoardHeight = rawHeight * s;
+    const totalRemainingGap = Math.max(30, availableHeight - visualBoardHeight);
+    // 上下均分剩余空隙，保证棋盘四周留白完全对称平衡！
+    const symmetricGap = totalRemainingGap / 2;
+    const boardCenterY = Math.round(tipPillTopY + symmetricGap + visualBoardHeight / 2);
+    const boardPos = new Vec3(0, boardCenterY, 0);
+
+    if (this.boardRoot) this.boardRoot.setPosition(boardPos);
+    if (this.previewRoot) this.previewRoot.setPosition(boardPos);
+    if (this.runnerRoot) this.runnerRoot.setPosition(boardPos);
+
+    // 0. 棋盘浮岛基座、倒悬岩层与悬空极光云海 (Floating Board Island Plinth & Cloud Sea - 参考图 3 & 图 4)
     const shadowNode = new Node('IslandShadow');
     shadowNode.layer = Layers.Enum.UI_2D;
     shadowNode.setParent(this.boardRoot!);
-    shadowNode.setPosition(new Vec3(0, -25, -5));
+    shadowNode.setPosition(new Vec3(0, 0, -5));
     const shadowG = shadowNode.addComponent(Graphics);
     const isRose = this.currentTheme === 1;
     const isGold = this.currentTheme === 2;
     const palette = getUiPalette(this.currentTheme);
 
-    // Aurora field under the island
-    shadowG.fillColor = this.hex(isRose ? '#123A67' : (isGold ? '#0F766E' : '#0284C7'));
-    ((shadowG.fillColor) as ((any)) as any).a = isRose ? 82 : 110;
-    shadowG.ellipse(0, 0, 260, 120);
-    shadowG.fill();
-    // Core glow
-    shadowG.fillColor = this.hex(isRose ? palette.cyan : (isGold ? palette.gold : '#38BDF8'));
-    ((shadowG.fillColor) as ((any)) as any).a = isRose ? 96 : 140;
-    shadowG.ellipse(0, 0, 180, 80);
+    const plinthW = rawWidth + 56;
+    const plinthH = rawHeight + 46;
+    const halfPW = plinthW * 0.5;
+    const halfPH = plinthH * 0.5;
+
+    let bTransform = this.boardRoot.getComponent(UITransform);
+    if (!bTransform) {
+      bTransform = this.boardRoot.addComponent(UITransform);
+    }
+    bTransform.setContentSize(plinthW, plinthH);
+
+    this.boardRoot.off(Node.EventType.TOUCH_START);
+    this.boardRoot.off(Node.EventType.TOUCH_MOVE);
+    this.boardRoot.off(Node.EventType.TOUCH_END);
+    this.boardRoot.off(Node.EventType.TOUCH_CANCEL);
+
+    this.boardRoot.on(Node.EventType.TOUCH_START, this.onBoardTouchStart, this);
+    this.boardRoot.on(Node.EventType.TOUCH_MOVE, this.onBoardTouchMove, this);
+    this.boardRoot.on(Node.EventType.TOUCH_END, this.onBoardTouchEnd, this);
+    this.boardRoot.on(Node.EventType.TOUCH_CANCEL, this.onBoardTouchCancel, this);
+
+    // 1. 浮岛底座外围极光云雾光晕 (Surrounding Ethereal Cloud Mist)
+    const auraCol = this.hex(isRose ? '#E879F9' : (isGold ? '#F59E0B' : '#00F0FF'));
+    shadowG.fillColor = new Color(auraCol.r, auraCol.g, auraCol.b, isRose ? 36 : 48);
+    shadowG.ellipse(0, -18, halfPW + 50, halfPH + 40);
     shadowG.fill();
 
+    // 2. 浮岛倒悬低多边形山体根基 (Under-Board Inverted Crags)
+    const rockBaseDark = this.hex(isGold ? '#1C1917' : (isRose ? '#1A0C24' : '#061324'));
+    const rockBaseMid  = this.hex(isGold ? '#292524' : (isRose ? '#2C133C' : '#0B1E36'));
+    const rockBaseRim  = this.hex(isGold ? '#F59E0B' : (isRose ? '#F472B6' : '#22D3EE'));
+
+    // 倒悬山根多边形
+    const cragDepth = 48;
+    shadowG.fillColor = rockBaseMid;
+    shadowG.moveTo(-halfPW + 16, -halfPH);
+    shadowG.lineTo(-halfPW * 0.45, -halfPH - cragDepth * 0.7);
+    shadowG.lineTo(0, -halfPH - cragDepth);
+    shadowG.lineTo(halfPW * 0.45, -halfPH - cragDepth * 0.65);
+    shadowG.lineTo(halfPW - 16, -halfPH);
+    shadowG.close();
+    shadowG.fill();
+
+    // 阴暗切面
+    shadowG.fillColor = rockBaseDark;
+    shadowG.moveTo(0, -halfPH - cragDepth);
+    shadowG.lineTo(halfPW * 0.45, -halfPH - cragDepth * 0.65);
+    shadowG.lineTo(halfPW - 16, -halfPH);
+    shadowG.lineTo(0, -halfPH);
+    shadowG.close();
+    shadowG.fill();
+
+    // 山根边缘微光
+    shadowG.strokeColor = rockBaseRim;
+    ((shadowG.strokeColor) as any).a = 85;
+    shadowG.lineWidth = 1.2;
+    shadowG.moveTo(-halfPW + 16, -halfPH);
+    shadowG.lineTo(0, -halfPH - cragDepth);
+    shadowG.lineTo(halfPW - 16, -halfPH);
+    shadowG.stroke();
+
+    // 3. 悬挂绿藤与晶莹吊坠 (Corner Vines & Hanging Pendants)
+    shadowG.strokeColor = this.hex(isGold ? '#059669' : (isRose ? '#8B5CF6' : '#10B981'));
+    shadowG.lineWidth = 2.0;
+    shadowG.moveTo(-halfPW + 30, -halfPH);
+    shadowG.lineTo(-halfPW + 26, -halfPH - 28);
+    shadowG.lineTo(-halfPW + 32, -halfPH - 52);
+    shadowG.stroke();
+    shadowG.moveTo(halfPW - 30, -halfPH);
+    shadowG.lineTo(halfPW - 26, -halfPH - 24);
+    shadowG.lineTo(halfPW - 31, -halfPH - 48);
+    shadowG.stroke();
+
+    // 4. 浮岛石质底座台面 (通透高明度深海琉璃底座，告别压抑死黑，衬托晶石流光)
+    const plinthCol = this.hex(isGold ? '#0F3245' : (isRose ? '#281645' : '#0F274A'));
+    shadowG.fillColor = plinthCol;
+    shadowG.roundRect(-halfPW, -halfPH, plinthW, plinthH, 20);
+    shadowG.fill();
+
+    // 浮岛台座双重精致金属/晶石包边 (提升神殿祭坛立体纵深)
+    shadowG.strokeColor = this.hex(isGold ? '#F59E0B' : (isRose ? '#C026D3' : '#2563EB'));
+    shadowG.lineWidth = 2.4;
+    shadowG.roundRect(-halfPW, -halfPH, plinthW, plinthH, 20);
+    shadowG.stroke();
+
+    shadowG.strokeColor = this.hex(isGold ? '#FDE047' : (isRose ? '#F472B6' : '#38BDF8'));
+    ((shadowG.strokeColor) as any).a = 125;
+    shadowG.lineWidth = 1.2;
+    shadowG.roundRect(-halfPW + 4, -halfPH + 4, plinthW - 8, plinthH - 8, 17);
+    shadowG.stroke();
+
+    this.cellNodes.clear();
     this.grid.forEachCell((pos, _tile, obstacle) => {
       const node = new Node(`Cell_${pos.row}_${pos.col}`);
+      this.cellNodes.set(this.key(pos), node);
       node.layer = Layers.Enum.UI_2D;
       node.setParent(this.boardRoot!);
       node.setPosition(this.gridToLocal(pos));
       node.addComponent(UITransform).setContentSize(this.tileWidth, this.tileHeight);
       const graphics = node.addComponent(Graphics);
       if (obstacle) {
-        this.drawTopDownTile(graphics, this.hex('#3B1428'), this.hex('#FF3B30'), 2.5, this.tileWidth, this.tileHeight, 0, 0, 6);
+        // 暗蚀紫晶陨石：多面折光紫晶块 + 珊瑚红裂痕脉络，告别死板暗红方块
+        this.drawTopDownTile(graphics, this.hex('#1B1330'), this.hex('#FB7185'), 1.3, this.tileWidth, this.tileHeight, 0, 0, 3);
+        graphics.fillColor = new Color(190, 24, 93, 95);
+        graphics.moveTo(0, 30);
+        graphics.lineTo(26, 12);
+        graphics.lineTo(20, -24);
+        graphics.lineTo(-18, -26);
+        graphics.lineTo(-27, 8);
+        graphics.close();
+        graphics.fill();
+        graphics.strokeColor = new Color(251, 113, 133, 210);
+        graphics.lineWidth = 1.8;
+        graphics.stroke();
+        graphics.strokeColor = this.hex('#FDA4AF');
+        graphics.lineWidth = 1.6;
+        graphics.moveTo(-10, 14);
+        graphics.lineTo(-1, 1);
+        graphics.lineTo(11, 8);
+        graphics.moveTo(-1, 1);
+        graphics.lineTo(8, -14);
+        graphics.stroke();
       } else {
         const isEven = (pos.row + pos.col) % 2 === 0;
-        let topCol = isEven ? this.hex('#173C8E') : this.hex('#1F6FE5');
-        let strokeCol = isEven ? this.hex('#42E8FF') : this.hex('#7DB7FF');
+        // 通透清亮琉璃底格（柔和冰蓝渐变质感，不喧宾夺主）
+        let topCol = isEven ? this.hex('#153560') : this.hex('#1A4072');
+        let strokeCol = isEven ? this.hex('#38BDF8') : this.hex('#60A5FA');
+        ((strokeCol as any)).a = 72;
 
         if (isRose) {
-          topCol = isEven ? this.hex('#1E4C8F') : this.hex('#3272D9');
-          strokeCol = isEven ? this.hex('#6EE7FF') : this.hex('#A8C7FF');
+          topCol = isEven ? this.hex('#301B54') : this.hex('#3B2266');
+          strokeCol = isEven ? this.hex('#C084FC') : this.hex('#F472B6');
+          ((strokeCol as any)).a = 78;
         } else if (isGold) {
-          topCol = isEven ? this.hex('#1F4E7A') : this.hex('#2F8A8A');
-          strokeCol = isEven ? this.hex('#72F2E6') : this.hex('#FFE08A');
+          topCol = isEven ? this.hex('#144157') : this.hex('#194E68');
+          strokeCol = isEven ? this.hex('#2DD4BF') : this.hex('#FBBF24');
+          ((strokeCol as any)).a = 78;
         }
 
-        this.drawTopDownTile(graphics, topCol, strokeCol, 2.2, this.tileWidth, this.tileHeight, 0, 0, 6);
+        this.drawTopDownTile(graphics, topCol, strokeCol, 1.2, this.tileWidth, this.tileHeight, 0, 0, 3);
         const unstable = this.level?.unstableCells?.find((cell) => cell.row === pos.row && cell.col === pos.col && cell.collapseAfterSteps >= 0);
         if (unstable) {
-          graphics.fillColor = new Color(255, 59, 48, 62);
+          graphics.fillColor = new Color(244, 63, 94, 52);
           graphics.roundRect(-this.tileWidth / 2 + 8, -this.tileHeight / 2 + 8, this.tileWidth - 16, this.tileHeight - 16, 16);
           graphics.fill();
-          graphics.strokeColor = this.hex('#FF3B30');
-          graphics.lineWidth = 4.5;
-          graphics.circle(0, 0, 30);
+          graphics.strokeColor = this.hex('#F43F5E');
+          graphics.lineWidth = 3.6;
+          graphics.circle(0, 0, 28);
           graphics.stroke();
-          graphics.moveTo(-22, 8);
-          graphics.lineTo(-8, -5);
-          graphics.lineTo(4, 7);
-          graphics.lineTo(18, -10);
+          graphics.moveTo(-20, 7);
+          graphics.lineTo(-7, -4);
+          graphics.lineTo(4, 6);
+          graphics.lineTo(16, -9);
           graphics.stroke();
-          this.createCellMarkerLabel(node, 'RiskText', '危', '#FFFFFF', '#FF3B30', new Vec3(0, -1, 2));
+          this.createCellMarkerLabel(node, 'RiskText', '危', '#FFFFFF', '#F43F5E', new Vec3(0, -1, 2));
         }
-
-        node.on(Node.EventType.TOUCH_END, () => {
-          this.onCellTouch(pos);
-        }, this);
       }
     });
 
-    // 3. Start Point Sleek Cyber Emblem (起点平铺极简金青魔法印章，告别杂乱叠块！)
+    // 3. Start Point Emerald Solar Emitter (起点太阳发射源：高对比翠绿光圈 + 发射方向箭头 + 醒目「起点」标识)
     if (this.level.start) {
+      const markersParent = this.getMarkersParent();
       const startNode = new Node('StartAura');
       startNode.layer = Layers.Enum.UI_2D;
-      startNode.setParent(this.boardRoot!);
-      startNode.setPosition(this.gridToLocal(this.level.start).add3f(0, 0, 1));
+      startNode.setParent(markersParent);
+      startNode.setPosition(this.gridToLocal(this.level.start).add3f(0, 0, 4));
       const sg = startNode.addComponent(Graphics);
-      // Sleek flat floor ring
-      sg.strokeColor = this.hex('#FDE047');
-      sg.lineWidth = 2;
-      sg.circle(0, 0, 26);
-      sg.stroke();
-      sg.fillColor = new Color(253, 224, 71, 35);
-      sg.circle(0, 0, 26);
+
+      // Emerald solar pulse halo
+      sg.fillColor = new Color(16, 185, 129, 78);
+      sg.circle(0, 0, 40);
       sg.fill();
-      // Inner cyan energy ring
-      sg.strokeColor = this.hex('#00F0FF');
-      sg.lineWidth = 1.5;
-      sg.circle(0, 0, 16);
+      sg.strokeColor = this.hex('#34D399');
+      sg.lineWidth = 3.0;
+      sg.circle(0, 0, 34);
       sg.stroke();
+
+      // Core orb
+      sg.fillColor = this.hex('#10B981');
+      sg.circle(0, 0, 21);
+      sg.fill();
+      sg.fillColor = this.hex('#FFFFFF');
+      sg.circle(0, 0, 10);
+      sg.fill();
+
+      // Bold directional launch arrow pointing along start.direction
+      const dirVec = this.directionPoint(this.level.start.direction, 1);
+      const tipX = dirVec.x * 36;
+      const tipY = dirVec.y * 36;
+      const baseX = dirVec.x * 16;
+      const baseY = dirVec.y * 16;
+      const perpX = -dirVec.y * 11;
+      const perpY = dirVec.x * 11;
+      sg.fillColor = this.hex('#FDE047');
+      sg.moveTo(tipX, tipY);
+      sg.lineTo(baseX + perpX, baseY + perpY);
+      sg.lineTo(baseX - perpX, baseY - perpY);
+      sg.close();
+      sg.fill();
+      sg.strokeColor = this.hex('#064E3B');
+      sg.lineWidth = 1.6;
+      sg.stroke();
+
+      this.createCellMarkerLabel(startNode, 'StartText', '起点', '#FFFFFF', '#059669', new Vec3(0, -30, 1));
     }
 
     for (const goal of this.level.goals) {
@@ -1328,49 +2442,51 @@ export class GameRoot extends Component {
     }
 
     for (const bonusCell of this.getActiveBonusCells()) {
+      const markersParent = this.getMarkersParent();
       const bonusNode = new Node('BonusCrystal');
       bonusNode.layer = Layers.Enum.UI_2D;
-      bonusNode.setParent(this.boardRoot!);
-      bonusNode.setPosition(this.gridToLocal(bonusCell).add3f(0, 0, 3));
+      bonusNode.setParent(markersParent);
+      bonusNode.setPosition(this.gridToLocal(bonusCell).add3f(0, 0, 6));
       let t = bonusNode.getComponent(UITransform);
       if (!t) t = bonusNode.addComponent(UITransform);
-      t.setContentSize(64, 64);
+      t.setContentSize(88, 88);
       const bg = bonusNode.addComponent(Graphics);
-      bg.fillColor = new Color(253, 224, 71, 58);
+      // Soft translucent golden halo around cell so underlying conduits remain clear
+      bg.strokeColor = new Color(253, 224, 71, 195);
+      bg.lineWidth = 2.4;
+      bg.circle(0, 0, 34);
+      bg.stroke();
+      bg.fillColor = new Color(253, 224, 71, 26);
       bg.circle(0, 0, 34);
       bg.fill();
-      bg.strokeColor = this.hex('#FDE047');
-      bg.lineWidth = 4;
-      bg.circle(0, 0, 29);
-      bg.stroke();
-      bg.fillColor = this.hex('#FDE047');
-      bg.strokeColor = this.hex('#FFFFFF');
-      bg.lineWidth = 2.5;
-      bg.moveTo(0, 23);
-      bg.lineTo(17, 0);
-      bg.lineTo(0, -23);
-      bg.lineTo(-17, 0);
-      bg.close();
+
+      // Compact micro-badge neatly tucked inside top-right corner of the cell
+      const bx = 20;
+      const by = 26;
+      bg.fillColor = new Color(217, 119, 6, 235);
+      bg.roundRect(bx - 20, by - 9, 40, 18, 9);
       bg.fill();
+      bg.strokeColor = this.hex('#FEF08A');
+      bg.lineWidth = 1.4;
       bg.stroke();
 
       const labelNode = new Node('Text');
       labelNode.layer = Layers.Enum.UI_2D;
       labelNode.setParent(bonusNode);
-      labelNode.setPosition(new Vec3(0, 0, 0));
+      labelNode.setPosition(new Vec3(bx, by + 1, 1));
       let lt = labelNode.getComponent(UITransform);
       if (!lt) lt = labelNode.addComponent(UITransform);
-      lt.setContentSize(40, 40);
+      lt.setContentSize(40, 18);
       const label = labelNode.addComponent(Label);
-      label.string = '+30';
-      label.fontSize = 18;
-      label.color = this.hex('#451A03');
+      label.string = '★+30';
+      label.fontSize = 12;
+      label.color = this.hex('#FFFFFF');
       label.horizontalAlign = Label.HorizontalAlign.CENTER;
       label.verticalAlign = Label.VerticalAlign.CENTER;
 
       if (!this.powerSaveMode) {
         tween(bonusNode)
-          .to(0.8, { scale: new Vec3(1.12, 1.12, 1) }, { easing: 'sineInOut' })
+          .to(0.8, { scale: new Vec3(1.08, 1.08, 1) }, { easing: 'sineInOut' })
           .to(0.8, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' })
           .union()
           .repeatForever()
@@ -1554,22 +2670,45 @@ export class GameRoot extends Component {
     this.createCellMarkerLabel(labelNode, 'Label', marker, marker === '稳' ? '#082F49' : '#451A03', colorHex, new Vec3(0, 0, 0));
   }
 
+  private getMarkersParent(): Node {
+    if (!this.boardRoot) {
+      return this.node;
+    }
+    if (!this.markersRoot || !this.markersRoot.isValid) {
+      this.markersRoot = new Node('BoardMarkers');
+      this.markersRoot.layer = Layers.Enum.UI_2D;
+      this.markersRoot.setParent(this.boardRoot);
+      this.markersRoot.setPosition(new Vec3(0, 0, 12));
+    }
+    this.markersRoot.setSiblingIndex(Math.max(0, this.boardRoot.children.length - 1));
+    return this.markersRoot;
+  }
+
   private createCellMarkerLabel(parent: Node, name: string, text: string, textHex: string, bgHex: string, pos: Vec3): void {
     const node = new Node(name);
     node.layer = Layers.Enum.UI_2D;
     node.setParent(parent);
     node.setPosition(pos);
-    node.addComponent(UITransform).setContentSize(42, 28);
+    node.addComponent(UITransform).setContentSize(44, 20);
     const g = node.addComponent(Graphics);
-    g.fillColor = this.hex(bgHex);
-    g.roundRect(-21, -14, 42, 28, 14);
+    const bgCol = this.hex(bgHex);
+    ((bgCol as any)).a = 230;
+    g.fillColor = bgCol;
+    g.roundRect(-22, -10, 44, 20, 10);
     g.fill();
-    g.strokeColor = this.hex('#FFFFFF');
-    g.lineWidth = 1.6;
+    g.strokeColor = new Color(255, 255, 255, 210);
+    g.lineWidth = 1.4;
     g.stroke();
-    const label = node.addComponent(Label);
+
+    // Label MUST live on a separate child Node (Cocos 3.8 only allows one UIRenderer per Node!)
+    const textNode = new Node('Text');
+    textNode.layer = Layers.Enum.UI_2D;
+    textNode.setParent(node);
+    textNode.setPosition(new Vec3(0, 1, 0));
+    textNode.addComponent(UITransform).setContentSize(42, 18);
+    const label = textNode.addComponent(Label);
     label.string = text;
-    label.fontSize = 18;
+    label.fontSize = 13;
     label.color = this.hex(textHex);
     label.horizontalAlign = Label.HorizontalAlign.CENTER;
     label.verticalAlign = Label.VerticalAlign.CENTER;
@@ -1584,6 +2723,9 @@ export class GameRoot extends Component {
         this.renderTile(pos, tile);
       }
     });
+    if (this.markersRoot && this.markersRoot.isValid && this.boardRoot) {
+      this.markersRoot.setSiblingIndex(Math.max(0, this.boardRoot.children.length - 1));
+    }
   }
 
   private renderTile(pos: GridPos, tile: TileInstance): void {
@@ -1594,62 +2736,126 @@ export class GameRoot extends Component {
     const key = this.key(pos);
     this.tileNodes.get(key)?.destroy();
 
+    const isLit = this.illuminatedCellKeys.has(key);
     const node = new Node(`Tile_${pos.row}_${pos.col}_${tile.type}`);
     node.layer = Layers.Enum.UI_2D;
     node.setParent(this.boardRoot);
     node.setPosition(this.gridToLocal(pos).add3f(0, 0, 1));
     node.addComponent(UITransform).setContentSize(this.tileWidth, this.tileHeight);
     const graphics = node.addComponent(Graphics);
-    const topCol = this.tileColor(tile.type);
-    graphics.fillColor = new Color(0, 240, 255, 46);
-    graphics.roundRect(-this.tileWidth * 0.48, -this.tileHeight * 0.48, this.tileWidth * 0.96, this.tileHeight * 0.96, 24);
-    graphics.fill();
-    this.drawDiamond(graphics, topCol, this.hex('#FFFFFF'), 2.2);
-    this.drawTileArrow(graphics, tile, 0, 0.86, 0, 44);
+
+    // Clean Frosted Crystal Prism Aesthetic:
+    // - Unlit tiles: airy translucent ice-blue glass over sapphire floor (zero heavy black boxes!)
+    // - Lit tiles: luminous aurora turquoise-gold crystal glow (zero muddy brown!)
+    // - Locked anchor bridges: frosted pearl-silver bezel with subtle corner pins
+    const isLocked = !!tile.locked;
+    const housingCol = isLit
+      ? this.hex('#0F5270')
+      : (isLocked
+        ? this.hex('#214E7D')
+        : (tile.type === 'curve' ? this.hex('#18486B') : (tile.type === 'cross' ? this.hex('#223E78') : this.hex('#1B487A'))));
+    ((housingCol as any)).a = isLit ? 225 : (isLocked ? 210 : 145);
+
+    const rimCol = isLit
+      ? this.hex('#FDE047')
+      : (isLocked ? this.hex('#E2E8F0') : this.tileColor(tile.type));
+    if (!isLit && !isLocked) {
+      ((rimCol as any)).a = 130;
+    }
+
+    if (isLit) {
+      graphics.fillColor = new Color(253, 224, 71, 56);
+      graphics.roundRect(-this.tileWidth * 0.47, -this.tileHeight * 0.47, this.tileWidth * 0.94, this.tileHeight * 0.94, 22);
+      graphics.fill();
+    }
+
+    this.drawDiamond(graphics, housingCol, rimCol, isLit ? 2.4 : (isLocked ? 2.0 : 1.3));
+    this.drawTileArrow(graphics, tile, 0, 0.88, 0, 44, isLit, !isLit);
     this.drawSkillBadge(graphics, tile.type, 0, 0);
-    node.on(Node.EventType.TOUCH_END, () => this.onPlacedTileTouch(pos), this);
+
+    if (isLocked) {
+      // Subtle pearl-silver corner rivets + small pin jewel in top-left corner
+      const rivetOffset = this.tileWidth * 0.33;
+      graphics.fillColor = this.hex(isLit ? '#FDE047' : '#E2E8F0');
+      graphics.circle(-rivetOffset, rivetOffset, 2.4);
+      graphics.circle(rivetOffset, rivetOffset, 2.4);
+      graphics.circle(-rivetOffset, -rivetOffset, 2.4);
+      graphics.circle(rivetOffset, -rivetOffset, 2.4);
+      graphics.fill();
+      graphics.fillColor = new Color(15, 23, 42, 200);
+      graphics.circle(-this.tileWidth * 0.28, this.tileHeight * 0.28, 7.5);
+      graphics.fill();
+      graphics.strokeColor = this.hex(isLit ? '#FDE047' : '#BAE6FD');
+      graphics.lineWidth = 1.5;
+      graphics.circle(-this.tileWidth * 0.28, this.tileHeight * 0.28, 7.5);
+      graphics.stroke();
+      graphics.fillColor = this.hex(isLit ? '#FDE047' : '#FFFFFF');
+      graphics.circle(-this.tileWidth * 0.28, this.tileHeight * 0.28, 2.5);
+      graphics.fill();
+    }
     this.tileNodes.set(key, node);
+
+    if (this.markersRoot && this.markersRoot.isValid) {
+      this.markersRoot.setSiblingIndex(Math.max(0, this.boardRoot.children.length - 1));
+    }
   }
 
   private drawGoal(goal: GoalConfig): void {
     if (!this.boardRoot) {
       return;
     }
+    const markersParent = this.getMarkersParent();
     const node = new Node(`Goal_${goal.row}_${goal.col}`);
     node.layer = Layers.Enum.UI_2D;
-    node.setParent(this.boardRoot);
-    node.setPosition(this.gridToLocal(goal).add3f(0, 0, 2));
-    node.addComponent(UITransform).setContentSize(this.tileWidth * 0.9, this.tileHeight * 0.9);
+    node.setParent(markersParent);
+    node.setPosition(this.gridToLocal(goal).add3f(0, 0, 5));
+    node.addComponent(UITransform).setContentSize(this.tileWidth * 0.95, this.tileHeight * 0.95);
     const graphics = node.addComponent(Graphics);
-    const goalCol = this.colorForRunner(goal.color ?? 'none');
 
-    // 1. Goal Pad: intentionally brighter than normal tiles so the objective reads instantly.
-    graphics.fillColor = new Color(255, 255, 255, 235);
-    graphics.roundRect(-this.tileWidth * 0.46, -this.tileHeight * 0.46, this.tileWidth * 0.92, this.tileHeight * 0.92, 24);
-    graphics.fill();
-    graphics.strokeColor = this.hex('#FFFFFF');
-    graphics.lineWidth = 4.5;
-    graphics.stroke();
+    // 暖金-珊瑚橙强语义终点圣所：与青蓝水晶棋盘形成鲜明冷暖对比，一眼锁定终点！
+    const portalHex = goal.color === 'red'
+      ? '#FB7185'
+      : (goal.color === 'blue' ? '#38BDF8' : '#F59E0B');
+    const portalCol = this.hex(portalHex);
+    const shrineBaseW = this.tileWidth * 0.92;
+    const shrineBaseH = this.tileHeight * 0.92;
 
-    // 2. Glowing Portal Ring
-    const portalCol = goal.color === 'red' ? this.hex('#FF2E93') : (goal.color === 'blue' ? this.hex('#00F0FF') : this.hex('#E066FF'));
     graphics.fillColor = new Color(portalCol.r, portalCol.g, portalCol.b, 82);
-    graphics.circle(0, 0, 42);
+    graphics.roundRect(-shrineBaseW * 0.5, -shrineBaseH * 0.5, shrineBaseW, shrineBaseH, 22);
     graphics.fill();
-    graphics.strokeColor = portalCol;
-    graphics.lineWidth = 5.5;
-    graphics.circle(0, 0, 38);
-    graphics.stroke();
-    graphics.strokeColor = goal.required ? this.hex('#FDE047') : goalCol;
-    graphics.lineWidth = 3;
-    graphics.circle(0, 0, 23);
+    graphics.strokeColor = this.hex('#FEF08A');
+    graphics.lineWidth = 2.8;
+    graphics.roundRect(-shrineBaseW * 0.5, -shrineBaseH * 0.5, shrineBaseW, shrineBaseH, 22);
     graphics.stroke();
 
-    // Center portal vortex star and explicit label.
-    graphics.fillColor = this.hex('#FFFFFF');
-    graphics.circle(0, 0, 11);
+    // 2. 外层暖金共鸣双环
+    graphics.fillColor = new Color(253, 224, 71, 60);
+    graphics.circle(0, 0, 38);
     graphics.fill();
-    this.createCellMarkerLabel(node, 'GoalText', goal.required ? '灯塔' : '终点', '#111827', goal.required ? '#FDE047' : '#FFFFFF', new Vec3(0, -38, 2));
+    graphics.strokeColor = this.hex('#FDE047');
+    graphics.lineWidth = 2.8;
+    graphics.circle(0, 0, 31);
+    graphics.stroke();
+
+    // 3. 圣所王冠星钻核心
+    graphics.fillColor = this.hex('#FDE047');
+    graphics.moveTo(0, 20);
+    graphics.lineTo(-14, 0);
+    graphics.lineTo(0, -20);
+    graphics.lineTo(14, 0);
+    graphics.close();
+    graphics.fill();
+
+    graphics.strokeColor = this.hex('#FFFFFF');
+    graphics.lineWidth = 2.0;
+    graphics.stroke();
+
+    graphics.fillColor = this.hex('#FFFFFF');
+    graphics.circle(0, 0, 6);
+    graphics.fill();
+
+    const badgeBg = goal.color === 'red' ? '#E11D48' : (goal.color === 'blue' ? '#0284C7' : '#D97706');
+    this.createCellMarkerLabel(node, 'GoalText', goal.required ? '灯塔' : '终点', '#FFFFFF', badgeBg, new Vec3(0, -30, 1));
   }
 
   private renderRunner(): void {
@@ -1711,18 +2917,19 @@ export class GameRoot extends Component {
       const graphics = card.addComponent(Graphics);
       this.drawCard(graphics, type, isSelected);
       const arrowScale = (this.cardWidth / 196) * 0.9;
-      this.drawTileArrow(graphics, { type, rotation: 0 }, 14 * (this.cardHeight / 160), arrowScale, 0, 24);
+      const cardRotation = isSelected ? this.selectedCardRotation : 0;
+      this.drawTileArrow(graphics, { type, rotation: cardRotation }, 14 * (this.cardHeight / 160), arrowScale, 0, 24);
       this.drawSkillBadge(graphics, type, 0, 14 * (this.cardHeight / 160));
 
       const labelNode = new Node('Name');
       labelNode.layer = Layers.Enum.UI_2D;
       labelNode.setParent(card);
-      labelNode.setPosition(new Vec3(0, -this.cardHeight / 2 + 18, 1));
-      labelNode.addComponent(UITransform).setContentSize(this.cardWidth - 8, 28);
+      labelNode.setPosition(new Vec3(0, -this.cardHeight / 2 + 19, 1));
+      labelNode.addComponent(UITransform).setContentSize(this.cardWidth - 6, 28);
       const label = labelNode.addComponent(Label);
       label.string = getTileDisplayName(type);
-      label.fontSize = Math.max(15, Math.floor((this.cardWidth / 196) * 20));
-      label.color = this.hex('#EAF6FF');
+      label.fontSize = Math.max(18, Math.floor((this.cardWidth / 196) * 23));
+      label.color = this.hex('#FFFFFF');
 
       card.on(Node.EventType.TOUCH_START, (event: EventTouch) => this.onCardTouchStart(event, index), this);
       card.on(Node.EventType.TOUCH_MOVE, (event: EventTouch) => this.onCardTouchMove(event), this);
@@ -1751,9 +2958,9 @@ export class GameRoot extends Component {
       pg.lineWidth = 2.0;
       pg.roundRect(-this.cardWidth / 2, -this.cardHeight / 2, this.cardWidth, this.cardHeight, 18);
       pg.stroke();
-      pg.strokeColor = new Color(255, 255, 255, 168);
-      pg.lineWidth = 3.5;
-      const plusArm = Math.min(20, Math.floor(this.cardWidth * 0.15));
+      pg.strokeColor = new Color(255, 255, 255, 190);
+      pg.lineWidth = 4.0;
+      const plusArm = Math.min(22, Math.floor(this.cardWidth * 0.16));
       pg.moveTo(-plusArm, 0);
       pg.lineTo(plusArm, 0);
       pg.moveTo(0, -plusArm);
@@ -1825,6 +3032,7 @@ export class GameRoot extends Component {
   }
 
   private onCardTouchStart(event: EventTouch, index: number): void {
+    this.closeRadialDial();
     this.hasMovedDuringDrag = false;
     const type = this.hand[index];
     this.dragCardIndex = index;
@@ -1835,7 +3043,11 @@ export class GameRoot extends Component {
       AnalyticsService.track('bullet_time_use', { levelId: this.level?.id ?? 0, remaining: this.currentBulletTime });
     }
     director.getScheduler().setTimeScale(0.45);
-    this.setStatus('拖到地图上，蓝线能通，红线会掉。');
+    if (this.levelIndex <= 1) {
+      this.setStatus('💡 拖拽放置（悬停自适应朝向）；轻点地砖可反向旋转！');
+    } else {
+      this.setStatus('拖到地图上接通光路；轻点地砖或手牌可反向切换。');
+    }
 
     this.dragNode?.destroy();
     const dragNode = new Node('DragGhost');
@@ -1867,8 +3079,18 @@ export class GameRoot extends Component {
     }
 
     const cell = this.uiToGrid(pos.x, pos.y);
-    this.hoverCell = cell;
-    this.renderPreview(cell, this.dragTile);
+    if (!this.hoverCell || this.hoverCell.row !== cell?.row || this.hoverCell.col !== cell?.col) {
+      this.hoverCell = cell;
+      if (cell && this.canPlace(cell)) {
+        // P1: 动态自适应朝向 + 实时光流计算 (所见即所得)
+        const smartTile = this.getBestTileOrientation(cell, this.dragTile);
+        if (smartTile.rotation !== this.dragTile.rotation) {
+          this.dragTile = smartTile;
+          this.refreshDragGhost();
+        }
+      }
+      this.renderPreview(cell, this.dragTile);
+    }
   }
 
   private onCardTouchEnd(event: EventTouch): void {
@@ -1893,26 +3115,9 @@ export class GameRoot extends Component {
       const pos = event.getUILocation();
       const cell = this.uiToGrid(pos.x, pos.y);
       if (cell && this.canPlace(cell)) {
-        if (this.hintHighlightNode) {
-          this.hintHighlightNode.destroy();
-          this.hintHighlightNode = null;
-        }
-        WeChatService.vibrateShort('light');
-        this.grid.setTile(cell, this.dragTile);
-        this.renderTile(cell, this.dragTile);
-        const generated = this.applyPlacementSkill(this.dragTile, cell);
-        this.moveHistory.push({
-          pos: { ...cell },
-          cardIndex: this.dragCardIndex,
-          tileType: this.dragTile.type,
-          generated,
-        });
-        this.usedMoves++;
-        this.hand = this.cardSystem.consume(this.dragCardIndex);
-        this.renderCards();
-        this.currentBulletTime = Math.min(this.maxBulletTime, this.currentBulletTime + 1.2);
-        this.redrawBulletTimeMeter();
-        this.setStatus(this.getPlacementSuccessText());
+        // P0: 确保落子采用最佳智能朝向
+        this.dragTile = this.getBestTileOrientation(cell, this.dragTile);
+        this.placeTileAt(cell, this.dragTile, this.dragCardIndex);
       } else {
         WeChatService.vibrateShort('heavy');
         this.setStatus('这里不能放置');
@@ -1927,89 +3132,769 @@ export class GameRoot extends Component {
     }
   }
 
-  private onPlacedTileTouch(pos: GridPos): void {
-    if (!this.grid || !this.runner) {
+  public refreshDragGhost(): void {
+    if (!this.dragNode || !this.dragTile) {
+      return;
+    }
+    const graphics = this.dragNode.getComponent(Graphics);
+    if (!graphics) {
+      return;
+    }
+    graphics.clear();
+    this.drawDiamond(graphics, this.tileColor(this.dragTile.type), this.hex('#FFFFFF'), 3);
+    this.drawTileArrow(graphics, this.dragTile, 0, 0.86, 0, 44);
+  }
+
+  public setSelectedPlacedPos(pos: GridPos | null): void {
+    this.selectedPlacedPos = pos ? { ...pos } : null;
+    if (this.selectedPlacedHighlightNode) {
+      this.selectedPlacedHighlightNode.destroy();
+      this.selectedPlacedHighlightNode = null;
+    }
+    if (!pos || !this.boardRoot) {
+      return;
+    }
+    const node = new Node(`SelectedHighlight_${pos.row}_${pos.col}`);
+    node.layer = Layers.Enum.UI_2D;
+    node.setParent(this.boardRoot);
+    node.setPosition(this.gridToLocal(pos).add3f(0, 0, 8));
+    node.addComponent(UITransform).setContentSize(this.tileWidth, this.tileHeight);
+    const graphics = node.addComponent(Graphics);
+
+    const w = this.tileWidth * 0.94;
+    const h = this.tileHeight * 0.94;
+    const halfW = w / 2;
+    const halfH = h / 2;
+
+    // Gentle luminous halo instead of heavy wireframe brackets
+    graphics.fillColor = new Color(103, 232, 249, 26);
+    graphics.roundRect(-halfW, -halfH, w, h, 20);
+    graphics.fill();
+
+    graphics.strokeColor = new Color(125, 211, 252, 165);
+    graphics.lineWidth = 2.0;
+    graphics.roundRect(-halfW, -halfH, w, h, 20);
+    graphics.stroke();
+    graphics.stroke();
+
+    if (!this.powerSaveMode) {
+      tween(node)
+        .to(0.7, { scale: new Vec3(1.06, 1.06, 1) }, { easing: 'sineInOut' })
+        .to(0.7, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'sineInOut' })
+        .union()
+        .repeatForever()
+        .start();
+    }
+    this.selectedPlacedHighlightNode = node;
+  }
+
+  private pulseRotateButton(sourceNode?: Node): void {
+    const targets = sourceNode
+      ? [sourceNode]
+      : [this.leftRotateButtonNode, this.rightRotateButtonNode, this.rotateButtonNode].filter(Boolean) as Node[];
+    targets.forEach((target) => {
+      tween(target).stop();
+      tween(target)
+        .to(0.08, { scale: new Vec3(1.15, 1.15, 1) }, { easing: 'quadOut' })
+        .to(0.12, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'quadIn' })
+        .start();
+    });
+  }
+
+  public closeRadialDial(): void {
+    if (this.radialDialNode) {
+      this.radialDialNode.destroy();
+      this.radialDialNode = null;
+    }
+    if (this.boardRoot) {
+      for (let i = this.boardRoot.children.length - 1; i >= 0; i--) {
+        const child = this.boardRoot.children[i];
+        if (child.name.startsWith('RadialDial_')) {
+          child.destroy();
+        }
+      }
+    }
+  }
+
+  public getIncomingLightDirection(pos: GridPos): Direction | null {
+    if (!this.grid || !this.runner || !this.level) {
+      return null;
+    }
+
+    let current: GridPos = { row: this.runner.row, col: this.runner.col };
+    let direction = this.runner.direction;
+    const maxSteps = this.grid.rows * this.grid.cols * 2;
+    const visited = new Set<string>();
+
+    for (let step = 0; step < maxSteps; step++) {
+      const next = move(current, direction);
+      if (!this.grid.isValid(next) || this.grid.isObstacle(next)) {
+        break;
+      }
+
+      if (next.row === pos.row && next.col === pos.col) {
+        return direction;
+      }
+
+      const tile = this.grid.getTile(next);
+      if (!tile) {
+        break;
+      }
+
+      const stateKey = `${posKey(next)}:${direction}`;
+      if (visited.has(stateKey)) {
+        break;
+      }
+      visited.add(stateKey);
+
+      const config = resolveTileConfig(tile);
+      const out = config.routing[direction];
+      if (!out || out === 'dead') {
+        break;
+      }
+
+      current = next;
+      direction = out;
+
+      if (config.jumpDistance && config.jumpDistance > 0) {
+        for (let i = 0; i < config.jumpDistance; i++) {
+          const landing = move(current, direction);
+          if (!this.grid.isValid(landing) || this.grid.isObstacle(landing)) {
+            break;
+          }
+          if (landing.row === pos.row && landing.col === pos.col) {
+            return direction;
+          }
+          current = landing;
+        }
+      }
+    }
+
+    // 备用：若光束尚未直接照到 pos，检测四向邻居是否有朝向 pos 的出射光
+    const neighbors: Array<{ dir: Direction; r: number; c: number }> = [
+      { dir: 'right', r: pos.row, c: pos.col - 1 },
+      { dir: 'left', r: pos.row, c: pos.col + 1 },
+      { dir: 'down', r: pos.row - 1, c: pos.col },
+      { dir: 'up', r: pos.row + 1, c: pos.col },
+    ];
+    for (const n of neighbors) {
+      if (n.r === this.runner.row && n.c === this.runner.col && this.runner.direction === n.dir) {
+        return n.dir;
+      }
+      if (this.grid.isValid({ row: n.r, col: n.c })) {
+        const nTile = this.grid.getTile({ row: n.r, col: n.c });
+        if (nTile) {
+          const nCfg = resolveTileConfig(nTile);
+          for (const inD of Object.keys(nCfg.routing) as Direction[]) {
+            if (nCfg.routing[inD] === n.dir) {
+              return n.dir;
+            }
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  public getBestTileOrientation(pos: GridPos, tile: TileInstance): TileInstance {
+    const config = getBaseTileConfig(tile.type);
+    if (!config.rotatable) {
+      return tile;
+    }
+
+    const incomingDir = this.getIncomingLightDirection(pos);
+    if (!incomingDir) {
+      // 智能推测：若光束尚未直接照到 pos，检测其与起点/Runner及目标的相对几何位置
+      const targetGoal = this.level?.goals.find((g) => !g.lit) || this.level?.goals[0];
+      const runnerPos = this.runner ? { row: this.runner.row, col: this.runner.col } : null;
+
+      if (isStraightType(tile.type)) {
+        if (runnerPos && runnerPos.row === pos.row) return { ...tile, rotation: 0 };
+        if (targetGoal && targetGoal.row === pos.row) return { ...tile, rotation: 0 };
+        if (runnerPos && runnerPos.col === pos.col) return { ...tile, rotation: 1 };
+        if (targetGoal && targetGoal.col === pos.col) return { ...tile, rotation: 1 };
+        return { ...tile, rotation: 0 };
+      }
+
+      if (isCurveType(tile.type) && runnerPos && targetGoal) {
+        // 象限几何导向：根据 runner 与 goal 的相对空间智能推导折向
+        const fromLeft = runnerPos.col <= pos.col;
+        const toBelow = targetGoal.row >= pos.row;
+        if (fromLeft && toBelow) return { ...tile, rotation: 0 }; // ┌ 右折下
+        if (fromLeft && !toBelow) return { ...tile, rotation: 1 }; // └ 右折上
+        if (!fromLeft && !toBelow) return { ...tile, rotation: 2 }; // ┘ 左折上
+        return { ...tile, rotation: 3 }; // ┐ 左折下
+      }
+
+      return tile;
+    }
+
+    // 1. 直线类：如果光从左/右射入 -> 0 (水平横向)；如果从上/下射入 -> 1 (垂直纵向)
+    if (isStraightType(tile.type)) {
+      const rot = (incomingDir === 'right' || incomingDir === 'left') ? 0 : 1;
+      return { ...tile, rotation: rot };
+    }
+
+    // 2. 折角类：仅有的 2 种有效折光朝向
+    if (isCurveType(tile.type)) {
+      const [rotA, rotB] = getValidCurveRotations(incomingDir);
+
+      const cfgA = resolveTileConfig({ ...tile, rotation: rotA });
+      const outA = cfgA.routing[incomingDir];
+      const cfgB = resolveTileConfig({ ...tile, rotation: rotB });
+      const outB = cfgB.routing[incomingDir];
+
+      const nextA = outA && outA !== 'dead' ? move(pos, outA) : null;
+      const nextB = outB && outB !== 'dead' ? move(pos, outB) : null;
+
+      const validA = nextA ? (this.grid!.isValid(nextA) && !this.grid!.isObstacle(nextA)) : false;
+      const validB = nextB ? (this.grid!.isValid(nextB) && !this.grid!.isObstacle(nextB)) : false;
+
+      // 如果其中一个撞墙/撞障碍，选通畅的那一个
+      if (validA && !validB) return { ...tile, rotation: rotA };
+      if (!validA && validB) return { ...tile, rotation: rotB };
+
+      // 前瞻 2 步避障检测：若两边都通畅，检查前进第 2 步是否有阻挡
+      if (validA && validB && outA && outA !== 'dead' && outB && outB !== 'dead') {
+        const step2A = move(nextA!, outA);
+        const step2B = move(nextB!, outB);
+        const blocked2A = !this.grid!.isValid(step2A) || this.grid!.isObstacle(step2A);
+        const blocked2B = !this.grid!.isValid(step2B) || this.grid!.isObstacle(step2B);
+        if (!blocked2A && blocked2B) return { ...tile, rotation: rotA };
+        if (blocked2A && !blocked2B) return { ...tile, rotation: rotB };
+      }
+
+      // 星核优先：如果某个分支离未点亮的星核更近
+      const starCore = this.level?.starCores?.find((s) => !this.grid?.getTile(s));
+      if (starCore && nextA && nextB) {
+        const distStarA = Math.abs(nextA.row - starCore.row) + Math.abs(nextA.col - starCore.col);
+        const distStarB = Math.abs(nextB.row - starCore.row) + Math.abs(nextB.col - starCore.col);
+        if (distStarA !== distStarB) {
+          return { ...tile, rotation: distStarA < distStarB ? rotA : rotB };
+        }
+      }
+
+      // 目标终点启发式导向
+      const targetGoal = this.level?.goals.find((g) => !g.lit) || this.level?.goals[0];
+      if (targetGoal && nextA && nextB) {
+        const distA = Math.abs(nextA.row - targetGoal.row) + Math.abs(nextA.col - targetGoal.col);
+        const distB = Math.abs(nextB.row - targetGoal.row) + Math.abs(nextB.col - targetGoal.col);
+        return { ...tile, rotation: distA <= distB ? rotA : rotB };
+      }
+
+      return { ...tile, rotation: rotA };
+    }
+
+    return tile;
+  }
+
+  private placeTileAt(pos: GridPos, tile: TileInstance, cardIndex: number): void {
+    if (!this.grid || !this.cardSystem) return;
+    this.closeRadialDial();
+    if (this.hintHighlightNode) {
+      this.hintHighlightNode.destroy();
+      this.hintHighlightNode = null;
+    }
+    WeChatService.vibrateShort('light');
+    this.grid.setTile(pos, tile);
+    this.renderTile(pos, tile);
+    const generated = this.applyPlacementSkill(tile, pos);
+    this.moveHistory.push({
+      pos: { ...pos },
+      cardIndex: cardIndex,
+      tileType: tile.type,
+      generated,
+    });
+    this.usedMoves++;
+    const consumedType = tile.type;
+    this.hand = this.cardSystem.consume(cardIndex);
+
+    // 智能连选：若手牌中仍有同类型水晶，继续保留选中状态，方便极速连续落子！
+    const nextSameIdx = this.hand.indexOf(consumedType);
+    if (nextSameIdx !== -1 && this.selectedCardIndex !== -1) {
+      this.selectedCardIndex = nextSameIdx;
+    } else {
+      this.selectedCardIndex = -1;
+      this.selectedCardRotation = 0;
+    }
+
+    this.renderCards();
+    this.setSelectedPlacedPos(pos);
+    this.spawnPlacementPulse(pos);
+    this.spawnRotationHint(pos, tile);
+    this.currentBulletTime = Math.min(this.maxBulletTime, this.currentBulletTime + 1.2);
+    this.redrawBulletTimeMeter();
+    this.setStatus(this.getPlacementSuccessText());
+    this.updateLabels();
+    this.updateRoutePreviewLine();
+  }
+
+  private spawnRotationHint(pos: GridPos, tile: TileInstance): void {
+    if (!this.boardRoot || this.powerSaveMode) return;
+    const config = getBaseTileConfig(tile.type);
+    if (!config.rotatable) return;
+
+    const localPos = this.gridToLocal(pos);
+    const hintNode = new Node('RotationHintBubble');
+    hintNode.layer = Layers.Enum.UI_2D;
+    hintNode.setParent(this.boardRoot);
+    hintNode.setPosition(localPos.x, localPos.y + this.tileHeight * 0.45, 60);
+
+    const hintW = 86;
+    const hintH = 24;
+    hintNode.addComponent(UITransform).setContentSize(hintW, hintH);
+
+    const g = hintNode.addComponent(Graphics);
+    g.fillColor = new Color(8, 20, 38, 230);
+    g.roundRect(-hintW / 2, -hintH / 2, hintW, hintH, 12);
+    g.fill();
+    g.strokeColor = this.hex('#00F0FF');
+    g.lineWidth = 1.4;
+    g.roundRect(-hintW / 2, -hintH / 2, hintW, hintH, 12);
+    g.stroke();
+
+    const lblNode = new Node('HintLbl');
+    lblNode.layer = Layers.Enum.UI_2D;
+    lblNode.setParent(hintNode);
+    lblNode.setPosition(0, 0, 1);
+    const lbl = lblNode.addComponent(Label);
+    lbl.string = '↻ 轻触调向';
+    lbl.fontSize = 11;
+    lbl.color = this.hex('#00F0FF');
+
+    hintNode.setScale(new Vec3(0.5, 0.5, 1));
+    tween(hintNode)
+      .to(0.18, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
+      .delay(1.4)
+      .to(0.35, { position: new Vec3(localPos.x, localPos.y + this.tileHeight * 0.45 + 16, 60), scale: new Vec3(0.6, 0.6, 1) })
+      .call(() => hintNode.destroy())
+      .start();
+  }
+
+  private showRadialQuickDial(pos: GridPos, types: TileType[], counts: Record<string, number>): void {
+    this.closeRadialDial();
+    if (!this.boardRoot || !this.grid) return;
+
+    const cellLocal = this.gridToLocal(pos);
+    const dialNode = new Node(`RadialDial_${pos.row}_${pos.col}`);
+    dialNode.layer = Layers.Enum.UI_2D;
+    dialNode.setParent(this.boardRoot);
+    dialNode.setPosition(cellLocal.add3f(0, 0, 50));
+
+    // 0. 全局轻量遮罩层（点击任意空白处优雅关闭轮盘，防止误触棋盘）
+    const backdrop = new Node('DialBackdrop');
+    backdrop.layer = Layers.Enum.UI_2D;
+    backdrop.setParent(dialNode);
+    backdrop.setPosition(new Vec3(0, 0, -2));
+    const boardW = Math.max(720, this.tileWidth * this.grid.cols + 240);
+    const boardH = Math.max(1280, this.tileHeight * this.grid.rows + 360);
+    backdrop.addComponent(UITransform).setContentSize(boardW * 2, boardH * 2);
+    const bgMask = backdrop.addComponent(Graphics);
+    bgMask.fillColor = new Color(5, 12, 22, 110);
+    bgMask.rect(-boardW, -boardH, boardW * 2, boardH * 2);
+    bgMask.fill();
+    backdrop.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
+      e.propagationStopped = true;
+      this.closeRadialDial();
+      this.setStatus('已取消选择');
+    }, this);
+
+    // 1. 目标地块底座微光瞄准环（精准标出当前选中的地块）
+    const cellG = dialNode.addComponent(Graphics);
+    cellG.fillColor = new Color(0, 240, 255, 45);
+    cellG.roundRect(-this.tileWidth * 0.48, -this.tileHeight * 0.48, this.tileWidth * 0.96, this.tileHeight * 0.96, 16);
+    cellG.fill();
+    cellG.strokeColor = this.hex('#00F0FF');
+    cellG.lineWidth = 2.8;
+    cellG.roundRect(-this.tileWidth * 0.48, -this.tileHeight * 0.48, this.tileWidth * 0.96, this.tileHeight * 0.96, 16);
+    cellG.stroke();
+
+    // 2. 计算卡片尺寸与全组一体化排布（数学级杜绝任何卡片重叠）
+    const numCards = types.length;
+    // 根据卡片数量自适应宽度，确保紧凑且清晰
+    const cardW = numCards <= 2 ? 86 : (numCards === 3 ? 80 : 74);
+    const cardH = 96;
+    const gap = numCards <= 2 ? 14 : 10;
+    const totalW = numCards * cardW + (numCards - 1) * gap;
+
+    // 全组整体 X 偏移量（将整个浮空舱作为一个整体进行屏幕边缘钳制，绝对保证组内卡片相对间距恒定！）
+    const minBoardX = -310;
+    const maxBoardX = 310;
+    let groupShiftX = 0;
+    if (cellLocal.x - totalW / 2 < minBoardX) {
+      groupShiftX = minBoardX - (cellLocal.x - totalW / 2);
+    } else if (cellLocal.x + totalW / 2 > maxBoardX) {
+      groupShiftX = maxBoardX - (cellLocal.x + totalW / 2);
+    }
+
+    // 垂直方向：前 2 行向下弹出，其余行向上弹出，确保不被顶部或底部 UI 遮挡
+    const isTopHalf = pos.row <= 1;
+    const yCenter = isTopHalf
+      ? -Math.max(68, this.tileHeight * 0.5 + cardH * 0.5 + 14)
+      : Math.max(68, this.tileHeight * 0.5 + cardH * 0.5 + 14);
+
+    // 3. 绘制一体化浮空晶体舱底板 (Frosted Dock Capsule) 与指示三角
+    const dockW = totalW + 20;
+    const dockH = cardH + 18;
+    const dockX = groupShiftX;
+    const dockY = yCenter;
+
+    // 舱体深邃夜幕毛玻璃底
+    cellG.fillColor = new Color(10, 20, 36, 248);
+    cellG.roundRect(dockX - dockW / 2, dockY - dockH / 2, dockW, dockH, 18);
+    cellG.fill();
+
+    // 舱体霓虹外发光边框
+    cellG.strokeColor = new Color(0, 240, 255, 180);
+    cellG.lineWidth = 1.8;
+    cellG.roundRect(dockX - dockW / 2, dockY - dockH / 2, dockW, dockH, 18);
+    cellG.stroke();
+
+    // 舱体顶部镜面反光流线
+    cellG.fillColor = new Color(255, 255, 255, 28);
+    cellG.roundRect(dockX - dockW / 2 + 10, dockY + dockH / 2 - 6, dockW - 20, 4, 2);
+    cellG.fill();
+
+    // 指向目标地块的优雅光感三角指示标 (Pointer Arrow)
+    cellG.fillColor = new Color(10, 20, 36, 248);
+    cellG.strokeColor = new Color(0, 240, 255, 180);
+    cellG.lineWidth = 1.8;
+    const arrowX = 0; // 指向被选中的格子中心
+    if (isTopHalf) {
+      cellG.moveTo(arrowX - 8, dockY + dockH / 2);
+      cellG.lineTo(arrowX, dockY + dockH / 2 + 9);
+      cellG.lineTo(arrowX + 8, dockY + dockH / 2);
+      cellG.close();
+      cellG.fill();
+      cellG.stroke();
+    } else {
+      cellG.moveTo(arrowX - 8, dockY - dockH / 2);
+      cellG.lineTo(arrowX, dockY - dockH / 2 - 9);
+      cellG.lineTo(arrowX + 8, dockY - dockH / 2);
+      cellG.close();
+      cellG.fill();
+      cellG.stroke();
+    }
+
+    // 4. 生成舱内的每张水晶卡片（固定间距，100% 杜绝重叠）
+    types.forEach((type, idx) => {
+      const btnX = groupShiftX + (idx - (numCards - 1) / 2) * (cardW + gap);
+      const btnY = yCenter;
+
+      const btnNode = new Node(`DialBtn_${type}`);
+      btnNode.layer = Layers.Enum.UI_2D;
+      btnNode.setParent(dialNode);
+      btnNode.setPosition(new Vec3(btnX, btnY, 10));
+      btnNode.addComponent(UITransform).setContentSize(cardW, cardH);
+
+      const g = btnNode.addComponent(Graphics);
+      // 卡片内部毛玻璃面板
+      g.fillColor = new Color(16, 28, 48, 230);
+      g.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 14);
+      g.fill();
+
+      // 卡片边框（水晶主题色高亮）
+      const col = this.tileColor(type);
+      g.strokeColor = col;
+      g.lineWidth = 2.2;
+      g.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 14);
+      g.stroke();
+
+      // 居中水晶图元：使用根据当前地块精准计算的智能朝向（所见即所得）
+      const previewTile = this.getBestTileOrientation(pos, createTile(type));
+      const iconY = 10;
+      this.drawTopDownTile(g, col, this.hex('#FFFFFF'), 1.8, 38, 38, iconY, 0, 3);
+      this.drawTileArrow(g, previewTile, iconY, 0.48, 0, 14);
+
+      // 下方大号清晰中文名称与方向指示
+      const nameNode = new Node('DialName');
+      nameNode.layer = Layers.Enum.UI_2D;
+      nameNode.setParent(btnNode);
+      nameNode.setPosition(new Vec3(0, -cardH / 2 + 15, 2));
+      nameNode.addComponent(UITransform).setContentSize(cardW - 4, 22);
+      const nameLbl = nameNode.addComponent(Label);
+      let dirSuffix = '';
+      if (isCurveType(type)) {
+        switch (previewTile.rotation % 4) {
+          case 0: dirSuffix = ' ↳'; break;
+          case 1: dirSuffix = ' ↱'; break;
+          case 2: dirSuffix = ' ↰'; break;
+          case 3: dirSuffix = ' ↵'; break;
+        }
+      } else if (isStraightType(type)) {
+        dirSuffix = previewTile.rotation % 2 === 0 ? ' ─' : ' │';
+      }
+      nameLbl.string = `${getTileDisplayName(type)}${dirSuffix}`;
+      nameLbl.fontSize = 12;
+      nameLbl.color = this.hex('#FFFFFF');
+
+      // 右上角数量胶囊徽标
+      const badgeNode = new Node('CountBadge');
+      badgeNode.layer = Layers.Enum.UI_2D;
+      badgeNode.setParent(btnNode);
+      badgeNode.setPosition(new Vec3(cardW / 2 - 12, cardH / 2 - 10, 5));
+      badgeNode.addComponent(UITransform).setContentSize(28, 18);
+      const bg = badgeNode.addComponent(Graphics);
+      bg.fillColor = this.hex('#00F0FF');
+      bg.roundRect(-12, -8, 24, 16, 6);
+      bg.fill();
+
+      const labelNode = new Node('BadgeLabel');
+      labelNode.layer = Layers.Enum.UI_2D;
+      labelNode.setParent(badgeNode);
+      labelNode.setPosition(new Vec3(0, 0, 1));
+      const lbl = labelNode.addComponent(Label);
+      lbl.string = `x${counts[type]}`;
+      lbl.fontSize = 11;
+      lbl.lineHeight = 13;
+      lbl.color = this.hex('#000000');
+
+      // 弹性弹出动画
+      btnNode.setScale(new Vec3(0.2, 0.2, 1));
+      tween(btnNode)
+        .to(0.16, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'backOut' })
+        .start();
+
+      btnNode.on(Node.EventType.TOUCH_END, (event: EventTouch) => {
+        event.propagationStopped = true;
+        const cardIndex = this.hand.indexOf(type);
+        if (cardIndex !== -1) {
+          this.placeTileAt(pos, previewTile, cardIndex);
+          this.setStatus(`快捷落子：已放置 ${getTileDisplayName(type)}！轻点地砖可反向切换。`);
+        }
+      }, this);
+    });
+
+    this.radialDialNode = dialNode;
+    this.setStatus('指尖快捷轮盘：轻点卡片直接放置水晶，点击背景取消。');
+  }
+
+  private getRotationDesc(rotation: number, type?: TileType): string {
+    if (type && isStraightType(type)) {
+      return (rotation % 2 === 0) ? '水平横向 ─' : '垂直纵向 │';
+    }
+    if (type && isCurveType(type)) {
+      switch (rotation % 4) {
+        case 0: return '┌ 右折下';
+        case 1: return '└ 右折上';
+        case 2: return '┘ 左折上';
+        case 3: return '┐ 左折下';
+      }
+    }
+    switch (rotation % 4) {
+      case 0: return '初始 0°';
+      case 1: return '顺时针 90°';
+      case 2: return '180°';
+      case 3: return '逆时针 90°';
+      default: return '0°';
+    }
+  }
+
+  public rotateCurrentTarget(sourceNode?: Node): boolean {
+    this.closeRadialDial();
+
+    // 1. 优先：右手正拖拽手牌（双手连招的核心体验）
+    if (this.dragTile) {
+      const prevRotation = this.dragTile.rotation;
+      const incomingDir = this.hoverCell ? this.getIncomingLightDirection(this.hoverCell) : null;
+      const rotated = smartRotateTile(this.dragTile, incomingDir);
+      if (rotated.rotation === prevRotation) {
+        WeChatService.vibrateShort('heavy');
+        this.setStatus(`${getTileDisplayName(this.dragTile.type)}为特殊水晶，不可旋转。`);
+        return false;
+      }
+      this.dragTile = rotated;
+      this.refreshDragGhost();
+      if (this.hoverCell) {
+        this.renderPreview(this.hoverCell, this.dragTile);
+      }
+      WeChatService.vibrateShort('light');
+      CrystalAudioService.playRotatePlink();
+      this.setStatus(`水晶已切换为 ${this.getRotationDesc(this.dragTile.rotation, this.dragTile.type)}，松手即可放置！`);
+      this.pulseRotateButton(sourceNode);
+      return true;
+    }
+
+    // 2. 其次：棋盘上有已选中的已放置水晶
+    if (this.selectedPlacedPos && this.grid) {
+      const tile = this.grid.getTile(this.selectedPlacedPos);
+      if (tile) {
+        if (this.runner && this.selectedPlacedPos.row === this.runner.row && this.selectedPlacedPos.col === this.runner.col) {
+          WeChatService.vibrateShort('heavy');
+          this.setStatus('Runner 正在这里，不能旋转这块水晶。');
+          return false;
+        }
+        if (tile.locked) {
+          WeChatService.vibrateShort('light');
+          this.setStatus('⚓ 锚定星桥不可旋转，顺着它接通光路即可！');
+          return false;
+        }
+        const incomingDir = this.getIncomingLightDirection(this.selectedPlacedPos);
+        const rotated = smartRotateTile(tile, incomingDir);
+        if (rotated.rotation === tile.rotation) {
+          WeChatService.vibrateShort('heavy');
+          this.setStatus(`${getTileDisplayName(tile.type)}不能旋转。`);
+          return false;
+        }
+        WeChatService.vibrateShort('light');
+        CrystalAudioService.playRotatePlink();
+        this.grid.setTile(this.selectedPlacedPos, rotated);
+        this.renderTile(this.selectedPlacedPos, rotated);
+        this.setSelectedPlacedPos(this.selectedPlacedPos);
+        this.currentBulletTime = Math.min(this.maxBulletTime, this.currentBulletTime + 0.6);
+        this.redrawBulletTimeMeter();
+        if (isStraightType(tile.type)) {
+          this.setStatus(`直线水晶：已切换为 ${rotated.rotation % 2 === 0 ? '水平横向 ─' : '垂直纵向 │'}`);
+        } else if (isCurveType(tile.type)) {
+          this.setStatus(`折角镜：已反向切换折光朝向，继续观察光路！`);
+        } else {
+          this.setStatus('水晶已旋转，补充 0.6s 子弹时间，继续观察光路。');
+        }
+        this.updateRoutePreviewLine();
+        this.pulseRotateButton(sourceNode);
+        return true;
+      }
+    }
+
+    // 3. 再次：底栏手牌处于点击选中状态（准备点击空白格放置）
+    if (this.selectedCardIndex !== -1 && this.cardSystem) {
+      const type = this.hand[this.selectedCardIndex];
+      const dummyTile = createTile(type, this.selectedCardRotation);
+      const rotatedDummy = smartRotateTile(dummyTile, null);
+      if (rotatedDummy.rotation === dummyTile.rotation) {
+        WeChatService.vibrateShort('heavy');
+        this.setStatus(`${getTileDisplayName(type)}不可旋转。`);
+        return false;
+      }
+      this.selectedCardRotation = rotatedDummy.rotation;
+      WeChatService.vibrateShort('light');
+      this.setStatus(`手牌预置为 ${this.getRotationDesc(this.selectedCardRotation, type)}，点击地图空格直接放置！`);
+      this.renderCards();
+      this.pulseRotateButton(sourceNode);
+      return true;
+    }
+
+    // 4. 兜底：如果棋盘上有刚刚放置的水晶（取历史记录最后一条）
+    if (this.moveHistory.length > 0 && this.grid) {
+      const lastMove = this.moveHistory[this.moveHistory.length - 1];
+      const tile = this.grid.getTile(lastMove.pos);
+      if (tile) {
+        this.setSelectedPlacedPos(lastMove.pos);
+        return this.rotateCurrentTarget(sourceNode);
+      }
+    }
+
+    WeChatService.vibrateShort('heavy');
+    this.setStatus('当前未选择水晶。拖起手牌或点击棋盘上的水晶后再按旋转。');
+    return false;
+  }
+
+  private onPlacedTileTouch(pos: GridPos, event?: EventTouch): void {
+    if (event) {
+      event.propagationStopped = true;
+    }
+    if (!this.grid || !this.runner || this.runner.state === 'RUNNING') {
       return;
     }
     if (this.hintHighlightNode) {
       this.hintHighlightNode.destroy();
       this.hintHighlightNode = null;
     }
+    this.closeRadialDial();
 
     if (pos.row === this.runner.row && pos.col === this.runner.col) {
       WeChatService.vibrateShort('heavy');
-      this.setStatus('Runner 正在这里，不能旋转这块水晶。');
+      this.setStatus('起点圣火位置不可旋转。');
       return;
     }
 
     const tile = this.grid.getTile(pos);
-    if (!tile) {
+    if (!tile || this.grid.isObstacle(pos)) {
+      return;
+    }
+    if (tile.locked) {
+      WeChatService.vibrateShort('light');
+      this.setStatus('⚓ 锚定星桥不可旋转，顺着它接通光路即可！');
       return;
     }
 
-    const rotated = rotateTile(tile);
-    if (rotated.rotation === tile.rotation) {
-      WeChatService.vibrateShort('heavy');
-      this.setStatus(`${getTileDisplayName(tile.type)}不能旋转。`);
-      return;
+    const prevRot = tile.rotation;
+    let nextRot = prevRot;
+    if (isStraightType(tile.type)) {
+      nextRot = (prevRot % 2 === 0) ? 1 : 0;
+    } else {
+      nextRot = (prevRot + 1) % 4;
     }
 
+    this.moveHistory.push({ pos, prevRotation: prevRot, tileType: tile.type });
+
+    const updatedTile: TileInstance = { ...tile, rotation: nextRot };
+    this.grid.setTile(pos, updatedTile);
+    this.usedMoves++;
+    this.renderTile(pos, updatedTile);
+    this.setSelectedPlacedPos(pos);
     WeChatService.vibrateShort('light');
-    this.grid.setTile(pos, rotated);
-    this.renderTile(pos, rotated);
-    this.currentBulletTime = Math.min(this.maxBulletTime, this.currentBulletTime + 0.6);
-    this.redrawBulletTimeMeter();
-    this.setStatus('水晶已旋转，补充 0.6s 子弹时间，继续观察光路。');
+
     this.updateRoutePreviewLine();
+    this.updateLabels();
+    this.pulseRotateButton();
+
+    const tileKey = this.key(pos);
+    const node = this.tileNodes.get(tileKey);
+    if (node) {
+      tween(node)
+        .to(0.06, { scale: new Vec3(1.18, 1.18, 1) }, { easing: 'quadOut' })
+        .to(0.08, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'quadIn' })
+        .start();
+    }
+
+    if (!this.isRouteCurrentlyConnected()) {
+      if (isStraightType(tile.type)) {
+        this.setStatus(`直线水晶：已切换为 ${nextRot === 0 ? '水平横向 ─' : '垂直纵向 │'}`);
+      } else if (isCurveType(tile.type)) {
+        this.setStatus(`折角镜：已顺时针旋转 90°`);
+      } else {
+        this.setStatus(`${getTileDisplayName(tile.type)}：已顺时针旋转 90°`);
+      }
+    }
+  }
+
+  private isRouteCurrentlyConnected(): boolean {
+    if (!this.grid || !this.runner || !this.level) return false;
+    return RouteSimulator.simulate(this.grid, this.runner, this.level.goals).success;
   }
 
   private selectCard(index: number): void {
+    this.closeRadialDial();
     if (this.selectedCardIndex === index) {
-      this.selectedCardIndex = -1;
-      this.setStatus('已取消选择手牌。');
+      const type = this.hand[index];
+      const dummyTile = createTile(type, this.selectedCardRotation);
+      const rotated = smartRotateTile(dummyTile, null);
+      this.selectedCardRotation = rotated.rotation;
+      WeChatService.vibrateShort('light');
+      this.renderCards();
     } else {
       this.selectedCardIndex = index;
-      const type = this.hand[index];
-      this.setStatus(`已选中：${getTileDisplayName(type)}。点击地图上空白单元格可直接放置！`);
+      this.selectedCardRotation = 0;
+      this.setSelectedPlacedPos(null);
+      this.renderCards();
     }
-    this.renderCards();
   }
 
   private onCellTouch(pos: GridPos): void {
-    if (!this.grid || !this.runner || !this.cardSystem) {
+    if (!this.grid || !this.runner || this.runner.state === 'RUNNING') {
+      return;
+    }
+    this.closeRadialDial();
+
+    const existingTile = this.grid.getTile(pos);
+    if (existingTile && !this.grid.isObstacle(pos)) {
+      this.onPlacedTileTouch(pos);
       return;
     }
 
-    if (this.selectedCardIndex !== -1) {
-      const type = this.hand[this.selectedCardIndex];
-      const tile = createTile(type);
-      if (this.canPlace(pos)) {
-        WeChatService.vibrateShort('light');
-        this.grid.setTile(pos, tile);
-        this.renderTile(pos, tile);
-        const generated = this.applyPlacementSkill(tile, pos);
-        this.moveHistory.push({
-          pos: { ...pos },
-          cardIndex: this.selectedCardIndex,
-          tileType: tile.type,
-          generated,
-        });
-        this.usedMoves++;
-        this.hand = this.cardSystem.consume(this.selectedCardIndex);
-        this.selectedCardIndex = -1; // Clear selection
-        this.renderCards();
-        this.currentBulletTime = Math.min(this.maxBulletTime, this.currentBulletTime + 1.2);
-        this.redrawBulletTimeMeter();
-        this.setStatus(this.getPlacementSuccessText());
-        this.updateLabels();
-        this.updateRoutePreviewLine();
-      } else {
-        WeChatService.vibrateShort('heavy');
-        this.setStatus('这里不能放置');
-      }
-    } else {
-      this.setStatus('先点击下方手牌，再点击空白格子即可快捷放置水晶！');
-    }
+    this.setStatus('✦ 轻触水晶即可旋转朝向，连通光路通往终点！');
   }
 
   private applyPlacementSkill(tile: TileInstance, pos: GridPos): GridPos[] {
@@ -2079,7 +3964,7 @@ export class GameRoot extends Component {
   }
 
   public updateRoutePreviewLine(): void {
-    if (!this.grid || !this.runner || !this.level || !this.previewRoot || !this.previewRoot.active || this.runner.state !== 'IDLE') {
+    if (!this.grid || !this.runner || !this.level || !this.previewRoot || this.runner.state === 'RUNNING') {
       return;
     }
     this.clearNode(this.previewRoot);
@@ -2088,15 +3973,94 @@ export class GameRoot extends Component {
     node.layer = Layers.Enum.UI_2D;
     node.setParent(this.previewRoot);
     const graphics = node.addComponent(Graphics);
-    graphics.lineWidth = 6;
-    graphics.strokeColor = preview.success ? this.hex('#00F0FF') : this.hex('#FF4B3E');
 
+    const isConnected = preview.success;
     const start = this.getRouteAnchor(this.runner);
     const routePoints = this.getDrawableRoutePoints(preview.path);
-    const outerCol = preview.success ? this.hex('#00F0FF') : this.hex('#FF3B30');
-    ((outerCol) as ((any)) as any).a = 140;
+
+    // Count active star cores along preview path & collect electrified tiles
+    const nextIlluminated = new Set<string>();
+    const pathAllKeys = new Set<string>();
+    for (const p of preview.path) {
+      const k = this.key(p);
+      pathAllKeys.add(k);
+      if (p.result !== 'dead' && p.result !== 'blocked') {
+        nextIlluminated.add(k);
+      }
+    }
+    if (preview.secondaryPath) {
+      for (const sp of preview.secondaryPath) {
+        const k = this.key(sp);
+        pathAllKeys.add(k);
+        if (sp.result !== 'dead' && sp.result !== 'blocked') {
+          nextIlluminated.add(k);
+        }
+      }
+    }
+
+    const activeStars = this.getActiveBonusCells();
+    let litStarCount = 0;
+    for (const star of activeStars) {
+      if (nextIlluminated.has(this.key(star))) {
+        litStarCount++;
+      }
+    }
+    this.previewLitStars = litStarCount;
+    const allStarsLit = activeStars.length === 0 || litStarCount >= activeStars.length;
+    const remainingUnlitStars = Math.max(0, activeStars.length - litStarCount);
+
+    // Sync electrified crystal visuals (Cold Ice Blue <-> Radiant Celestial Gold)
+    const prevLit = this.illuminatedCellKeys;
+    const changedKeys: GridPos[] = [];
+    this.grid.forEachCell((pos, tile) => {
+      if (!tile) return;
+      const k = this.key(pos);
+      if (prevLit.has(k) !== nextIlluminated.has(k)) {
+        changedKeys.push(pos);
+      }
+    });
+    this.illuminatedCellKeys = nextIlluminated;
+    for (const pos of changedKeys) {
+      const t = this.grid.getTile(pos);
+      if (t) this.renderTile(pos, t);
+    }
+
+    // Compute live route completion % toward nearest goal for immediate positive feedback
+    const primaryGoal = this.level.goals[0];
+    if (isConnected) {
+      this.previewProgressRatio = 1;
+    } else if (primaryGoal && this.runner) {
+      const totalDist = Math.max(2, Math.abs(primaryGoal.row - this.runner.row) + Math.abs(primaryGoal.col - this.runner.col));
+      const tipCell = routePoints.length > 0 ? routePoints[routePoints.length - 1] : this.runner;
+      const remDist = Math.abs(primaryGoal.row - tipCell.row) + Math.abs(primaryGoal.col - tipCell.col);
+      const distProgress = Math.max(0, (totalDist - remDist) / totalDist);
+      const stepProgress = Math.min(0.9, nextIlluminated.size / (totalDist + 1));
+      this.previewProgressRatio = Math.max(distProgress, stepProgress);
+    } else {
+      this.previewProgressRatio = Math.min(0.9, nextIlluminated.size / 6);
+    }
+
+    // Play rising harmonic chime & spawn spark when a move extends the live lit path
+    if (this.usedMoves > 0 && nextIlluminated.size > this.lastPreviewLitCount && this.runner.state === 'IDLE') {
+      CrystalAudioService.playStepChime(Math.min(12, nextIlluminated.size));
+      if (!this.powerSaveMode && routePoints.length > 0) {
+        const tipPt = this.getRouteAnchor(routePoints[routePoints.length - 1]);
+        this.spawnLandingRipple(tipPt, this.hex(isConnected ? '#FDE047' : '#38BDF8'));
+      }
+    }
+    if (isConnected && !this.lastPreviewConnected && this.usedMoves > 0) {
+      CrystalAudioService.playStepChime(10);
+    }
+    this.lastPreviewLitCount = nextIlluminated.size;
+    this.lastPreviewConnected = isConnected;
+
+    // 1. Outer Laser Glow Halo (Golden Aurora when connected with all stars, Cyan when connected, Sky Blue when seeking)
+    const outerCol = isConnected
+      ? (allStarsLit ? this.hex('#FDE047') : this.hex('#00F0FF'))
+      : this.hex('#38BDF8');
+    ((outerCol as any)).a = isConnected ? (allStarsLit ? 220 : 185) : 135;
     graphics.strokeColor = outerCol;
-    graphics.lineWidth = 12;
+    graphics.lineWidth = isConnected ? (allStarsLit ? 22 : 18) : 12;
     graphics.moveTo(start.x, start.y);
     for (const pathNode of routePoints) {
       const point = this.getRouteAnchor(pathNode);
@@ -2104,14 +4068,119 @@ export class GameRoot extends Component {
     }
     graphics.stroke();
 
-    graphics.strokeColor = preview.success ? this.hex('#E0FFFF') : this.hex('#FFD1D1');
-    graphics.lineWidth = 4;
+    // 2. High-intensity Core Stream
+    const coreCol = isConnected ? this.hex('#FFFFFF') : this.hex('#E0F2FE');
+    graphics.strokeColor = coreCol;
+    graphics.lineWidth = isConnected ? 6.5 : 4;
     graphics.moveTo(start.x, start.y);
     for (const pathNode of routePoints) {
       const point = this.getRouteAnchor(pathNode);
       graphics.lineTo(point.x, point.y);
     }
     graphics.stroke();
+
+    // 3. Tip Photon Spark
+    if (routePoints.length > 0) {
+      const tipPos = this.getRouteAnchor(routePoints[routePoints.length - 1]);
+      const lastPathNode = preview.path[preview.path.length - 1];
+      const isBlocked = lastPathNode?.result === 'blocked';
+      graphics.fillColor = isBlocked
+        ? this.hex('#F43F5E')
+        : (isConnected ? this.hex('#FDE047') : this.hex('#38BDF8'));
+      graphics.circle(tipPos.x, tipPos.y, isConnected ? 11 : 7.5);
+      graphics.fill();
+    }
+
+    // 3.5. 分光双色流光 (Secondary Golden Prism Beam)
+    if (preview.secondaryPath && preview.secondaryPath.length > 0) {
+      const secRoutePoints = this.getDrawableRoutePoints(preview.secondaryPath);
+      if (secRoutePoints.length > 0) {
+        const secOuter = this.hex('#F59E0B');
+        ((secOuter as any)).a = 165;
+        graphics.strokeColor = secOuter;
+        graphics.lineWidth = 14;
+        const splitStart = this.getRouteAnchor(secRoutePoints[0]);
+        graphics.moveTo(splitStart.x, splitStart.y);
+        for (let i = 1; i < secRoutePoints.length; i++) {
+          const pt = this.getRouteAnchor(secRoutePoints[i]);
+          graphics.lineTo(pt.x, pt.y);
+        }
+        graphics.stroke();
+
+        graphics.strokeColor = this.hex('#FEF08A');
+        graphics.lineWidth = 5;
+        graphics.moveTo(splitStart.x, splitStart.y);
+        for (let i = 1; i < secRoutePoints.length; i++) {
+          const pt = this.getRouteAnchor(secRoutePoints[i]);
+          graphics.lineTo(pt.x, pt.y);
+        }
+        graphics.stroke();
+
+        const lastSec = this.getRouteAnchor(secRoutePoints[secRoutePoints.length - 1]);
+        graphics.fillColor = this.hex('#F59E0B');
+        graphics.circle(lastSec.x, lastSec.y, 8);
+        graphics.fill();
+      }
+    }
+
+    // 3.8. 障碍受阻警示反馈（禁止激光自动秒碎，维护谜题规则严肃性；引导使用【🔨破障】或绕行）
+    this.cancelObstacleDrill();
+    const blockedNode = preview.path.find((p) => p.result === 'blocked');
+    this.previewBlockedOnObstacle = !!(blockedNode && this.grid.isObstacle(blockedNode));
+    if (blockedNode && this.grid.isObstacle(blockedNode)) {
+      const bp = this.getRouteAnchor(blockedNode);
+      graphics.strokeColor = this.hex('#F43F5E');
+      graphics.lineWidth = 2.8;
+      graphics.circle(bp.x, bp.y, 16);
+      graphics.stroke();
+      if (this.usedMoves > 0 && !this.hammerModeActive) {
+        this.setStatus('⚠ 前方陨石阻挡！点击下方「🔨 破障」可直接击碎障碍');
+      }
+    }
+
+    // 4. Update Fog of War (for level 16+ mist)
+    const fogSet = new Set<string>();
+    if (this.runner) {
+      fogSet.add(this.key(this.runner));
+      for (const d of DIRECTIONS) {
+        fogSet.add(this.key(move(this.runner, d)));
+      }
+    }
+    for (const p of preview.path) {
+      fogSet.add(this.key(p));
+      for (const d of DIRECTIONS) {
+        fogSet.add(this.key(move(p, d)));
+      }
+    }
+    if (preview.secondaryPath) {
+      for (const sp of preview.secondaryPath) {
+        fogSet.add(this.key(sp));
+        for (const d of DIRECTIONS) {
+          fogSet.add(this.key(move(sp, d)));
+        }
+      }
+    }
+
+    if (isConnected) {
+      this.dispelAllFog();
+    } else {
+      this.updateFogOfWar(fogSet);
+    }
+
+    // 5. Smart Auto-launch vs Manual Confirm (Never rob players of greedy 3-star detour!)
+    if (isConnected && this.runner.state === 'IDLE' && !this.isResolving) {
+      this.updateHeroButtonState(true, remainingUnlitStars);
+      if (allStarsLit) {
+        this.scheduleAutoLaunch();
+      } else {
+        this.cancelAutoLaunch();
+        this.setStatus(`✦ 终点已通！可直接点下方冲关，或绕路再收 ${remainingUnlitStars} 颗星核拿 3★`);
+      }
+    } else {
+      this.updateHeroButtonState(false, 0);
+      this.cancelAutoLaunch();
+    }
+    this.updateLabels();
   }
 
   private renderPreview(cell: GridPos | null, tile: TileInstance): void {
@@ -2247,6 +4316,7 @@ export class GameRoot extends Component {
     }
 
     this.afterRunnerStep();
+    CrystalAudioService.playStepChime(this.runnerStepCount);
     this.moveRunnerVisual(this.runner, () => {
       const goal = this.findGoal(this.runner!, this.level!.goals);
       if (completedByJump || (goal && this.isGoalColorMatched(goal) && this.visitGoal(goal))) {
@@ -2409,14 +4479,15 @@ export class GameRoot extends Component {
     const baseCol = this.runnerSkinColor(this.colorForRunner(this.runner?.color ?? 'none'));
 
     if (!this.powerSaveMode) {
-      for (let i = 1; i <= 3; i++) {
-        const ghostPos = startPos.clone().lerp(endPos, i * 0.25);
-        this.spawnTrailGhost(ghostPos, baseCol, 0.04 * i);
+      for (let i = 1; i <= 4; i++) {
+        const ghostPos = startPos.clone().lerp(endPos, i * 0.2);
+        this.spawnTrailGhost(ghostPos, baseCol, 0.02 * i);
       }
     }
 
+    // 高速飞驰光子彗星 (0.08s 极速过山车式穿引)
     tween(this.runnerNode)
-      .to(0.14, { position: endPos })
+      .to(0.08, { position: endPos }, { easing: 'quadOut' })
       .call(() => {
         this.spawnLandingRipple(endPos, baseCol);
         this.isResolving = false;
@@ -2458,6 +4529,20 @@ export class GameRoot extends Component {
 
   private spawnLandingRipple(pos: Vec3, color: Color): void {
     if (!this.runnerRoot || this.powerSaveMode) return;
+
+    // 1. 动感晶石受击多米诺弹跳 (Pinball Crystal Bounce)
+    if (this.runner) {
+      const tileNode = this.tileNodes.get(this.key(this.runner));
+      if (tileNode) {
+        tween(tileNode)
+          .to(0.04, { scale: new Vec3(1.24, 1.24, 1) }, { easing: 'quadOut' })
+          .to(0.08, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'bounceOut' })
+          .start();
+      }
+    }
+    WeChatService.vibrateShort('light');
+
+    // 2. 环状高透极光冲击波
     const ripple = new Node('LandingRipple');
     ripple.layer = Layers.Enum.UI_2D;
     ripple.setParent(this.runnerRoot);
@@ -2465,13 +4550,56 @@ export class GameRoot extends Component {
     ripple.addComponent(UITransform).setContentSize(60, 60);
     const graphics = ripple.addComponent(Graphics);
     graphics.strokeColor = new Color(0, 240, 255, 220);
-    graphics.lineWidth = 3.5;
-    graphics.circle(0, 0, 14);
+    graphics.lineWidth = 4;
+    graphics.circle(0, 0, 16);
     graphics.stroke();
 
     tween(ripple)
-      .to(0.25, { scale: new Vec3(2.2, 2.2, 1) })
+      .to(0.22, { scale: new Vec3(2.5, 2.5, 1) }, { easing: 'quadOut' })
       .call(() => ripple.destroy())
+      .start();
+
+    // 3. 4 向高能火花微粒飞溅
+    for (let i = 0; i < 4; i++) {
+      const spark = new Node('Spark');
+      spark.layer = Layers.Enum.UI_2D;
+      spark.setParent(this.runnerRoot);
+      spark.setPosition(pos);
+      const sg = spark.addComponent(Graphics);
+      sg.fillColor = this.hex('#FFFFFF');
+      sg.circle(0, 0, 3.2);
+      sg.fill();
+      const angle = (Math.PI * 2 * i) / 4 + Math.random() * 0.4;
+      const dist = 36 + Math.random() * 14;
+      const targetPos = pos.clone().add3f(Math.cos(angle) * dist, Math.sin(angle) * dist, 0);
+      tween(spark)
+        .to(0.18, { position: targetPos, scale: new Vec3(0.2, 0.2, 1) }, { easing: 'quadOut' })
+        .call(() => spark.destroy())
+        .start();
+    }
+  }
+
+  private spawnPlacementPulse(pos: { row: number; col: number }): void {
+    if (!this.boardRoot || this.powerSaveMode) return;
+    const localPos = this.gridToLocal(pos);
+    const pulse = new Node('PlacementPulse');
+    pulse.layer = Layers.Enum.UI_2D;
+    pulse.setParent(this.boardRoot);
+    pulse.setPosition(localPos.x, localPos.y, 10);
+    pulse.addComponent(UITransform).setContentSize(100, 60);
+    const g = pulse.addComponent(Graphics);
+    g.strokeColor = this.hex('#29BDE0');
+    ((g.strokeColor) as any).a = 210;
+    g.lineWidth = 2.4;
+    g.ellipse(0, 0, 48, 26);
+    g.stroke();
+    g.fillColor = new Color(41, 189, 224, 45);
+    g.ellipse(0, 0, 48, 26);
+    g.fill();
+
+    tween(pulse)
+      .to(0.28, { scale: new Vec3(1.6, 1.6, 1) }, { easing: 'quadOut' })
+      .call(() => pulse.destroy())
       .start();
   }
 
@@ -2505,7 +4633,7 @@ export class GameRoot extends Component {
     WeChatService.vibrateShort('medium');
 
     if (!this.powerSaveMode) {
-      this.triggerScreenFlash();
+      this.playSanctumAwakeningCeremony(this.runner);
       this.spawnConfettiExplosion(this.gridToLocal(this.runner));
     }
 
@@ -2522,7 +4650,9 @@ export class GameRoot extends Component {
       const totalReward = reward + this.pendingBonusDiamonds;
       ProfileManager.addDiamonds(totalReward);
       this.triggerVictoryShockwave();
-      this.setStatus(`每日一束光完成！${this.usedMoves} 步，${leaderboard.hintText}。晶核 +${totalReward}，邀请好友挑战更短路线。${engagementSummary}`);
+      const estGlobalBeat = Math.min(99, Math.max(55, 96 - Math.max(0, this.usedMoves - 4) * 4));
+      const beatLabel = leaderboard.beatPercent > 0 ? leaderboard.beatPercent : estGlobalBeat;
+      this.setStatus(`每日一束光完成！${this.usedMoves} 步（超越 ${beatLabel}% 玩家），晶核 +${totalReward} 💎。${engagementSummary}`);
       this.updateLabels();
       WeChatService.showToast(`每日一束光通关 +${totalReward} 晶核`, 'success');
       if (this.onShowVictoryPosterCallback) {
@@ -2584,12 +4714,29 @@ export class GameRoot extends Component {
         }
       });
     }
-    const showPoster = () => {
-      if (this.onShowVictoryPosterCallback && this.level) {
-        this.onShowVictoryPosterCallback(this.level.id, this.level.name, stars, this.usedMoves);
-      }
-    };
-    this.showBlessingChoice(showPoster);
+    const isChapterEnd = (this.levelIndex + 1) % 5 === 0;
+    if (isChapterEnd) {
+      const showPoster = () => {
+        if (this.onShowVictoryPosterCallback && this.level) {
+          this.onShowVictoryPosterCallback(this.level.id, this.level.name, stars, this.usedMoves);
+        }
+      };
+      this.showBlessingChoice(showPoster);
+    } else {
+      // 沉浸心流：常规关卡无缝平滑跃迁下一关，告别弹窗打断！
+      this.scheduleOnce(() => {
+        if (this.boardRoot) {
+          tween(this.boardRoot)
+            .to(0.24, { scale: new Vec3(0.92, 0.92, 1) }, { easing: 'quadIn' })
+            .call(() => {
+              this.loadLevel(this.levelIndex + 1);
+            })
+            .start();
+        } else {
+          this.loadLevel(this.levelIndex + 1);
+        }
+      }, 1.1);
+    }
   }
 
   private showBlessingChoice(onDone: () => void): void {
@@ -2765,20 +4912,30 @@ export class GameRoot extends Component {
     const node = new Node('VictoryShockwave');
     node.layer = Layers.Enum.UI_2D;
     node.setParent(this.node);
-    node.setPosition(new Vec3(0, 0, 90));
+    const targetPos = this.runner ? this.gridToLocal(this.runner) : new Vec3(0, 40, 0);
+    node.setPosition(targetPos.x, targetPos.y, 90);
     node.addComponent(UITransform).setContentSize(size.width, size.height);
     const g = node.addComponent(Graphics);
-    g.strokeColor = this.hex('#FDE047');
-    g.lineWidth = 8;
-    g.circle(0, 40, 70);
+    // 梦幻双色极光涟漪：外圈极光青，内圈樱花粉辉光
+    g.strokeColor = this.hex('#29BDE0');
+    g.lineWidth = 6;
+    g.circle(0, 0, 45);
     g.stroke();
-    g.fillColor = new Color(253, 224, 71, 28);
-    g.circle(0, 40, 70);
+    g.strokeColor = this.hex('#F472B6');
+    g.lineWidth = 3;
+    g.circle(0, 0, 32);
+    g.stroke();
+    g.fillColor = new Color(41, 189, 224, 38);
+    g.circle(0, 0, 45);
     g.fill();
+
     this.showFlowCompleteBanner();
     tween(node)
-      .to(0.45, { scale: new Vec3(4.4, 4.4, 1) }, { easing: 'quadOut' })
-      .call(() => node.destroy())
+      .to(0.52, { scale: new Vec3(4.8, 4.8, 1) }, { easing: 'quadOut' })
+      .call(() => {
+        WeChatService.vibrateShort('light');
+        node.destroy();
+      })
       .start();
   }
 
@@ -2788,12 +4945,12 @@ export class GameRoot extends Component {
     banner.setParent(this.node);
     banner.setPosition(new Vec3(0, 100, 92));
     banner.addComponent(UITransform).setContentSize(460, 100);
-    this.createOverlayLabel(banner, 'Title', new Vec3(0, 20, 1), 'FLOW COMPLETE', 30, '#FFFFFF', 420, 48);
-    this.createOverlayLabel(banner, 'Sub', new Vec3(0, -20, 1), '流光完美接通', 22, '#FDE047', 360, 38);
+    this.createOverlayLabel(banner, 'Title', new Vec3(0, 20, 1), 'FLOW COMPLETE', 28, '#FFFFFF', 420, 44);
+    this.createOverlayLabel(banner, 'Sub', new Vec3(0, -20, 1), '✦ 极光回路·完美接通 ✦', 20, '#29BDE0', 360, 34);
     banner.setScale(new Vec3(0.82, 0.82, 1));
     tween(banner)
-      .to(0.16, { scale: new Vec3(1.08, 1.08, 1) }, { easing: 'backOut' })
-      .delay(0.5)
+      .to(0.18, { scale: new Vec3(1.05, 1.05, 1) }, { easing: 'backOut' })
+      .delay(0.45)
       .to(0.18, { scale: new Vec3(0.92, 0.92, 1) }, { easing: 'quadIn' })
       .call(() => banner.destroy())
       .start();
@@ -3053,11 +5210,24 @@ export class GameRoot extends Component {
     if (!this.level) {
       return 1;
     }
+    const configuredStars = this.level.starCores?.length ?? (this.bonusCell ? 1 : 0);
+    const collectedCount = Math.max(this.collectedStarCoreKeys.size, this.previewLitStars);
+
+    if (configuredStars > 0) {
+      if (collectedCount >= configuredStars) {
+        return 3;
+      }
+      if (collectedCount >= 1) {
+        return 2;
+      }
+      return 1;
+    }
+
     let stars = 1;
-    if (this.usedMoves <= this.level.recommendedMoves) {
+    if (this.usedMoves <= this.level.recommendedMoves + 4) {
       stars++;
     }
-    if (this.usedMoves <= Math.max(1, this.level.recommendedMoves - 1)) {
+    if (this.usedMoves <= this.level.recommendedMoves + 2) {
       stars++;
     }
     return Math.min(3, stars);
@@ -3144,27 +5314,38 @@ export class GameRoot extends Component {
     graphics.clear();
     const baseCol = this.runnerSkinColor(this.colorForRunner(this.runner.color));
 
-    // 1. Soft cyber halo
-    graphics.fillColor = new Color(baseCol.r, baseCol.g, baseCol.b, 65);
-    graphics.circle(0, 0, 24);
+    // 1. 光之灵双层极光光晕 (Ethereal Dual-Layer Aurora Corona)
+    graphics.fillColor = new Color(baseCol.r, baseCol.g, baseCol.b, 55);
+    graphics.circle(0, 0, 26);
+    graphics.fill();
+    graphics.fillColor = new Color(baseCol.r, baseCol.g, baseCol.b, 110);
+    graphics.circle(0, 0, 19);
     graphics.fill();
 
-    // 2. Vibrant crystalline sphere body
-    graphics.fillColor = new Color(baseCol.r, baseCol.g, baseCol.b, 210);
-    graphics.circle(0, 0, 16);
+    // 2. 灵动晶透光球本体 (Luminescent Fairy Core)
+    graphics.fillColor = new Color(baseCol.r, baseCol.g, baseCol.b, 230);
+    graphics.circle(0, 0, 15);
     graphics.fill();
     graphics.strokeColor = this.hex('#FFFFFF');
     graphics.lineWidth = 1.8;
+    graphics.circle(0, 0, 15);
     graphics.stroke();
 
-    // 3. Bright white photon core
+    // 3. 超纯白炽热能量光核 (Pure White Starlight Heart)
     graphics.fillColor = this.hex('#FFFFFF');
     graphics.circle(0, 0, 8);
     graphics.fill();
 
-    // 4. Crystalline specular reflection highlight
-    graphics.fillColor = new Color(255, 255, 255, 220);
-    graphics.circle(-4, 4, 3);
+    // 4. 十字芒星高光与灵光微闪 (Cross Starlight Flares)
+    graphics.strokeColor = this.hex('#FFFFFF');
+    graphics.lineWidth = 1.6;
+    graphics.moveTo(-13, 0); graphics.lineTo(13, 0);
+    graphics.moveTo(0, -13); graphics.lineTo(0, 13);
+    graphics.stroke();
+
+    // 晶体折射反光高光点
+    graphics.fillColor = new Color(255, 255, 255, 235);
+    graphics.circle(-4, 4, 3.2);
     graphics.fill();
   }
 
@@ -3209,21 +5390,17 @@ export class GameRoot extends Component {
       g.stroke();
     }
 
-    // 4. Draw subtle inner glassmorphic highlight on top rim
+    // 4. Clean subtle top glass specular sheen (no cluttered corner brackets)
     if (shadowDepth > 0) {
-      g.fillColor = new Color(255, 255, 255, 35);
-      g.roundRect(offsetX - halfW + 4, offsetY + halfH - 12, w - 8, 8, 4);
+      g.fillColor = new Color(255, 255, 255, 34);
+      g.roundRect(offsetX - halfW + 10, offsetY + halfH - 9, w - 20, 4, 2);
       g.fill();
     }
   }
 
   private drawDiamond(graphics: Graphics, fill: Color, stroke: Color, lineWidth: number): void {
-    // 1. Dark cyber socket base plate
-    const socketCol = new Color(16, 26, 52, 255);
-    this.drawTopDownTile(graphics, socketCol, stroke, 1.5, this.tileWidth * 0.96, this.tileHeight * 0.96, 0, 0, 4);
-
-    // 2. Elevated floating crystal module with breathing room
-    this.drawTopDownTile(graphics, fill, stroke, lineWidth, this.tileWidth * 0.86, this.tileHeight * 0.86, 0, 0, 6);
+    // Single clean frosted crystal prism module (no dark double-nested square box)
+    this.drawTopDownTile(graphics, fill, stroke, lineWidth, this.tileWidth * 0.88, this.tileHeight * 0.88, 0, 0, 4);
   }
 
   private drawIsometricPlatform(
@@ -3284,8 +5461,27 @@ export class GameRoot extends Component {
     graphics.stroke();
   }
 
-  private drawTileArrow(graphics: Graphics, tile: TileInstance, offsetY = 0, scale = 1, offsetX = 0, lineBaseLength = 44): void {
+  private drawTileArrow(graphics: Graphics, tile: TileInstance, offsetY = 0, scale = 1, offsetX = 0, lineBaseLength = 44, isLit = false, dimmed = false): void {
     const config = resolveTileConfig(tile);
+    const isRose = this.currentTheme === 1;
+    const isGold = this.currentTheme === 2;
+
+    const conduitColor = isLit
+      ? this.hex('#FDE047')
+      : (dimmed
+        ? (tile.type === 'curve' ? this.hex('#5EEAD4') : (tile.type === 'cross' ? this.hex('#A5B4FC') : this.hex(isRose ? '#C084FC' : (isGold ? '#5EEAD4' : '#7DD3FC'))))
+        : (tile.type === 'curve'
+          ? this.hex('#34D399')
+          : this.hex(isRose ? '#E879F9' : (isGold ? '#2DD4BF' : '#38BDF8'))));
+    if (dimmed && !isLit) {
+      ((conduitColor as any)).a = 205;
+    }
+    const outerHaloColor = isLit
+      ? this.hex('#F59E0B')
+      : (tile.type === 'curve'
+        ? this.hex('#10B981')
+        : this.hex(isRose ? '#F472B6' : (isGold ? '#F59E0B' : '#0EA5E9')));
+
     for (const [input, output] of Object.entries(config.routing)) {
       if (!output || output === 'dead') {
         continue;
@@ -3293,27 +5489,86 @@ export class GameRoot extends Component {
       const start = this.directionPoint(input, -lineBaseLength * scale).add3f(offsetX, offsetY, 0);
       const end = this.directionPoint(output, lineBaseLength * scale).add3f(offsetX, offsetY, 0);
 
-      // Outer cyan neon glow (route through center point!)
-      graphics.strokeColor = this.hex('#00F0FF');
-      graphics.lineWidth = 8 * scale;
+      // 1. 最外层极光色谱漫反射光雾 (Unlit dimmed tiles skip heavy halo so lit gold path pops cleanly!)
+      if (!dimmed || isLit) {
+        const aura = new Color(outerHaloColor.r, outerHaloColor.g, outerHaloColor.b, isLit ? 82 : 55);
+        graphics.strokeColor = aura;
+        graphics.lineWidth = (isLit ? 17 : 15) * scale;
+        graphics.moveTo(start.x, start.y);
+        graphics.lineTo(offsetX, offsetY);
+        graphics.lineTo(end.x, end.y);
+        graphics.stroke();
+      }
+
+      // 2. 中层导光管 (Muted slate-cyan when unlit; radiant neon when lit or in hand preview)
+      graphics.strokeColor = conduitColor;
+      graphics.lineWidth = (dimmed && !isLit ? 5.2 : 7.5) * scale;
       graphics.moveTo(start.x, start.y);
       graphics.lineTo(offsetX, offsetY);
       graphics.lineTo(end.x, end.y);
       graphics.stroke();
 
-      // Inner white core (route through center point!)
-      graphics.strokeColor = this.hex('#FFFFFF');
-      graphics.lineWidth = 3.8 * scale;
+      // 3. 内层能量核心流 (Soft muted sheen on unlit board tiles; dazzling white core when lit)
+      const innerCol = this.hex('#FFFFFF');
+      if (dimmed && !isLit) {
+        ((innerCol as any)).a = 85;
+      }
+      graphics.strokeColor = innerCol;
+      graphics.lineWidth = (dimmed && !isLit ? 1.8 : 3.2) * scale;
       graphics.moveTo(start.x, start.y);
       graphics.lineTo(offsetX, offsetY);
       graphics.lineTo(end.x, end.y);
       graphics.stroke();
+
+      // 4. 端点能量接口晶珠
+      graphics.fillColor = conduitColor;
+      graphics.circle(start.x, start.y, (dimmed && !isLit ? 3.2 : 4.5) * scale);
+      graphics.circle(end.x, end.y, (dimmed && !isLit ? 3.2 : 4.5) * scale);
+      graphics.fill();
+      if (!dimmed || isLit) {
+        graphics.fillColor = this.hex('#FFFFFF');
+        graphics.circle(start.x, start.y, 2.2 * scale);
+        graphics.circle(end.x, end.y, 2.2 * scale);
+        graphics.fill();
+      }
     }
 
-    // Center glowing crystal gem
-    graphics.fillColor = this.hex('#FFFFFF');
-    graphics.circle(offsetX, offsetY, 6 * scale);
+    // 中心回旋节点：未连通保持内敛冷光，连通时点亮鎏金星钻！
+    const gemCol = isLit
+      ? this.hex('#FDE047')
+      : (dimmed
+        ? this.hex('#64748B')
+        : this.hex(isGold ? '#FFD76A' : (isRose ? '#FDF2F8' : '#A5F3FC')));
+    if (dimmed && !isLit) {
+      ((gemCol as any)).a = 175;
+    }
+    const gemSize = dimmed && !isLit ? 5.5 : 8;
+    graphics.fillColor = gemCol;
+    graphics.moveTo(offsetX, offsetY + gemSize * scale);
+    graphics.lineTo(offsetX + (gemSize - 1) * scale, offsetY);
+    graphics.lineTo(offsetX, offsetY - gemSize * scale);
+    graphics.lineTo(offsetX - (gemSize - 1) * scale, offsetY);
+    graphics.close();
     graphics.fill();
+
+    if (!dimmed || isLit) {
+      graphics.strokeColor = this.hex('#FFFFFF');
+      graphics.lineWidth = 1.2 * scale;
+      graphics.moveTo(offsetX, offsetY + 8 * scale);
+      graphics.lineTo(offsetX + 7 * scale, offsetY);
+      graphics.lineTo(offsetX, offsetY - 8 * scale);
+      graphics.lineTo(offsetX - 7 * scale, offsetY);
+      graphics.close();
+      graphics.stroke();
+
+      graphics.strokeColor = this.hex('#FFFFFF');
+      graphics.lineWidth = 1.5 * scale;
+      graphics.moveTo(offsetX - 10 * scale, offsetY);
+      graphics.lineTo(offsetX + 10 * scale, offsetY);
+      graphics.moveTo(offsetX, offsetY - 10 * scale);
+      graphics.lineTo(offsetX, offsetY + 10 * scale);
+      graphics.stroke();
+    }
   }
 
   private drawSkillBadge(graphics: Graphics, type: TileType, offsetX = 0, offsetY = 0): void {
@@ -3401,19 +5656,20 @@ export class GameRoot extends Component {
     graphics.clear();
     const palette = getUiPalette(this.currentTheme);
     const tileCol = this.tileColor(type);
-    const border = selected ? this.hex(palette.gold) : this.hex(palette.cyan);
+    // 普通状态使用低饱和低亮度玻璃边框；仅在选中/预备放置时赋予金黄极光高光！
+    const border = selected ? this.hex(palette.gold) : this.hex(palette.panelBorder);
 
     // Glassmorphic card base plate: readable but calmer than the board tiles.
     graphics.fillColor = this.hex(palette.panelSoft);
-    ((graphics.fillColor) as any).a = selected ? 255 : 246;
+    ((graphics.fillColor) as any).a = selected ? 255 : 240;
     graphics.roundRect(-this.cardWidth / 2, -this.cardHeight / 2, this.cardWidth, this.cardHeight, 18);
     graphics.fill();
-    graphics.fillColor = new Color(tileCol.r, tileCol.g, tileCol.b, selected ? 100 : 78);
+    graphics.fillColor = new Color(tileCol.r, tileCol.g, tileCol.b, selected ? 100 : 70);
     graphics.roundRect(-this.cardWidth / 2 + 6, -this.cardHeight / 2 + 6, this.cardWidth - 12, this.cardHeight - 12, 14);
     graphics.fill();
     graphics.strokeColor = border;
-    ((graphics.strokeColor) as any).a = selected ? 255 : 232;
-    graphics.lineWidth = selected ? 4.2 : 2.0;
+    ((graphics.strokeColor) as any).a = selected ? 255 : 175;
+    graphics.lineWidth = selected ? 3.8 : 1.6;
     graphics.roundRect(-this.cardWidth / 2, -this.cardHeight / 2, this.cardWidth, this.cardHeight, 18);
     graphics.stroke();
 
@@ -3495,7 +5751,7 @@ export class GameRoot extends Component {
       case 'gate_blue':
         return this.hex('#3B82F6');
       case 'time_crystal':
-        return this.hex('#22D3EE');
+        return this.hex('#F59E0B');
       case 'star_crystal':
         return this.hex('#FDE047');
       case 'refresh_crystal':
@@ -3582,21 +5838,67 @@ export class GameRoot extends Component {
       if (this.isDailyChallenge) {
         this.levelLabel.string = '每日一束光';
       } else if (this.isEndlessMode) {
-        this.levelLabel.string = `无尽挑战 · 阶段 ${this.endlessStageIndex + 1}`;
+        this.levelLabel.string = `无尽 · 第 ${this.endlessStageIndex + 1} 域`;
       } else {
-        this.levelLabel.string = `第 ${this.levelIndex + 1} 关  ${this.level.name}`;
+        this.levelLabel.string = `第 ${this.levelIndex + 1} 关 · ${this.level.name}`;
       }
     }
-    if (this.tipLabel && this.level) {
-      const bonusText = this.pendingBonusDiamonds > 0 ? ` · 待结算 +${this.pendingBonusDiamonds}💎` : '';
-      const remainingStars = this.getActiveBonusCells().length;
-      const starText = remainingStars > 0 ? ` · 星核 ${remainingStars}` : '';
+
+    if (this.starPreviewLabel && this.level) {
+      const connected = this.isRouteCurrentlyConnected();
+      const predStars = connected ? this.calculateStars() : 0;
+      const starIcons = predStars === 3 ? '★★★' : (predStars === 2 ? '★★☆' : (predStars === 1 ? '★☆☆' : '☆☆☆'));
+      this.starPreviewLabel.string = `${starIcons} · ${this.usedMoves}步`;
+      this.starPreviewLabel.color = predStars === 3
+        ? this.hex('#FDE047')
+        : (predStars > 0 ? this.hex('#38BDF8') : this.hex('#E2E8F0'));
+    }
+
+    const activeStars = this.getActiveBonusCells();
+    const totalStars = activeStars.length;
+    const unlitStars = Math.max(0, totalStars - this.previewLitStars);
+
+    if (this.constellationLabel && this.level) {
       if (this.isDailyChallenge) {
-        this.tipLabel.string = `今日 ${this.usedMoves}/${this.level.recommendedMoves} 步 · 同题冲榜${bonusText}`;
+        this.constellationLabel.string = totalStars > 0
+          ? `✦ 今日同题冲榜 · 1★通关 · 3★全收星核 (${this.previewLitStars}/${totalStars}) · 步数越少榜越前`
+          : `✦ 今日同题冲榜 · 三星基准 ≤${this.level.recommendedMoves + 2}步 · 步数越少排名越高`;
       } else if (this.isEndlessMode) {
-        this.tipLabel.string = `光能 ${this.endlessScore} · 救场 ${this.flowEnergy}${bonusText}`;
+        this.constellationLabel.string = `✦ 无尽星海 · 当前光能 ${this.endlessScore} · 破障锤 x${this.hammerCharges}`;
       } else {
-        this.tipLabel.string = `手数 ${this.usedMoves}/${this.level.recommendedMoves} · 救场 ${this.flowEnergy}${starText}${bonusText}`;
+        const chapterNames = ['天鹅座', '灵鹿座', '星鲸座', '天琴座', '凤凰座', '苍穹座'];
+        const chapterIdx = Math.floor(this.levelIndex / 5);
+        const chapterName = chapterNames[chapterIdx % chapterNames.length];
+        const stageInChapter = (this.levelIndex % 5) + 1;
+        this.constellationLabel.string = totalStars > 0
+          ? `✦ ${chapterName}(${stageInChapter}/5) · 1★通关 · 2★收星核 · 3★全收集`
+          : `✦ ${chapterName}(${stageInChapter}/5) · 1★通关 · 2★≤${this.level.recommendedMoves + 4}步 · 3★≤${this.level.recommendedMoves + 2}步`;
+      }
+    }
+
+    if (this.hammerButtonLabel) {
+      this.hammerButtonLabel.string = this.hammerModeActive
+        ? '🔨 点陨石!'
+        : `🔨 破障(${this.hammerCharges})`;
+      this.hammerButtonLabel.color = this.hammerModeActive ? this.hex('#FDE047') : this.hex('#FECDD3');
+    }
+
+    if (this.tipLabel && this.level) {
+      const bonusText = this.pendingBonusDiamonds > 0 ? ` · +${this.pendingBonusDiamonds}💎` : '';
+      const starText = totalStars > 0
+        ? (unlitStars === 0 ? ' · ✨星核已集齐' : ` · 待收星核 ${unlitStars}/${totalStars}`)
+        : '';
+      const connected = this.isRouteCurrentlyConnected();
+      const pct = connected ? 100 : Math.min(95, Math.round(this.previewProgressRatio * 100));
+      if (connected) {
+        this.tipLabel.string = `✨ 光路已贯通圣所！点击下方按钮冲关${starText}${bonusText}`;
+      } else if (this.previewBlockedOnObstacle) {
+        this.tipLabel.string = `⚠ 光路撞上陨石 · 点下方「破障」可击碎${starText}${bonusText}`;
+      } else if (this.isEndlessMode) {
+        this.tipLabel.string = `⚡ 光路连通 ${pct}% · 光能 ${this.endlessScore}${starText}${bonusText}`;
+      } else {
+        const anchorTip = this.lockedBridgeCount > 0 ? ' · ⚓银框星桥已锁定' : '';
+        this.tipLabel.string = `⚡ 光路已连通 ${pct}%${anchorTip}${starText}${bonusText}`;
       }
     }
   }
@@ -3618,7 +5920,7 @@ export class GameRoot extends Component {
   }
 
   private clearNode(node: Node | null): void {
-    if (!node) {
+    if (!node || !node.isValid) {
       return;
     }
     node.destroyAllChildren();
@@ -3706,13 +6008,21 @@ export class GameRoot extends Component {
   }
 
   private showTutorialOverlayIfNeeded(): void {
-    if (this.isEndlessMode || this.levelIndex > 2 || !this.boardRoot || !this.level || !this.grid || !this.runner) {
+    // 仅在第 1 关做极简聚光点拨，第 2 关起完全交给流畅心流体验，零遮挡！
+    if (this.isEndlessMode || this.isDailyChallenge || this.levelIndex > 0 || !this.boardRoot || !this.level || !this.grid || !this.runner) {
       return;
     }
 
-    const solution = this.findSolution();
-    const targetStep = solution && solution.length > 0 ? solution[0] : null;
-    const targetPos = targetStep ? { row: targetStep.row, col: targetStep.col } : { row: this.runner.row, col: this.runner.col };
+    const steps = this.findLevelSolutionPath(this.level);
+    const misaligned = steps.find((s) => {
+      const t = this.grid?.getTile({ row: s.row, col: s.col });
+      if (!t) return false;
+      return resolveTileConfig(t).routing[s.inDir] !== s.outDir;
+    });
+    const targetPos = misaligned
+      ? { row: misaligned.row, col: misaligned.col }
+      : (steps[0] ? { row: steps[0].row, col: steps[0].col } : { row: this.runner.row, col: this.runner.col });
+
     const targetLocal = this.gridToLocal(targetPos).add3f(0, 0, 0);
     const boardTransform = this.boardRoot.getComponent(UITransform);
     const rootTransform = this.node.getComponent(UITransform);
@@ -3734,17 +6044,12 @@ export class GameRoot extends Component {
     this.tutorialOverlayNode = overlay;
 
     const g = overlay.addComponent(Graphics);
-    g.fillColor = new Color(5, 10, 25, 190);
+    g.fillColor = new Color(10, 22, 46, 145);
     g.rect(-halfW, -halfH, size.width, size.height);
     g.fill();
 
-    const title = this.levelIndex === 0 ? '第一束光：拖到高亮格' :
-      (this.levelIndex === 1 ? '旋转水晶：看青色光轨' : '预判光路：青线能通');
-    const tip = this.levelIndex === 0 ? '按住下方水晶拖过去，接通后点「启动流光」。' :
-      (this.levelIndex === 1 ? '放好后点一下水晶可旋转，青线接通就是正确方向。' : '拖动时会实时预览：青线能通，红线会掉。');
-
-    // Spotlight ring around the next meaningful board target.
-    g.fillColor = new Color(253, 224, 71, 46);
+    // Spotlight ring directly over the actual board crystal to rotate
+    g.fillColor = new Color(253, 224, 71, 56);
     g.circle(target.x, target.y, 78);
     g.fill();
     g.strokeColor = this.hex('#FDE047');
@@ -3752,36 +6057,22 @@ export class GameRoot extends Component {
     g.circle(target.x, target.y, 62);
     g.stroke();
     g.strokeColor = this.hex('#FFFFFF');
-    g.lineWidth = 2;
+    g.lineWidth = 2.2;
     g.circle(target.x, target.y, 44);
     g.stroke();
 
-    // Arrow from card tray to target.
-    const arrowStart = new Vec3(-190, -halfH + 220, 0);
-    g.strokeColor = this.hex('#00F0FF');
-    g.lineWidth = 6;
-    g.moveTo(arrowStart.x, arrowStart.y);
-    g.lineTo(target.x - 22, target.y - 28);
-    g.stroke();
-    g.fillColor = this.hex('#00F0FF');
-    g.moveTo(target.x - 22, target.y - 28);
-    g.lineTo(target.x - 44, target.y - 22);
-    g.lineTo(target.x - 30, target.y - 48);
-    g.close();
-    g.fill();
-
-    const panelY = Math.max(-halfH + 360, Math.min(halfH - 250, target.y - 160));
-    g.fillColor = this.hex('#0B132B');
-    ((g.fillColor) as any).a = 245;
+    const panelY = Math.max(-halfH + 340, Math.min(halfH - 250, target.y - 165));
+    g.fillColor = this.hex('#0F274A');
+    ((g.fillColor) as any).a = 242;
     g.roundRect(-285, panelY - 62, 570, 124, 28);
     g.fill();
     g.strokeColor = this.hex('#FDE047');
     g.lineWidth = 2.6;
     g.stroke();
 
-    this.createOverlayLabel(overlay, 'TutorialTitle', new Vec3(0, panelY + 24, 121), title, 24, '#FFFFFF', 520, 34);
-    this.createOverlayLabel(overlay, 'TutorialTip', new Vec3(0, panelY - 12, 121), tip, 18, '#CFFAFE', 520, 30);
-    this.createOverlayLabel(overlay, 'TutorialDismiss', new Vec3(0, panelY - 42, 121), '轻点继续，高亮格会保留提示', 15, '#FDE047', 330, 24);
+    this.createOverlayLabel(overlay, 'TutorialTitle', new Vec3(0, panelY + 24, 121), '第一束光：轻点高亮水晶旋转', 24, '#FFFFFF', 520, 34);
+    this.createOverlayLabel(overlay, 'TutorialTip', new Vec3(0, panelY - 12, 121), '每点一次顺时针转 90°，接通圣所即可过关！', 18, '#FEF08A', 520, 30);
+    this.createOverlayLabel(overlay, 'TutorialDismiss', new Vec3(0, panelY - 42, 121), '轻点任意处开始（通电水晶会亮起鎏金色）', 15, '#38BDF8', 420, 24);
 
     overlay.on(Node.EventType.TOUCH_END, (event: EventTouch) => {
       event.propagationStopped = true;
@@ -3819,25 +6110,38 @@ export class GameRoot extends Component {
   public showGameplayHint(): void {
     const tier = ProfileManager.nextHintTier(this.level?.id ?? this.levelIndex + 1);
     const runHint = () => {
-      const sol = this.findSolution();
-      if (!sol || sol.length === 0) {
-        WeChatService.showToast('当前状态已可以连通，或未找到解法！', 'none');
+      if (!this.grid || !this.level || !this.runner) return;
+      const preview = RouteSimulator.simulate(this.grid, this.runner, this.level.goals);
+      if (preview.success) {
+        WeChatService.showToast('光路已接通，轻点启动即可通关！', 'success');
         return;
       }
 
-      const firstStep = sol[0];
-      const displayName = getTileDisplayName(firstStep.type);
-      const rotText = firstStep.rotation === 0 ? '默认方向' : `顺时针旋转 ${firstStep.rotation * 90}°`;
-      const tierText = EngagementService.getHintTierText(tier);
-      if (tier <= 1) {
-        this.setStatus(`${tierText}：优先观察第 ${firstStep.row + 1} 行附近的断点。`);
-      } else if (tier === 2) {
-        this.setStatus(`${tierText}：第 ${firstStep.row + 1} 行，第 ${firstStep.col + 1} 列是关键格。`);
-      } else {
-        this.setStatus(`${tierText}：第 ${firstStep.row + 1} 行，第 ${firstStep.col + 1} 列，放入【${displayName}】并【${rotText}】`);
-        this.showRouteHintLayerTemporarily();
+      // Find first misaligned crystal along the solution path
+      const steps = this.findLevelSolutionPath(this.level);
+      let targetStep = steps.find((s) => {
+        const t = this.grid?.getTile({ row: s.row, col: s.col });
+        if (!t) return false;
+        const cfg = resolveTileConfig(t);
+        return cfg.routing[s.inDir] !== s.outDir;
+      });
+
+      if (!targetStep && preview.path.length > 0) {
+        const last = preview.path[preview.path.length - 1];
+        if (this.grid.getTile(last)) {
+          targetStep = { row: last.row, col: last.col, inDir: 'right', outDir: 'down' };
+        }
       }
-      WeChatService.showToast(tier <= 1 ? '获得免费一级提示' : '高级提示已解锁', 'success');
+
+      if (!targetStep) {
+        WeChatService.showToast('观察光束落点，轻点相邻水晶试着转向！', 'none');
+        return;
+      }
+
+      const t = this.grid.getTile(targetStep);
+      const displayName = t ? getTileDisplayName(t.type) : '水晶';
+      this.setStatus(`💡 提示：第 ${targetStep.row + 1} 行第 ${targetStep.col + 1} 列的【${displayName}】朝向需调整，轻点旋转即可接通！`);
+      WeChatService.showToast('已为你高亮关键水晶', 'success');
 
       if (this.hintHighlightNode) {
         this.hintHighlightNode.destroy();
@@ -3848,28 +6152,24 @@ export class GameRoot extends Component {
       const highlight = new Node('HintHighlight');
       highlight.layer = Layers.Enum.UI_2D;
       highlight.setParent(this.boardRoot);
-      highlight.setPosition(this.gridToLocal(firstStep).add3f(0, 0, 3));
-      highlight.addComponent(UITransform).setContentSize(this.tileWidth, this.tileHeight);
+      highlight.setPosition(this.gridToLocal(targetStep).add3f(0, 0, 3));
+      highlight.addComponent(UITransform).setContentSize(this.tileWidth * 1.1, this.tileHeight * 1.1);
       const g = highlight.addComponent(Graphics);
 
-      g.strokeColor = this.hex('#00F0FF');
+      g.strokeColor = this.hex('#FDE047');
       g.lineWidth = 4.5;
-
-      const hw = this.tileWidth / 2 + 6;
-      const hh = this.tileHeight / 2 + 6;
-      g.moveTo(0, hh);
-      g.lineTo(hw, 0);
-      g.lineTo(0, -hh);
-      g.lineTo(-hw, 0);
-      g.close();
+      g.circle(0, 0, this.tileWidth * 0.52);
       g.stroke();
 
-      highlight.setScale(new Vec3(1, 1, 1));
       tween(highlight)
-        .to(0.5, { scale: new Vec3(1.12, 1.12, 1) }, { easing: 'sineInOut' })
-        .to(0.5, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'sineInOut' })
+        .to(0.4, { scale: new Vec3(1.18, 1.18, 1) }, { easing: 'sineInOut' })
+        .to(0.4, { scale: new Vec3(0.95, 0.95, 1) }, { easing: 'sineInOut' })
         .union()
-        .repeatForever()
+        .repeat(5)
+        .call(() => {
+          highlight.destroy();
+          if (this.hintHighlightNode === highlight) this.hintHighlightNode = null;
+        })
         .start();
 
       this.hintHighlightNode = highlight;

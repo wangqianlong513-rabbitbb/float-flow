@@ -1,7 +1,9 @@
 {
   "__version__": "1.0.3",
   "builder": {
-    "taskOptionsMap": {},
+    "taskOptionsMap": {
+      "1793512425443": null
+    },
     "__version__": "1.3.9"
   },
   "gizmos-infos": {
