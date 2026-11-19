@@ -397,7 +397,7 @@ export class SettingsModal extends Component {
     this.createLabel(promoBtn, 'Text', new Vec3(0, 1, 0), '🐰 更多好玩 · 体验哈密兔新作《穿针引线》➔', 16, '#A5F3FC', 460, 28);
     this.addClick(promoBtn, () => {
       WeChatService.vibrateShort('medium');
-      WeChatService.openMiniProgram('wxa8a598a3c86c1234', '', '正在联动唤起《穿针引线》...');
+      WeChatService.openMiniProgram('wxe9f9a64cf4c28136', '', '正在前往《穿针引线》...');
     });
 
     // 健康游戏忠告框

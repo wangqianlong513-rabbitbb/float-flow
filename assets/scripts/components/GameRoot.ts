@@ -145,9 +145,16 @@ export class GameRoot extends Component {
   @property(Label)
   hammerButtonLabel: Label | null = null;
 
+  @property(Node)
+  resetButtonNode: Node | null = null;
+
+  @property(Label)
+  resetButtonLabel: Label | null = null;
+
   private autoLaunchTimer: any = null;
   private hammerCharges = 2;
   private hammerModeActive = false;
+  private resetArmedUntil = 0;
   private illuminatedCellKeys: Set<string> = new Set();
   private previewLitStars = 0;
   private previewProgressRatio = 0;
@@ -155,6 +162,10 @@ export class GameRoot extends Component {
   private lastPreviewLitCount = 0;
   private lastPreviewConnected = false;
   private lockedBridgeCount = 0;
+  private boardDimMode = false;
+  private isNearGoal = false;
+  private goalNodes: Node[] = [];
+  private currentSolutionSteps: Array<{ row: number; col: number; type: TileType; correctRot: number }> = [];
 
   @property(Node)
   fogRoot: Node | null = null;
@@ -403,8 +414,39 @@ export class GameRoot extends Component {
     this.setStatus('手牌已刷新');
   }
 
+  public requestResetWithConfirm(): void {
+    const now = Date.now();
+    if (this.usedMoves > 0 && now > this.resetArmedUntil) {
+      this.resetArmedUntil = now + 2600;
+      WeChatService.vibrateShort('light');
+      if (this.resetButtonLabel) {
+        this.resetButtonLabel.string = '确认重置?';
+        this.resetButtonLabel.color = this.hex('#FDE047');
+      }
+      this.setStatus('↺ 为防误触，2.5 秒内再点一次「重置」即可清空操作');
+      this.scheduleOnce(() => {
+        if (Date.now() >= this.resetArmedUntil && this.resetButtonLabel) {
+          this.resetButtonLabel.string = '↺ 重 置';
+          this.resetButtonLabel.color = this.hex('#E0F2FE');
+        }
+      }, 2.65);
+      return;
+    }
+    this.resetArmedUntil = 0;
+    if (this.resetButtonLabel) {
+      this.resetButtonLabel.string = '↺ 重 置';
+      this.resetButtonLabel.color = this.hex('#E0F2FE');
+    }
+    this.clearPlacedTiles();
+  }
+
   public clearPlacedTiles(): void {
     console.log('[FloatFlow] Clear Placed Tiles');
+    this.resetArmedUntil = 0;
+    if (this.resetButtonLabel) {
+      this.resetButtonLabel.string = '↺ 重 置';
+      this.resetButtonLabel.color = this.hex('#E0F2FE');
+    }
     WeChatService.vibrateShort('light');
     this.restartLevel(true);
     this.setStatus('已重置关卡水晶朝向，轻触水晶重新连通！');
@@ -775,6 +817,14 @@ export class GameRoot extends Component {
     this.lastPreviewLitCount = 0;
     this.lastPreviewConnected = false;
     this.lockedBridgeCount = 0;
+    this.boardDimMode = false;
+    this.isNearGoal = false;
+    this.goalNodes = [];
+    this.resetArmedUntil = 0;
+    if (this.resetButtonLabel) {
+      this.resetButtonLabel.string = '↺ 重 置';
+      this.resetButtonLabel.color = this.hex('#E0F2FE');
+    }
     this.hammerCharges = 2;
     this.hammerModeActive = false;
     this.ensureLevelPuzzleTilesOnBoard();
@@ -840,6 +890,14 @@ export class GameRoot extends Component {
     this.lastPreviewLitCount = 0;
     this.lastPreviewConnected = false;
     this.lockedBridgeCount = 0;
+    this.boardDimMode = false;
+    this.isNearGoal = false;
+    this.goalNodes = [];
+    this.resetArmedUntil = 0;
+    if (this.resetButtonLabel) {
+      this.resetButtonLabel.string = '↺ 重 置';
+      this.resetButtonLabel.color = this.hex('#E0F2FE');
+    }
     this.hammerCharges = 2;
     this.hammerModeActive = false;
     this.ensureLevelPuzzleTilesOnBoard();
@@ -1209,7 +1267,7 @@ export class GameRoot extends Component {
         this.currentTheme = 1; // Auto Theme 1 (Starport Mist) for Chapter 2
       } else {
         this.level = copied;
-        this.currentTheme = safeIndex >= 20 ? 2 : (safeIndex >= 10 ? 1 : 0);
+        this.currentTheme = Math.floor(safeIndex / 5) % 3;
       }
     }
 
@@ -1222,6 +1280,14 @@ export class GameRoot extends Component {
     this.lastPreviewLitCount = 0;
     this.lastPreviewConnected = false;
     this.lockedBridgeCount = 0;
+    this.boardDimMode = false;
+    this.isNearGoal = false;
+    this.goalNodes = [];
+    this.resetArmedUntil = 0;
+    if (this.resetButtonLabel) {
+      this.resetButtonLabel.string = '↺ 重 置';
+      this.resetButtonLabel.color = this.hex('#E0F2FE');
+    }
     this.hammerCharges = 2;
     this.hammerModeActive = false;
     this.ensureLevelPuzzleTilesOnBoard();
@@ -1320,6 +1386,7 @@ export class GameRoot extends Component {
   private ensureLevelPuzzleTilesOnBoard(): void {
     if (!this.level || !this.grid || !this.runner) return;
     this.lockedBridgeCount = 0;
+    this.currentSolutionSteps = [];
 
     const placedKeys = new Set<string>();
     const resolvedSteps: Array<{ row: number; col: number; type: TileType; correctRot: number }> = [];
@@ -1433,6 +1500,7 @@ export class GameRoot extends Component {
         }
         this.grid.setTile(pos, { type: s.type, rotation: scrambledRot });
       }
+      this.currentSolutionSteps = resolvedSteps.map((s) => ({ ...s }));
     }
 
     // 1.5 Add 1-2 locked anchor bridge tiles on larger boards (6x6+ or daily/endless) as visual landmarks
@@ -1483,7 +1551,7 @@ export class GameRoot extends Component {
           ? (this.levelIndex === 0 ? 38 : (this.levelIndex <= 2 ? 48 : 65))
           : 65;
         if (seed < density) {
-          const decoyType: TileType = seed % 11 === 0 && (this.isDailyChallenge || this.levelIndex >= 4)
+          const decoyType: TileType = seed % 11 === 0 && (this.isDailyChallenge || this.levelIndex >= 2)
             ? 'cross'
             : (seed % 2 === 0 ? 'straight' : 'curve');
           const rot = (seed + r + c) % (decoyType === 'straight' ? 2 : 4);
@@ -1600,6 +1668,90 @@ export class GameRoot extends Component {
     return null;
   }
 
+  private bfsSolveAllGoals(
+    start: RunnerState,
+    goals: GoalConfig[],
+    obstacleSet: Set<string>,
+    rows: number,
+    cols: number
+  ): Array<{ row: number; col: number; inDir: Direction; outDir: Direction }> {
+    const reqGoals = goals.filter((g) => g.required);
+    const targets = reqGoals.length > 0 ? reqGoals : (goals.length > 0 ? [goals[0]] : []);
+    if (targets.length === 0) return [];
+    const targetMask = (1 << targets.length) - 1;
+    const goalIndexMap = new Map<string, number>();
+    targets.forEach((g, idx) => goalIndexMap.set(`${g.row}:${g.col}`, idx));
+
+    const firstPos = move(start, start.direction);
+    if (firstPos.row < 0 || firstPos.row >= rows || firstPos.col < 0 || firstPos.col >= cols) return [];
+    if (obstacleSet.has(`${firstPos.row}:${firstPos.col}`)) return [];
+
+    interface BFSItem {
+      pos: GridPos;
+      dir: Direction;
+      mask: number;
+      steps: Array<{ row: number; col: number; inDir: Direction; outDir: Direction }>;
+    }
+
+    const queue: BFSItem[] = [];
+    const visited = new Set<string>();
+
+    const firstGoalIdx = goalIndexMap.get(`${firstPos.row}:${firstPos.col}`);
+    if (firstGoalIdx !== undefined) {
+      const mask = 1 << firstGoalIdx;
+      if (mask === targetMask) return [];
+      queue.push({ pos: firstPos, dir: start.direction, mask, steps: [] });
+      visited.add(`${firstPos.row}:${firstPos.col}:${start.direction}:${mask}`);
+    } else {
+      for (const outDir of [start.direction, rotateDirection(start.direction, 1), rotateDirection(start.direction, 3)]) {
+        queue.push({
+          pos: firstPos,
+          dir: outDir,
+          mask: 0,
+          steps: [{ row: firstPos.row, col: firstPos.col, inDir: start.direction, outDir }],
+        });
+        visited.add(`${firstPos.row}:${firstPos.col}:${outDir}:0`);
+      }
+    }
+
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      const nextPos = move(cur.pos, cur.dir);
+      if (nextPos.row < 0 || nextPos.row >= rows || nextPos.col < 0 || nextPos.col >= cols) continue;
+      const nextKey = `${nextPos.row}:${nextPos.col}`;
+      if (obstacleSet.has(nextKey)) continue;
+      if (nextPos.row === start.row && nextPos.col === start.col) continue;
+
+      const gIdx = goalIndexMap.get(nextKey);
+      if (gIdx !== undefined) {
+        const nextMask = cur.mask | (1 << gIdx);
+        if (nextMask === targetMask) return cur.steps;
+        const stateKey = `${nextKey}:${cur.dir}:${nextMask}`;
+        if (!visited.has(stateKey)) {
+          visited.add(stateKey);
+          queue.push({ pos: nextPos, dir: cur.dir, mask: nextMask, steps: cur.steps });
+        }
+        continue;
+      }
+
+      if (cur.steps.some((s) => s.row === nextPos.row && s.col === nextPos.col)) continue;
+
+      for (const nextOut of [cur.dir, rotateDirection(cur.dir, 1), rotateDirection(cur.dir, 3)]) {
+        const stateKey = `${nextKey}:${nextOut}:${cur.mask}`;
+        if (!visited.has(stateKey)) {
+          visited.add(stateKey);
+          queue.push({
+            pos: nextPos,
+            dir: nextOut,
+            mask: cur.mask,
+            steps: [...cur.steps, { row: nextPos.row, col: nextPos.col, inDir: cur.dir, outDir: nextOut }],
+          });
+        }
+      }
+    }
+    return [];
+  }
+
   private bfsStartToGoal(
     start: RunnerState,
     goal: GoalConfig,
@@ -1607,67 +1759,7 @@ export class GameRoot extends Component {
     rows: number,
     cols: number
   ): Array<{ row: number; col: number; inDir: Direction; outDir: Direction }> {
-    const firstPos = move(start, start.direction);
-    if (firstPos.row < 0 || firstPos.row >= rows || firstPos.col < 0 || firstPos.col >= cols) return [];
-    if (obstacleSet.has(`${firstPos.row}:${firstPos.col}`)) return [];
-    if (firstPos.row === goal.row && firstPos.col === goal.col) return [];
-
-    interface BFSItem {
-      pos: GridPos;
-      dir: Direction;
-      steps: Array<{ row: number; col: number; inDir: Direction; outDir: Direction }>;
-    }
-
-    const queue: BFSItem[] = [];
-    const visited = new Set<string>();
-
-    const possibleOutDirs: Direction[] = [
-      start.direction,
-      rotateDirection(start.direction, 1),
-      rotateDirection(start.direction, 3),
-    ];
-
-    for (const outDir of possibleOutDirs) {
-      queue.push({
-        pos: firstPos,
-        dir: outDir,
-        steps: [{ row: firstPos.row, col: firstPos.col, inDir: start.direction, outDir }],
-      });
-      visited.add(`${firstPos.row}:${firstPos.col}:${outDir}`);
-    }
-
-    while (queue.length > 0) {
-      const cur = queue.shift()!;
-      const nextPos = move(cur.pos, cur.dir);
-
-      if (nextPos.row === goal.row && nextPos.col === goal.col) {
-        return cur.steps;
-      }
-
-      if (nextPos.row < 0 || nextPos.row >= rows || nextPos.col < 0 || nextPos.col >= cols) continue;
-      if (obstacleSet.has(`${nextPos.row}:${nextPos.col}`)) continue;
-      if (nextPos.row === start.row && nextPos.col === start.col) continue;
-
-      const nextOutDirs: Direction[] = [
-        cur.dir,
-        rotateDirection(cur.dir, 1),
-        rotateDirection(cur.dir, 3),
-      ];
-
-      for (const nextOut of nextOutDirs) {
-        const key = `${nextPos.row}:${nextPos.col}:${nextOut}`;
-        if (!visited.has(key)) {
-          visited.add(key);
-          queue.push({
-            pos: nextPos,
-            dir: nextOut,
-            steps: [...cur.steps, { row: nextPos.row, col: nextPos.col, inDir: cur.dir, outDir: nextOut }],
-          });
-        }
-      }
-    }
-
-    return [];
+    return this.bfsSolveAllGoals(start, [goal], obstacleSet, rows, cols);
   }
 
   private scheduleAutoLaunch(): void {
@@ -1798,23 +1890,19 @@ export class GameRoot extends Component {
   private playSanctumAwakeningCeremony(goalPos: GridPos): void {
     if (!this.boardRoot) return;
 
-    // 1. 圣所爆发全屏环状能量震波 (Sanctum Expanding Shockwave)
+    // 1. 圣所点亮轻柔金辉微晕（克制优雅，不做全屏夸张圆环）
     const shockNode = new Node('AwakeningShockwave');
     shockNode.layer = Layers.Enum.UI_2D;
     shockNode.setParent(this.boardRoot);
     shockNode.setPosition(this.gridToLocal(goalPos).add3f(0, 0, 50));
     const sg = shockNode.addComponent(Graphics);
-    sg.strokeColor = this.hex('#00F0FF');
-    sg.lineWidth = 14;
-    sg.circle(0, 0, 40);
-    sg.stroke();
-    sg.strokeColor = this.hex('#FDE047');
-    sg.lineWidth = 6;
-    sg.circle(0, 0, 28);
+    sg.strokeColor = new Color(253, 224, 71, 175);
+    sg.lineWidth = 2.4;
+    sg.circle(0, 0, 26);
     sg.stroke();
 
     tween(shockNode)
-      .to(0.65, { scale: new Vec3(12, 12, 1) }, { easing: 'quadOut' })
+      .to(0.36, { scale: new Vec3(1.85, 1.85, 1) }, { easing: 'quadOut' })
       .call(() => {
         shockNode.destroy();
       })
@@ -1823,15 +1911,16 @@ export class GameRoot extends Component {
     // 2. 驱散全岛所有暗影迷雾 (Total Fog Evaporation)
     this.dispelAllFog();
 
-    // 3. 浮岛晶石由内向外多米诺骨牌级涟漪弹跳 (Island Resonant Pulse Wave)
+    // 3. 浮岛晶石轻微共鸣微弹 (Subtle Island Pulse Wave)
     this.tileNodes.forEach((node, key) => {
       const parts = key.split(':').map(Number);
       const dist = Math.hypot(parts[0] - goalPos.row, parts[1] - goalPos.col);
-      const delay = dist * 0.055;
+      const delay = dist * 0.035;
       this.scheduleOnce(() => {
+        if (!node || !node.isValid) return;
         tween(node)
-          .to(0.12, { scale: new Vec3(1.22, 1.22, 1) }, { easing: 'quadOut' })
-          .to(0.18, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'bounceOut' })
+          .to(0.10, { scale: new Vec3(1.08, 1.08, 1) }, { easing: 'quadOut' })
+          .to(0.14, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'quadIn' })
           .start();
       }, delay);
     });
@@ -2253,15 +2342,15 @@ export class GameRoot extends Component {
     this.boardRoot.on(Node.EventType.TOUCH_CANCEL, this.onBoardTouchCancel, this);
 
     // 1. 浮岛底座外围极光云雾光晕 (Surrounding Ethereal Cloud Mist)
-    const auraCol = this.hex(isRose ? '#E879F9' : (isGold ? '#F59E0B' : '#00F0FF'));
+    const auraCol = this.hex(isRose ? '#5EEAD4' : (isGold ? '#F59E0B' : '#00F0FF'));
     shadowG.fillColor = new Color(auraCol.r, auraCol.g, auraCol.b, isRose ? 36 : 48);
     shadowG.ellipse(0, -18, halfPW + 50, halfPH + 40);
     shadowG.fill();
 
     // 2. 浮岛倒悬低多边形山体根基 (Under-Board Inverted Crags)
-    const rockBaseDark = this.hex(isGold ? '#1C1917' : (isRose ? '#1A0C24' : '#061324'));
-    const rockBaseMid  = this.hex(isGold ? '#292524' : (isRose ? '#2C133C' : '#0B1E36'));
-    const rockBaseRim  = this.hex(isGold ? '#F59E0B' : (isRose ? '#F472B6' : '#22D3EE'));
+    const rockBaseDark = this.hex(isGold ? '#1C1917' : (isRose ? '#08162C' : '#061324'));
+    const rockBaseMid  = this.hex(isGold ? '#292524' : (isRose ? '#102446' : '#0B1E36'));
+    const rockBaseRim  = this.hex(isGold ? '#F59E0B' : (isRose ? '#5EEAD4' : '#22D3EE'));
 
     // 倒悬山根多边形
     const cragDepth = 48;
@@ -2293,7 +2382,7 @@ export class GameRoot extends Component {
     shadowG.stroke();
 
     // 3. 悬挂绿藤与晶莹吊坠 (Corner Vines & Hanging Pendants)
-    shadowG.strokeColor = this.hex(isGold ? '#059669' : (isRose ? '#8B5CF6' : '#10B981'));
+    shadowG.strokeColor = this.hex(isGold ? '#059669' : (isRose ? '#2DD4BF' : '#10B981'));
     shadowG.lineWidth = 2.0;
     shadowG.moveTo(-halfPW + 30, -halfPH);
     shadowG.lineTo(-halfPW + 26, -halfPH - 28);
@@ -2304,24 +2393,25 @@ export class GameRoot extends Component {
     shadowG.lineTo(halfPW - 31, -halfPH - 48);
     shadowG.stroke();
 
-    // 4. 浮岛石质底座台面 (通透高明度深海琉璃底座，告别压抑死黑，衬托晶石流光)
-    const plinthCol = this.hex(isGold ? '#0F3245' : (isRose ? '#281645' : '#0F274A'));
+    // 4. 浮岛石质底座台面
+    const plinthCol = this.hex(isGold ? '#0F3245' : (isRose ? '#10294E' : '#0F274A'));
     shadowG.fillColor = plinthCol;
     shadowG.roundRect(-halfPW, -halfPH, plinthW, plinthH, 20);
     shadowG.fill();
 
-    // 浮岛台座双重精致金属/晶石包边 (提升神殿祭坛立体纵深)
-    shadowG.strokeColor = this.hex(isGold ? '#F59E0B' : (isRose ? '#C026D3' : '#2563EB'));
+    // 浮岛台座双重精致金属/晶石包边
+    shadowG.strokeColor = this.hex(isGold ? '#F59E0B' : (isRose ? '#0EA5E9' : '#2563EB'));
     shadowG.lineWidth = 2.4;
     shadowG.roundRect(-halfPW, -halfPH, plinthW, plinthH, 20);
     shadowG.stroke();
 
-    shadowG.strokeColor = this.hex(isGold ? '#FDE047' : (isRose ? '#F472B6' : '#38BDF8'));
+    shadowG.strokeColor = this.hex(isGold ? '#FDE047' : (isRose ? '#5EEAD4' : '#38BDF8'));
     ((shadowG.strokeColor) as any).a = 125;
     shadowG.lineWidth = 1.2;
     shadowG.roundRect(-halfPW + 4, -halfPH + 4, plinthW - 8, plinthH - 8, 17);
     shadowG.stroke();
 
+    this.goalNodes = [];
     this.cellNodes.clear();
     this.grid.forEachCell((pos, _tile, obstacle) => {
       const node = new Node(`Cell_${pos.row}_${pos.col}`);
@@ -2361,8 +2451,8 @@ export class GameRoot extends Component {
         ((strokeCol as any)).a = 72;
 
         if (isRose) {
-          topCol = isEven ? this.hex('#301B54') : this.hex('#3B2266');
-          strokeCol = isEven ? this.hex('#C084FC') : this.hex('#F472B6');
+          topCol = isEven ? this.hex('#143563') : this.hex('#194277');
+          strokeCol = isEven ? this.hex('#5EEAD4') : this.hex('#93C5FD');
           ((strokeCol as any)).a = 78;
         } else if (isGold) {
           topCol = isEven ? this.hex('#144157') : this.hex('#194E68');
@@ -2745,22 +2835,24 @@ export class GameRoot extends Component {
     const graphics = node.addComponent(Graphics);
 
     // Clean Frosted Crystal Prism Aesthetic:
-    // - Unlit tiles: airy translucent ice-blue glass over sapphire floor (zero heavy black boxes!)
-    // - Lit tiles: luminous aurora turquoise-gold crystal glow (zero muddy brown!)
+    // - Unlit tiles: airy translucent ice-blue glass over sapphire floor (dimmed softly near completion)
+    // - Lit tiles: luminous aurora turquoise-gold crystal glow
     // - Locked anchor bridges: frosted pearl-silver bezel with subtle corner pins
     const isLocked = !!tile.locked;
+    const isSkill = !!resolveTileConfig(tile).skill;
+    const faded = this.boardDimMode && !isLit && !isLocked && !isSkill;
     const housingCol = isLit
       ? this.hex('#0F5270')
       : (isLocked
         ? this.hex('#214E7D')
         : (tile.type === 'curve' ? this.hex('#18486B') : (tile.type === 'cross' ? this.hex('#223E78') : this.hex('#1B487A'))));
-    ((housingCol as any)).a = isLit ? 225 : (isLocked ? 210 : 145);
+    ((housingCol as any)).a = isLit ? 225 : (isLocked ? 210 : (faded ? 56 : 145));
 
     const rimCol = isLit
       ? this.hex('#FDE047')
       : (isLocked ? this.hex('#E2E8F0') : this.tileColor(tile.type));
     if (!isLit && !isLocked) {
-      ((rimCol as any)).a = 130;
+      ((rimCol as any)).a = faded ? 48 : 130;
     }
 
     if (isLit) {
@@ -2770,7 +2862,7 @@ export class GameRoot extends Component {
     }
 
     this.drawDiamond(graphics, housingCol, rimCol, isLit ? 2.4 : (isLocked ? 2.0 : 1.3));
-    this.drawTileArrow(graphics, tile, 0, 0.88, 0, 44, isLit, !isLit);
+    this.drawTileArrow(graphics, tile, 0, 0.88, 0, 44, isLit, !isLit, faded);
     this.drawSkillBadge(graphics, tile.type, 0, 0);
 
     if (isLocked) {
@@ -2856,6 +2948,7 @@ export class GameRoot extends Component {
 
     const badgeBg = goal.color === 'red' ? '#E11D48' : (goal.color === 'blue' ? '#0284C7' : '#D97706');
     this.createCellMarkerLabel(node, 'GoalText', goal.required ? '灯塔' : '终点', '#FFFFFF', badgeBg, new Vec3(0, -30, 1));
+    this.goalNodes.push(node);
   }
 
   private renderRunner(): void {
@@ -4040,6 +4133,41 @@ export class GameRoot extends Component {
       this.previewProgressRatio = Math.min(0.9, nextIlluminated.size / 6);
     }
 
+    // Dim unused side-branch clutter as the player nears or completes the path ("越理越干净")
+    const nextDimMode = !this.isEndlessMode && (isConnected || this.previewProgressRatio >= 0.72);
+    if (nextDimMode !== this.boardDimMode) {
+      this.boardDimMode = nextDimMode;
+      this.grid.forEachCell((pos, tile) => {
+        if (!tile) return;
+        const k = this.key(pos);
+        if (!nextIlluminated.has(k) && !tile.locked && !resolveTileConfig(tile).skill) {
+          this.renderTile(pos, tile);
+        }
+      });
+    }
+
+    // Near-goal sanctuary anticipation pulse when within 2 cells of a goal
+    const tipForGoal = routePoints.length > 0 ? routePoints[routePoints.length - 1] : this.runner;
+    const nextNearGoal = !isConnected && !!primaryGoal && !!tipForGoal &&
+      (Math.abs(tipForGoal.row - primaryGoal.row) + Math.abs(tipForGoal.col - primaryGoal.col) <= 2);
+    if (nextNearGoal !== this.isNearGoal) {
+      this.isNearGoal = nextNearGoal;
+      for (const gNode of this.goalNodes) {
+        if (!gNode || !gNode.isValid) continue;
+        tween(gNode).stop();
+        if (nextNearGoal && !this.powerSaveMode) {
+          tween(gNode)
+            .to(0.42, { scale: new Vec3(1.12, 1.12, 1) }, { easing: 'sineInOut' })
+            .to(0.42, { scale: new Vec3(1.0, 1.0, 1) }, { easing: 'sineInOut' })
+            .union()
+            .repeatForever()
+            .start();
+        } else {
+          gNode.setScale(new Vec3(1, 1, 1));
+        }
+      }
+    }
+
     // Play rising harmonic chime & spawn spark when a move extends the live lit path
     if (this.usedMoves > 0 && nextIlluminated.size > this.lastPreviewLitCount && this.runner.state === 'IDLE') {
       CrystalAudioService.playStepChime(Math.min(12, nextIlluminated.size));
@@ -4542,20 +4670,20 @@ export class GameRoot extends Component {
     }
     WeChatService.vibrateShort('light');
 
-    // 2. 环状高透极光冲击波
+    // 2. 轻柔流光微圈
     const ripple = new Node('LandingRipple');
     ripple.layer = Layers.Enum.UI_2D;
     ripple.setParent(this.runnerRoot);
     ripple.setPosition(pos);
-    ripple.addComponent(UITransform).setContentSize(60, 60);
+    ripple.addComponent(UITransform).setContentSize(44, 44);
     const graphics = ripple.addComponent(Graphics);
-    graphics.strokeColor = new Color(0, 240, 255, 220);
-    graphics.lineWidth = 4;
-    graphics.circle(0, 0, 16);
+    graphics.strokeColor = new Color(color.r, color.g, color.b, 145);
+    graphics.lineWidth = 2.0;
+    graphics.circle(0, 0, 14);
     graphics.stroke();
 
     tween(ripple)
-      .to(0.22, { scale: new Vec3(2.5, 2.5, 1) }, { easing: 'quadOut' })
+      .to(0.20, { scale: new Vec3(1.65, 1.65, 1) }, { easing: 'quadOut' })
       .call(() => ripple.destroy())
       .start();
 
@@ -4714,20 +4842,26 @@ export class GameRoot extends Component {
         }
       });
     }
+    if (!this.powerSaveMode) {
+      this.playVictoryPathSweep();
+    }
     const isChapterEnd = (this.levelIndex + 1) % 5 === 0;
+    const showPoster = () => {
+      if (this.onShowVictoryPosterCallback && this.level) {
+        this.onShowVictoryPosterCallback(this.level.id, this.level.name, stars, this.usedMoves);
+      }
+    };
     if (isChapterEnd) {
-      const showPoster = () => {
-        if (this.onShowVictoryPosterCallback && this.level) {
-          this.onShowVictoryPosterCallback(this.level.id, this.level.name, stars, this.usedMoves);
-        }
-      };
       this.showBlessingChoice(showPoster);
+    } else if (this.levelIndex >= 2 && this.onShowVictoryPosterCallback) {
+      // Every level from Level 3 onward opens lightweight VictoryPoster (star ceremony + x2 ad hook + 1-tap next level)
+      this.scheduleOnce(showPoster, 0.52);
     } else {
-      // 沉浸心流：常规关卡无缝平滑跃迁下一关，告别弹窗打断！
+      // Levels 1-2: ultra-snappy seamless advance into Level 2/3 in the first 30 seconds
       this.scheduleOnce(() => {
         if (this.boardRoot) {
           tween(this.boardRoot)
-            .to(0.24, { scale: new Vec3(0.92, 0.92, 1) }, { easing: 'quadIn' })
+            .to(0.22, { scale: new Vec3(0.92, 0.92, 1) }, { easing: 'quadIn' })
             .call(() => {
               this.loadLevel(this.levelIndex + 1);
             })
@@ -4735,8 +4869,34 @@ export class GameRoot extends Component {
         } else {
           this.loadLevel(this.levelIndex + 1);
         }
-      }, 1.1);
+      }, 0.85);
     }
+  }
+
+  private playVictoryPathSweep(): void {
+    if (!this.grid || !this.runner || !this.level) return;
+    const sim = RouteSimulator.simulate(this.grid, this.runner, this.level.goals);
+    const pts = sim.path.slice(0, 14);
+    pts.forEach((p, idx) => {
+      this.scheduleOnce(() => {
+        if (!this.runnerRoot || !this.runnerRoot.isValid) return;
+        const spark = new Node('SweepSpark');
+        spark.layer = Layers.Enum.UI_2D;
+        spark.setParent(this.runnerRoot);
+        spark.setPosition(this.gridToLocal(p).add3f(0, 0, 12));
+        const g = spark.addComponent(Graphics);
+        g.fillColor = new Color(254, 240, 138, 220);
+        g.circle(0, 0, 8);
+        g.fill();
+        g.fillColor = this.hex('#FFFFFF');
+        g.circle(0, 0, 4);
+        g.fill();
+        tween(spark)
+          .to(0.24, { scale: new Vec3(0.1, 0.1, 1) }, { easing: 'quadOut' })
+          .call(() => spark.destroy())
+          .start();
+      }, idx * 0.032);
+    });
   }
 
   private showBlessingChoice(onDone: () => void): void {
@@ -4908,35 +5068,7 @@ export class GameRoot extends Component {
     if (this.powerSaveMode) {
       return;
     }
-    const size = view.getVisibleSize();
-    const node = new Node('VictoryShockwave');
-    node.layer = Layers.Enum.UI_2D;
-    node.setParent(this.node);
-    const targetPos = this.runner ? this.gridToLocal(this.runner) : new Vec3(0, 40, 0);
-    node.setPosition(targetPos.x, targetPos.y, 90);
-    node.addComponent(UITransform).setContentSize(size.width, size.height);
-    const g = node.addComponent(Graphics);
-    // 梦幻双色极光涟漪：外圈极光青，内圈樱花粉辉光
-    g.strokeColor = this.hex('#29BDE0');
-    g.lineWidth = 6;
-    g.circle(0, 0, 45);
-    g.stroke();
-    g.strokeColor = this.hex('#F472B6');
-    g.lineWidth = 3;
-    g.circle(0, 0, 32);
-    g.stroke();
-    g.fillColor = new Color(41, 189, 224, 38);
-    g.circle(0, 0, 45);
-    g.fill();
-
     this.showFlowCompleteBanner();
-    tween(node)
-      .to(0.52, { scale: new Vec3(4.8, 4.8, 1) }, { easing: 'quadOut' })
-      .call(() => {
-        WeChatService.vibrateShort('light');
-        node.destroy();
-      })
-      .start();
   }
 
   private showFlowCompleteBanner(): void {
@@ -5461,7 +5593,7 @@ export class GameRoot extends Component {
     graphics.stroke();
   }
 
-  private drawTileArrow(graphics: Graphics, tile: TileInstance, offsetY = 0, scale = 1, offsetX = 0, lineBaseLength = 44, isLit = false, dimmed = false): void {
+  private drawTileArrow(graphics: Graphics, tile: TileInstance, offsetY = 0, scale = 1, offsetX = 0, lineBaseLength = 44, isLit = false, dimmed = false, faded = false): void {
     const config = resolveTileConfig(tile);
     const isRose = this.currentTheme === 1;
     const isGold = this.currentTheme === 2;
@@ -5469,18 +5601,18 @@ export class GameRoot extends Component {
     const conduitColor = isLit
       ? this.hex('#FDE047')
       : (dimmed
-        ? (tile.type === 'curve' ? this.hex('#5EEAD4') : (tile.type === 'cross' ? this.hex('#A5B4FC') : this.hex(isRose ? '#C084FC' : (isGold ? '#5EEAD4' : '#7DD3FC'))))
+        ? (tile.type === 'curve' ? this.hex('#5EEAD4') : (tile.type === 'cross' ? this.hex('#A5B4FC') : this.hex(isRose ? '#93C5FD' : (isGold ? '#5EEAD4' : '#7DD3FC'))))
         : (tile.type === 'curve'
           ? this.hex('#34D399')
-          : this.hex(isRose ? '#E879F9' : (isGold ? '#2DD4BF' : '#38BDF8'))));
+          : this.hex(isRose ? '#5EEAD4' : (isGold ? '#2DD4BF' : '#38BDF8'))));
     if (dimmed && !isLit) {
-      ((conduitColor as any)).a = 205;
+      ((conduitColor as any)).a = faded ? 78 : 205;
     }
     const outerHaloColor = isLit
       ? this.hex('#F59E0B')
       : (tile.type === 'curve'
         ? this.hex('#10B981')
-        : this.hex(isRose ? '#F472B6' : (isGold ? '#F59E0B' : '#0EA5E9')));
+        : this.hex(isRose ? '#5EEAD4' : (isGold ? '#F59E0B' : '#0EA5E9')));
 
     for (const [input, output] of Object.entries(config.routing)) {
       if (!output || output === 'dead') {
@@ -5511,7 +5643,7 @@ export class GameRoot extends Component {
       // 3. 内层能量核心流 (Soft muted sheen on unlit board tiles; dazzling white core when lit)
       const innerCol = this.hex('#FFFFFF');
       if (dimmed && !isLit) {
-        ((innerCol as any)).a = 85;
+        ((innerCol as any)).a = faded ? 32 : 85;
       }
       graphics.strokeColor = innerCol;
       graphics.lineWidth = (dimmed && !isLit ? 1.8 : 3.2) * scale;
@@ -6013,15 +6145,18 @@ export class GameRoot extends Component {
       return;
     }
 
-    const steps = this.findLevelSolutionPath(this.level);
-    const misaligned = steps.find((s) => {
+    const solSteps = this.currentSolutionSteps;
+    const misaligned = solSteps.find((s) => {
       const t = this.grid?.getTile({ row: s.row, col: s.col });
-      if (!t) return false;
-      return resolveTileConfig(t).routing[s.inDir] !== s.outDir;
+      if (!t || t.locked) return false;
+      return t.rotation !== s.correctRot;
     });
+    const fallbackSteps = misaligned ? [] : this.bfsSolveAllGoals(this.runner, this.level.goals, new Set(), this.grid.rows, this.grid.cols);
     const targetPos = misaligned
       ? { row: misaligned.row, col: misaligned.col }
-      : (steps[0] ? { row: steps[0].row, col: steps[0].col } : { row: this.runner.row, col: this.runner.col });
+      : (solSteps[0]
+        ? { row: solSteps[0].row, col: solSteps[0].col }
+        : (fallbackSteps[0] ? { row: fallbackSteps[0].row, col: fallbackSteps[0].col } : { row: this.runner.row, col: this.runner.col }));
 
     const targetLocal = this.gridToLocal(targetPos).add3f(0, 0, 0);
     const boardTransform = this.boardRoot.getComponent(UITransform);
@@ -6109,35 +6244,77 @@ export class GameRoot extends Component {
 
   public showGameplayHint(): void {
     const tier = ProfileManager.nextHintTier(this.level?.id ?? this.levelIndex + 1);
-    const runHint = () => {
+    const runHint = (autoFixCount: number) => {
       if (!this.grid || !this.level || !this.runner) return;
       const preview = RouteSimulator.simulate(this.grid, this.runner, this.level.goals);
       if (preview.success) {
-        WeChatService.showToast('光路已接通，轻点启动即可通关！', 'success');
+        WeChatService.showToast('光路已接通，点击下方即可冲关！', 'success');
         return;
       }
 
-      // Find first misaligned crystal along the solution path
-      const steps = this.findLevelSolutionPath(this.level);
-      let targetStep = steps.find((s) => {
+      // Resolve authoritative solution steps (guaranteed solvable via bfsSolveAllGoals)
+      let solSteps = this.currentSolutionSteps;
+      if (solSteps.length === 0) {
+        const obstacleSet = new Set<string>();
+        for (const [r, c] of this.level.obstacles ?? []) {
+          obstacleSet.add(`${r}:${c}`);
+        }
+        const bfsSteps = this.bfsSolveAllGoals(this.level.start, this.level.goals, obstacleSet, this.grid.rows, this.grid.cols);
+        solSteps = bfsSteps.map((s) => {
+          const t = s.inDir === s.outDir ? 'straight' as TileType : 'curve' as TileType;
+          let rot = 0;
+          if (t === 'straight') {
+            rot = (s.inDir === 'left' || s.inDir === 'right') ? 0 : 1;
+          } else {
+            for (let r = 0; r < 4; r++) {
+              if (resolveTileConfig({ type: 'curve', rotation: r }).routing[s.inDir] === s.outDir) {
+                rot = r;
+                break;
+              }
+            }
+          }
+          return { row: s.row, col: s.col, type: t, correctRot: rot };
+        });
+      }
+
+      const misalignedList = solSteps.filter((s) => {
         const t = this.grid?.getTile({ row: s.row, col: s.col });
-        if (!t) return false;
-        const cfg = resolveTileConfig(t);
-        return cfg.routing[s.inDir] !== s.outDir;
+        if (!t || t.locked || !resolveTileConfig(t).rotatable) return false;
+        if (isStraightType(t.type)) {
+          return (t.rotation % 2) !== (s.correctRot % 2);
+        }
+        return t.rotation !== s.correctRot;
       });
 
-      if (!targetStep && preview.path.length > 0) {
-        const last = preview.path[preview.path.length - 1];
-        if (this.grid.getTile(last)) {
-          targetStep = { row: last.row, col: last.col, inDir: 'right', outDir: 'down' };
-        }
-      }
-
-      if (!targetStep) {
-        WeChatService.showToast('观察光束落点，轻点相邻水晶试着转向！', 'none');
+      if (misalignedList.length === 0) {
+        WeChatService.showToast('观察光束末端落点，尝试绕开陨石或使用破障！', 'none');
         return;
       }
 
+      // Rewarded-ad hint: auto-align up to autoFixCount key crystals directly into position!
+      if (autoFixCount > 0) {
+        const toFix = misalignedList.slice(0, autoFixCount);
+        toFix.forEach((step, idx) => {
+          const pos = { row: step.row, col: step.col };
+          const curTile = this.grid?.getTile(pos);
+          if (!curTile) return;
+          const fixedTile: TileInstance = { ...curTile, type: step.type, rotation: step.correctRot };
+          this.grid?.setTile(pos, fixedTile);
+          this.renderTile(pos, fixedTile);
+          if (!this.powerSaveMode) {
+            this.spawnLandingRipple(this.gridToLocal(pos).add3f(0, 0, 10), this.hex('#FDE047'));
+          }
+          CrystalAudioService.playStepChime(6 + idx * 2);
+        });
+        WeChatService.vibrateShort('medium');
+        this.updateRoutePreviewLine();
+        this.updateLabels();
+        this.setStatus(`✨ 星光指引已为你校准 ${toFix.length} 块关键水晶！`);
+        WeChatService.showToast(`已自动校准 ${toFix.length} 块水晶`, 'success');
+        return;
+      }
+
+      const targetStep = misalignedList[0];
       const t = this.grid.getTile(targetStep);
       const displayName = t ? getTileDisplayName(t.type) : '水晶';
       this.setStatus(`💡 提示：第 ${targetStep.row + 1} 行第 ${targetStep.col + 1} 列的【${displayName}】朝向需调整，轻点旋转即可接通！`);
@@ -6183,15 +6360,15 @@ export class GameRoot extends Component {
     };
 
     if (tier <= 1) {
-      runHint();
+      runHint(0);
       return;
     }
 
     AdService.showRewarded('foresight_card').then((res) => {
       if (res.completed) {
-        runHint();
+        runHint(2);
       } else {
-        WeChatService.showToast(res.error || '观看完成后解锁高级提示', 'none');
+        WeChatService.showToast(res.error || '观看完成后可自动校准 2 块关键水晶', 'none');
       }
     });
   }

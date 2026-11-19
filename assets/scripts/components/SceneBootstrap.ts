@@ -196,28 +196,25 @@ export class SceneBootstrap extends Component {
   private drawBackgroundDecorations(graphics: Graphics, themeIdx: number): void {
     const palette = getUiPalette(themeIdx);
 
-    // 5. 空灵柔光弯月与星云漫反射 (Ethereal Luminous Crescent Moon)
+    // 5. 空灵柔光圆月与星云漫反射 (Ethereal Luminous Pearl Moon without black hole shadow)
     const moonX = 258;
     const moonY = 472;
-    const moonR = 32;
+    const moonR = 28;
     const moonCol = this.hex(palette.moonColor || '#FFFBEB');
     const moonGlowCol = this.hex(palette.moonGlow || palette.cyan);
 
     graphics.fillColor = new Color(moonGlowCol.r, moonGlowCol.g, moonGlowCol.b, 14);
-    graphics.circle(moonX, moonY, 68);
+    graphics.circle(moonX, moonY, 64);
     graphics.fill();
     graphics.fillColor = new Color(moonGlowCol.r, moonGlowCol.g, moonGlowCol.b, 24);
-    graphics.circle(moonX, moonY, 48);
+    graphics.circle(moonX, moonY, 44);
     graphics.fill();
 
     graphics.fillColor = new Color(moonCol.r, moonCol.g, moonCol.b, 175);
     graphics.circle(moonX, moonY, moonR);
     graphics.fill();
-
-    // 天穹同色弯月遮罩，营造通透弦月质感
-    const moonShadowCol = this.hex(palette.skyTop);
-    graphics.fillColor = new Color(moonShadowCol.r, moonShadowCol.g, moonShadowCol.b, 235);
-    graphics.circle(moonX - 11, moonY + 7, 27);
+    graphics.fillColor = new Color(255, 255, 255, 195);
+    graphics.circle(moonX - 3, moonY + 3, moonR * 0.72);
     graphics.fill();
 
     // 6. 远景悬浮浮岛剪影（避让中央棋盘区，不戳出棋盘边缘）
@@ -256,8 +253,8 @@ export class SceneBootstrap extends Component {
       graphics.close();
       graphics.fill();
 
-      // 岛体平顶雪原/冰晶草地 (Isle Top Plateau - 高亮纯净雪原，告别暗蓝)
-      const topCol = this.hex(isGold ? '#10B981' : (isRose ? '#F472B6' : (palette.plateauSnow || '#F8FAFC')));
+      // 岛体平顶雪原/冰晶草地
+      const topCol = this.hex(isGold ? '#10B981' : (isRose ? '#CCFBF1' : (palette.plateauSnow || '#F8FAFC')));
       graphics.fillColor = topCol;
       graphics.moveTo(isle.x, isle.y + halfH);
       graphics.lineTo(isle.x + halfW, isle.y);
@@ -267,7 +264,7 @@ export class SceneBootstrap extends Component {
       graphics.fill();
 
       // 边缘微光描线
-      graphics.strokeColor = this.hex(isle.hasCrystal ? (isRose ? '#F472B6' : '#38BDF8') : '#FFFFFF');
+      graphics.strokeColor = this.hex(isle.hasCrystal ? (isRose ? '#5EEAD4' : '#38BDF8') : '#FFFFFF');
       ((graphics.strokeColor) as any).a = 125;
       graphics.lineWidth = 1.0;
       graphics.moveTo(isle.x - halfW, isle.y);
@@ -475,9 +472,11 @@ export class SceneBootstrap extends Component {
     game.bulletTimeNode = btMeter.node;
     game.bulletTimeGraphics = btMeter.graphics;
     game.bulletTimeValueLabel = btMeter.valueLabel;
-    const { hammerBtnNode, hammerBtnLabel } = this.createSideActionButtons(actionRow, game, new Vec3(0, 0, 0));
+    const { hammerBtnNode, hammerBtnLabel, resetBtnNode, resetBtnLabel } = this.createSideActionButtons(actionRow, game, new Vec3(0, 0, 0));
     game.hammerButtonNode = hammerBtnNode;
     game.hammerButtonLabel = hammerBtnLabel;
+    game.resetButtonNode = resetBtnNode;
+    game.resetButtonLabel = resetBtnLabel;
 
     // 5. 底部核心冲关大按钮：连通终点时浮现（未吃满星核时由玩家自主选择直接冲关或继续拿满 3 星）
     this.createHeroButton(uiRoot, 'StartButton', new Vec3(0, -halfH + 84, 0), '🚀 立 即 冲 关', () => game.startRunner(), game);
@@ -531,6 +530,13 @@ export class SceneBootstrap extends Component {
     const levelSelect = levelSelectRoot.addComponent(LevelSelect);
     const journeyLevelCount = 30;
 
+    const restoreSelectedHomeTheme = () => {
+      const savedTheme = ProfileManager.getProfile().selectedTheme || 0;
+      if (this.currentTheme !== savedTheme) {
+        this.applyTheme(savedTheme);
+      }
+    };
+
     const startJourneyLevel = (idx: number, source: 'continue' | 'select' | 'share' = 'select') => {
       const safeIndex = Math.max(0, Math.min(idx, journeyLevelCount - 1));
       const profile = ProfileManager.getProfile();
@@ -538,6 +544,7 @@ export class SceneBootstrap extends Component {
       if (!isFtueLevel && profile.energy <= 0) {
         this.showEnergyEmptyDialog(() => {
           this.closeAllModals();
+          restoreSelectedHomeTheme();
           levelSelectRoot.active = false;
           gamePage.active = false;
           homePage.active = true;
@@ -548,14 +555,9 @@ export class SceneBootstrap extends Component {
         ProfileManager.addEnergy(-1);
       }
 
-      // Auto apply themed scene color based on level index
-      if (safeIndex >= 20 && safeIndex < 30) {
-        this.applyTheme(2); // Theme 2: Corona Dawn for the final chapter.
-      } else if (safeIndex >= 10 && safeIndex < 20) {
-        this.applyTheme(1); // Theme 1: Starport Mist
-      } else {
-        this.applyTheme(0); // Theme 0: Icefield
-      }
+      // Cycle emotional color temperature every 5 levels (constellation chapters) to keep visual freshness
+      const chapterTheme = Math.floor(safeIndex / 5) % 3;
+      this.applyTheme(chapterTheme);
 
       console.log(`[SceneBootstrap] Start journey from ${source}, level index ${safeIndex}!`);
       this.closeAllModals();
@@ -570,6 +572,7 @@ export class SceneBootstrap extends Component {
     levelSelect.onReturnHomeCallback = () => {
       console.log('[SceneBootstrap] LevelSelect -> Return to HomePage!');
       this.closeAllModals();
+      restoreSelectedHomeTheme();
       levelSelectRoot.active = false;
       homePage.active = true;
     };
@@ -589,6 +592,7 @@ export class SceneBootstrap extends Component {
     victoryPoster.onCloseCallback = () => {
       console.log('[SceneBootstrap] VictoryPoster closed -> Return to LevelSelect!');
       this.closeAllModals();
+      restoreSelectedHomeTheme();
       gamePage.active = false;
       levelSelectRoot.active = true;
     };
@@ -961,6 +965,10 @@ export class SceneBootstrap extends Component {
     this.addClick(homeReturnBtn, () => {
       console.log('[SceneBootstrap] Clicked Home/Pause -> Return to LevelSelect or HomePage!');
       this.closeAllModals();
+      const savedTheme = ProfileManager.getProfile().selectedTheme || 0;
+      if (this.currentTheme !== savedTheme) {
+        this.applyTheme(savedTheme);
+      }
       if (this.gamePageRoot) {
         this.gamePageRoot.active = false;
       }
@@ -1039,7 +1047,7 @@ export class SceneBootstrap extends Component {
     return { node, graphics: g, valueLabel };
   }
 
-  private createSideActionButtons(parent: Node, game: GameRoot, position: Vec3): { hammerBtnNode: Node; hammerBtnLabel: Label } {
+  private createSideActionButtons(parent: Node, game: GameRoot, position: Vec3): { hammerBtnNode: Node; hammerBtnLabel: Label; resetBtnNode: Node; resetBtnLabel: Label } {
     const root = new Node('SideActions');
     root.layer = Layers.Enum.UI_2D;
     root.setParent(parent);
@@ -1055,11 +1063,11 @@ export class SceneBootstrap extends Component {
       game.activateHammerMode();
     });
 
-    this.createSideActionButton(root, 'ResetBtn', new Vec3(196, 0, 0), 178, '↺ 重 置', palette.panel, '#38BDF8', '#E0F2FE', () => {
-      game.clearPlacedTiles();
+    const resetRes = this.createSideActionButton(root, 'ResetBtn', new Vec3(196, 0, 0), 178, '↺ 重 置', palette.panel, '#38BDF8', '#E0F2FE', () => {
+      game.requestResetWithConfirm();
     });
 
-    return { hammerBtnNode: hammerRes.node, hammerBtnLabel: hammerRes.label };
+    return { hammerBtnNode: hammerRes.node, hammerBtnLabel: hammerRes.label, resetBtnNode: resetRes.node, resetBtnLabel: resetRes.label };
   }
 
   private showMoreGameActions(game: GameRoot): void {

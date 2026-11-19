@@ -241,13 +241,13 @@ export class HomeRoot extends Component {
     const eBorder = this.currentTheme === 2 ? palette.violet : palette.blue;
     const eBg = palette.panelSoft;
 
-    // 1. 设置齿轮按钮 (X = -268, 宽度 120, 高度 56, 左边缘对齐 -328)
-    const settingsBtn = this.createNode('SettingsBtn', new Vec3(-268, 0, 0), topBar);
-    this.ensureTransform(settingsBtn, 120, 56);
+    // 1. 设置齿轮按钮 (X = -272, 宽度 110, 避让微信右上角浮标)
+    const settingsBtn = this.createNode('SettingsBtn', new Vec3(-272, 0, 0), topBar);
+    this.ensureTransform(settingsBtn, 110, 54);
     const sg = settingsBtn.addComponent(Graphics);
     sg.fillColor = this.hex(dBg);
     ((sg.fillColor) as any).a = 210;
-    sg.roundRect(-60, -28, 120, 56, 28); // 圆角 28
+    sg.roundRect(-55, -27, 110, 54, 27);
     sg.fill();
     const borderCol = this.hex(dBorder);
     borderCol.a = 120;
@@ -258,14 +258,14 @@ export class HomeRoot extends Component {
     // Top highlight specular line
     sg.strokeColor = new Color(255, 255, 255, 80);
     sg.lineWidth = 1.2;
-    sg.moveTo(-40, 24);
-    sg.lineTo(40, 24);
+    sg.moveTo(-36, 23);
+    sg.lineTo(36, 23);
     sg.stroke();
 
     // Draw settings gear icon
-    this.drawGearIcon(sg, -28, 0, 10);
+    this.drawGearIcon(sg, -25, 0, 9);
 
-    this.createLabel(settingsBtn, 'Icon', new Vec3(14, 1, 0), '设置', 21, '#FFFFFF', 70, 44); // 字体 21
+    this.createLabel(settingsBtn, 'Icon', new Vec3(14, 1, 0), '设置', 20, '#FFFFFF', 64, 42);
 
     this.addClick(settingsBtn, () => {
       console.log('[HomeRoot] Click Settings');
@@ -273,12 +273,12 @@ export class HomeRoot extends Component {
     });
 
     const profile = ProfileManager.getProfile();
-    // 2. 晶核资源胶囊 (X = -102, 宽度 180, 高度 56, 间距 16px)
-    const diamondPill = this.createResourcePill(topBar, 'DiamondPill', new Vec3(-102, 0, 0), `${profile.diamonds} +`, dBorder, dBg, 180, 'diamond');
+    // 2. 晶核资源胶囊 (X = -134, 宽度 146)
+    const diamondPill = this.createResourcePill(topBar, 'DiamondPill', new Vec3(-134, 0, 0), `${profile.diamonds} +`, dBorder, dBg, 146, 'diamond');
     this.addClick(diamondPill, () => this.showWelfareCenter());
 
-    // 3. 能量资源胶囊 (X = 94, 宽度 180, 高度 56, 间距 16px, 最右侧边缘到 +184)
-    const energyPill = this.createResourcePill(topBar, 'EnergyPill', new Vec3(94, 0, 0), `${profile.energy}/10 +`, eBorder, eBg, 180, 'energy');
+    // 3. 能量资源胶囊 (X = 20, 宽度 146, 最右侧边缘 +93，彻底避开右上角微信悬浮入口)
+    const energyPill = this.createResourcePill(topBar, 'EnergyPill', new Vec3(20, 0, 0), `${profile.energy}/10 +`, eBorder, eBg, 146, 'energy');
     this.addClick(energyPill, () => this.showWelfareCenter());
   }
 
@@ -1550,7 +1550,7 @@ export class HomeRoot extends Component {
       : 72;
     const dailySub = hasPlayedDaily
       ? `${profile.dailyChallengeBestMoves || '--'}步 · 胜${dailyBeat}%`
-      : `通关率${dailyBeat}%`;
+      : `今日新题 · ${dailyBeat}%过`;
     this.createLabel(dailyCard, 'Title', new Vec3(-34, 1, 0), '每日一束光', 20, '#FFFFFF', 210, 30);
     this.createLabel(dailyCard, 'Sub', new Vec3(104, 1, 0), dailySub, 15, '#FDE047', 108, 24);
     const rankBtn = this.createNode('DailyRankBtn', new Vec3(168, 0, 1), dailyCard);
@@ -1767,22 +1767,23 @@ export class HomeRoot extends Component {
   }
 
   private createStudioBrandingRow(halfH: number): void {
-    const studioNode = this.createNode('StudioBrandPill', new Vec3(0, -halfH + 46, 0), this.node);
-    this.ensureTransform(studioNode, 320, 38);
+    const studioNode = this.createNode('StudioBrandPill', new Vec3(0, -halfH + 42, 0), this.node);
+    this.ensureTransform(studioNode, 400, 44);
     const g = studioNode.addComponent(Graphics);
     g.fillColor = this.hex('#061122');
-    ((g.fillColor) as any).a = 180;
-    g.roundRect(-160, -19, 320, 38, 19);
+    ((g.fillColor) as any).a = 200;
+    g.roundRect(-200, -22, 400, 44, 22);
     g.fill();
     g.strokeColor = this.hex('#29BDE0');
-    ((g.strokeColor) as any).a = 90;
-    g.lineWidth = 1.2;
-    g.roundRect(-160, -19, 320, 38, 19);
+    ((g.strokeColor) as any).a = 170;
+    g.lineWidth = 1.4;
+    g.roundRect(-200, -22, 400, 44, 22);
     g.stroke();
 
-    this.createLabel(studioNode, 'Text', new Vec3(0, 0, 0), '🐰 哈密兔工作室 · 更多好玩 ➔', 14, '#94A3B8', 300, 26);
+    this.createLabel(studioNode, 'Text', new Vec3(0, 1, 0), '🐰 哈密兔工作室 · 更多好玩 ➔', 18, '#D8F3FF', 380, 30);
     this.addClick(studioNode, () => {
       WeChatService.vibrateShort('light');
+      WeChatService.showToast('🐰 哈密兔：“今天也要轻松解谜哦～”', 'none');
       this.showHamituStudioDialog();
     });
   }
@@ -1845,7 +1846,7 @@ export class HomeRoot extends Component {
     this.createLabel(launchBtn, 'LText', new Vec3(0, 1, 0), '▶ 立即前往挑战《穿针引线》➔', 18, '#080E1A', 440, 32);
     this.addClick(launchBtn, () => {
       WeChatService.vibrateShort('medium');
-      WeChatService.openMiniProgram('wxa8a598a3c86c1234', '', '正在联动唤起《穿针引线》...');
+      WeChatService.openMiniProgram('wxe9f9a64cf4c28136', '', '正在前往《穿针引线》...');
     });
 
     // Studio manifesto

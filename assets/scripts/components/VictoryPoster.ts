@@ -466,7 +466,7 @@ export class VictoryPoster extends Component {
     this.createLabel(promoPill, 'PText', new Vec3(0, 1, 0), '🐰 体验哈密兔快节奏解压力作《穿针引线》➔', 14, palette.glacier, 420, 24);
     promoPill.on(Node.EventType.TOUCH_END, () => {
       WeChatService.vibrateShort('light');
-      WeChatService.openMiniProgram('wxa8a598a3c86c1234', '', '正在联动唤起《穿针引线》...');
+      WeChatService.openMiniProgram('wxe9f9a64cf4c28136', '', '正在前往《穿针引线》...');
     });
   }
 
